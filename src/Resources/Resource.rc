@@ -1,0 +1,83 @@
+
+#include "resource.h"
+#include "winres.h"
+
+IDI_APP            ICON                    "appicon.ico"
+IDI_MIC            ICON                    "mic-unmuted.ico"
+IDI_MIC_MUTED      ICON                    "mic-muted-2.ico"
+
+IDR_MUTE           WAVE                    "mute.wav"
+IDR_UNMUTE         WAVE                    "unmute.wav"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_TRAY_MENU MENU
+BEGIN
+    POPUP "POPUP"
+    BEGIN
+        MENUITEM "Settings",                  ID_APP_SETTINGS
+        MENUITEM SEPARATOR
+        MENUITEM "Exit",                  ID_APP_EXIT
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_SETTINGS DIALOGEX 0, 0, 179, 120
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Easymic settings"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,65,98,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,122,98,50,14
+
+    GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,53
+    GROUPBOX        "System",IDC_STATIC,7,60,165,30
+
+    CONTROL         "Keyboard",RADIO_KEYBD,"Button",BS_AUTORADIOBUTTON,14,20,50,10
+    CONTROL         "Mouse",RADIO_MOUSE,"Button",BS_AUTORADIOBUTTON,14,39,50,10
+    CONTROL         "",ID_HOTKEY_KEYBD,"msctls_hotkey32",WS_BORDER | WS_TABSTOP,84,19,80,14
+    PUSHBUTTON      "XBUTTON_2",ID_HOTKEY_MOUSE_BTN,84,36,80,14
+    CONTROL         "Start with Windows",ID_AUTOSTARTUP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,73,120,10
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+1 VERSIONINFO
+ FILEVERSION    1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEOS			VOS__WINDOWS32
+ FILETYPE		VFT_APP
+ FILESUBTYPE	VFT2_UNKNOWN
+ FILEFLAGSMASK	0x00000000
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "kitbyte"
+            VALUE "FileDescription", "Easymic"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "WindowsP.exe"
+            VALUE "LegalCopyright", "Copyright (C) 2024"
+            VALUE "OriginalFilename", "Easymic.exe"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
