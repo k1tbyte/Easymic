@@ -1,24 +1,17 @@
-#include <tchar.h>
-#include <mmdeviceapi.h>
-#include <stdexcept>
-#include <endpointvolume.h>
-#include <commctrl.h>
 #include "main.hpp"
+#include <tchar.h>
+#include <commctrl.h>
 #include "Resources/Resource.h"
+#include "AudioManager.hpp"
 
 //#region <== Prototypes ==>
 
 void OnShellIconEvent(LPARAM);
 void OnCommandEvent(WPARAM);
-BOOL IsMicMuted(IAudioEndpointVolume*);
-void SwitchMicState();
-IAudioEndpointVolume* GetDefaultMicVolume();
 void UpdateHotkeyType();
 void InitHotkey();
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 void SetMouseHotkey(int);
-void ChangeWaveVolume(Resource*, BYTE);
-void LoadResource(LPCSTR , LPCSTR , BYTE** , DWORD* );
 
 //#endregion
 
@@ -50,8 +43,35 @@ const Hotkey mouseHotkeys[] =  {
 
 Resource muteSound;
 Resource unmuteSound;
+AudioManager* audioManager = new AudioManager();
 
 //#endregion
+
+void SwitchMicState()
+{
+    if(audioManager->IsMicMuted())
+    {
+        structNID.hIcon = micIcon;
+        PlaySound((LPCSTR) unmuteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
+        audioManager->SetMicState(FALSE);
+    }
+    else
+    {
+        structNID.hIcon = micMutedIcon;
+        PlaySound((LPCSTR) muteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
+        audioManager->SetMicState(TRUE);
+    }
+
+    Shell_NotifyIcon(NIM_MODIFY, &structNID);
+}
+
+void LoadResource(LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
+{
+    HRSRC hResInfo = FindResource(hInst,resourceName, resourceType);
+    HANDLE hRes = LoadResource(hInst, hResInfo);
+    *buffer = (BYTE*)LockResource(hRes);
+    *size = SizeofResource(hInst, hResInfo);
+}
 
 //#region <== Registry ==>
 
@@ -106,11 +126,6 @@ void CenterWindow(HWND hwnd)
     );
 }
 
-void UpdateVolume(BYTE volume)
-{
-
-}
-
 bool InitWindow()
 {
     WNDCLASSEX wndClass;
@@ -161,7 +176,7 @@ bool InitTrayIcon()
     structNID.uID = IDI_MIC;
     structNID.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     strcpy(structNID.szTip, AppName);
-    structNID.hIcon = IsMicMuted(GetDefaultMicVolume()) ? micMutedIcon : micIcon;
+    structNID.hIcon = audioManager->IsMicMuted() ? micMutedIcon : micIcon;
     structNID.uCallbackMessage = WM_USER_SHELLICON;
 
     // Display tray icon
@@ -207,7 +222,7 @@ void ApplyConfigChanges()
     }
 
     if(config.volume != configTemp.volume) {
-        UpdateVolume(configTemp.volume);
+        audioManager->SetAppVolume(configTemp.volume);
     }
 
     config = configTemp;
@@ -244,25 +259,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 
         case WM_HOTKEY:
         {
-            if (wParam == UID)
-            {
-                INPUT ip;
-                ip.type = INPUT_KEYBOARD;
-                ip.ki.wScan = 0;
-                ip.ki.time = 0;
-                ip.ki.dwExtraInfo = 0;
-                ip.ki.wVk = config.keybdHotkey;
-                UnregisterHotKey(hWnd,UID);
-                ip.ki.dwFlags = 0;                   //Prepares key down
-                SendInput(1, &ip, sizeof(INPUT));    //Key down
-                ip.ki.dwFlags = KEYEVENTF_KEYUP;     //Prepares key up
-                SendInput(1, &ip, sizeof(INPUT));    //Key up
-
-                RegisterHotKey(hWnd, UID,
-                               (HIBYTE (config.keybdHotkey) & 2) | ((HIBYTE (config.keybdHotkey) & 4) >> 2) | ((HIBYTE (config.keybdHotkey) & 1) << 2),
-                               LOBYTE (config.keybdHotkey));
-                SwitchMicState();
+            if (wParam != UID){
+                break;
             }
+
+            INPUT ip;
+            ip.type = INPUT_KEYBOARD;
+            ip.ki.wScan = 0;
+            ip.ki.time = 0;
+            ip.ki.dwExtraInfo = 0;
+            ip.ki.wVk = config.keybdHotkey;
+            UnregisterHotKey(hWnd,UID);
+            ip.ki.dwFlags = 0;                   //Prepares key down
+            SendInput(1, &ip, sizeof(INPUT));    //Key down
+            ip.ki.dwFlags = KEYEVENTF_KEYUP;     //Prepares key up
+            SendInput(1, &ip, sizeof(INPUT));    //Key up
+
+            RegisterHotKey(hWnd, UID, HKModifier(config.keybdHotkey),LOBYTE (config.keybdHotkey));
+            SwitchMicState();
 
             break;
         }
@@ -398,6 +412,7 @@ void OnShellIconEvent(LPARAM lParam)
     POINT lpClickPoint;
     switch(LOWORD(lParam))
     {
+        case WM_LBUTTONDBLCLK:
         case WM_RBUTTONUP:
             HMENU hMenu, hSubMenu;
             // get mouse cursor position x and y as lParam has the Message itself
@@ -479,87 +494,12 @@ void InitHotkey()
     }
 
     if(!config.isMouseHotkeyMode && config.keybdHotkey != 0) {
-        RegisterHotKey(hWnd, UID,
-                       (HIBYTE (config.keybdHotkey) & 2) | ((HIBYTE (config.keybdHotkey) & 4) >> 2) | ((HIBYTE (config.keybdHotkey) & 1) << 2),
-                       LOBYTE (config.keybdHotkey));
+        RegisterHotKey(hWnd, UID,HKModifier(config.keybdHotkey),LOBYTE (config.keybdHotkey));
 
     }
 }
 
 //#endregion
-
-//#region <== Windows audio ==>
-
-IAudioEndpointVolume* GetDefaultMicVolume()
-{
-    CoInitialize(nullptr); // Initalize COM
-    IMMDeviceEnumerator* deviceEnumerator;
-    HRESULT result = CoCreateInstance(
-            __uuidof(MMDeviceEnumerator), nullptr,
-            CLSCTX_INPROC_SERVER,__uuidof(IMMDeviceEnumerator),
-            (LPVOID *)&deviceEnumerator
-    );
-
-    if(result != S_OK) {
-        throw std::runtime_error("Bad CoCreateInstance result");
-    }
-
-    IMMDevice* defaultMicDevice;
-    IAudioEndpointVolume* micVolume;
-
-    // Getting the default mic device
-    deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eCapture, ERole::eCommunications,
-                                              &defaultMicDevice);
-    deviceEnumerator->Release();
-
-    defaultMicDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
-                               nullptr, (void**)&micVolume);
-    defaultMicDevice->Release();
-
-    return micVolume;
-}
-
-BOOL IsMicMuted(IAudioEndpointVolume* audioEndpoint)
-{
-    BOOL wasMuted;
-    audioEndpoint->GetMute(&wasMuted);
-    return wasMuted;
-}
-
-void SwitchMicState()
-{
-    IAudioEndpointVolume* audioEndpoint = GetDefaultMicVolume();
-    BOOL isMuted = IsMicMuted(audioEndpoint);
-
-    if(isMuted)
-    {
-        structNID.hIcon = micIcon;
-
-        PlaySound((LPCSTR) unmuteSound.buffer,hInst,
-                  SND_ASYNC | SND_MEMORY);
-        audioEndpoint->SetMute(FALSE, nullptr);
-    }
-    else
-    {
-        structNID.hIcon = micMutedIcon;
-        PlaySound((LPCSTR) muteSound.buffer,hInst,
-                  SND_ASYNC | SND_MEMORY);
-        audioEndpoint->SetMute(TRUE, nullptr);
-    }
-
-    Shell_NotifyIcon(NIM_MODIFY, &structNID);
-}
-
-//#endregion
-
-
-void LoadResource(LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
-{
-    HRSRC hResInfo = FindResource(hInst,resourceName, resourceType);
-    HANDLE hRes = LoadResource(hInst, hResInfo);
-    *buffer = (BYTE*)LockResource(hRes);
-    *size = SizeofResource(hInst, hResInfo);
-}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -573,25 +513,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 0;
     }
 
-    CoInitialize(nullptr); // Initalize COM
+    CoInitialize(nullptr); // Initialize COM
 
-    if(!InitWindow() || !InitTrayIcon()) {
-        MessageBox(nullptr, "Window creation failed!", "Error",  MB_OK);
+    if(!InitWindow() || !audioManager->Init() || !InitTrayIcon()) {
+        MessageBox(nullptr, "Initialization failed!", "Error",  MB_OK);
         return -1;
     }
-
 
     LoadResource(MAKEINTRESOURCE(IDR_UNMUTE), _T("WAVE"),
                 &unmuteSound.buffer, &unmuteSound.fileSize);
     LoadResource(MAKEINTRESOURCE(IDR_MUTE), _T("WAVE"),
                  &muteSound.buffer, &muteSound.fileSize);
-    
+
     configPath = Config::GetConfigPath();
     Config::Load(&config, configPath);
+
     InitHotkey();
 
     if(config.volume != 100) {
-        UpdateVolume(config.volume);
+        audioManager->SetAppVolume(config.volume);
     }
 
  //   DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
@@ -604,14 +544,3 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ReleaseMutex(mutex);
     return 0;
 }
-
-/*void ChangeWaveVolume(Resource* sound, BYTE volumePercent)
-{
-    BYTE* pDataOffset = (sound->buffer + 40);
-    float volume = (float)volumePercent / 100;
-
-    __int16 * p = (__int16 *)(pDataOffset + 8);
-    for (int i = 80 / sizeof(*p); i < sound->fileSize / sizeof(*p); i++) {
-        p[i] = (float)p[i] * volume;
-    }
-}*/
