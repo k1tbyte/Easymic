@@ -19,12 +19,14 @@ struct Config {
     WORD  keybdHotkey{};
     WORD  mouseHotkeyIndex{};
     bool  isMouseHotkeyMode = false;
+    BYTE  volume = 100;
 
     [[nodiscard]] bool Equals(Config& config) const
     {
         return config.isMouseHotkeyMode == this->isMouseHotkeyMode &&
                config.keybdHotkey == this->keybdHotkey &&
-               config.mouseHotkeyIndex == this->mouseHotkeyIndex;
+               config.mouseHotkeyIndex == this->mouseHotkeyIndex &&
+               config.volume == this->volume;
     }
 
     static void Save(Config* config, const char* path)
@@ -63,6 +65,11 @@ struct Hotkey {
     const char* Name;
     int VK;
     int WM;
+};
+
+struct Resource {
+    BYTE* buffer;
+    DWORD fileSize;
 };
 
 #endif //EASYMIC_MAIN_HPP
