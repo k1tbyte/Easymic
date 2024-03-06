@@ -22,13 +22,15 @@ struct Config {
     WORD  mouseHotkeyIndex{};
     bool  isMouseHotkeyMode = false;
     BYTE  volume = 100;
+    bool  keybdHotkeyAvail = false;
 
     [[nodiscard]] bool Equals(Config& config) const
     {
         return config.isMouseHotkeyMode == this->isMouseHotkeyMode &&
                config.keybdHotkey == this->keybdHotkey &&
                config.mouseHotkeyIndex == this->mouseHotkeyIndex &&
-               config.volume == this->volume;
+               config.volume == this->volume &&
+               config.keybdHotkeyAvail == this->keybdHotkeyAvail;
     }
 
     static void Save(Config* config, const char* path)

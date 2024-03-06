@@ -27,6 +27,7 @@ bool preventCancel = false;
 
 HICON micIcon;
 HICON micMutedIcon;
+HICON appIcon;
 
 Config config;
 Config configTemp;
@@ -133,7 +134,7 @@ bool InitWindow()
     // loading state icons
     micIcon =  LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC));
     micMutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_MUTED));
-    auto appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
+    appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
 
     wndClass.cbSize =			sizeof(WNDCLASSEX);
     wndClass.style = CS_HREDRAW | CS_VREDRAW;
@@ -186,6 +187,7 @@ bool InitTrayIcon()
 void InitSettingsElements(HWND& hDlg)
 {
     CenterWindow(hDlg);
+    SendMessage(hDlg, WM_SETICON, ICON_BIG, (LPARAM)appIcon);
 
     if(config.keybdHotkey != 0) {
         UnregisterHotKey(hWnd,UID);
@@ -197,6 +199,10 @@ void InitSettingsElements(HWND& hDlg)
 
     if(IsInAutoStartup()) {
         SendMessage(GetDlgItem(hDlg,ID_AUTOSTARTUP), BM_SETCHECK, BST_CHECKED, 0);
+    }
+
+    if(config.keybdHotkeyAvail) {
+        SendMessage(GetDlgItem(hDlg,HOTKEY_AVAIL), BM_SETCHECK, BST_CHECKED, 0);
     }
 
     SetMouseHotkey(config.mouseHotkeyIndex);
@@ -263,6 +269,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
                 break;
             }
 
+            if(!config.keybdHotkeyAvail) {
+                SwitchMicState();
+                break;
+            }
+
             INPUT ip;
             ip.type = INPUT_KEYBOARD;
             ip.ki.wScan = 0;
@@ -274,7 +285,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
             SendInput(1, &ip, sizeof(INPUT));    //Key down
             ip.ki.dwFlags = KEYEVENTF_KEYUP;     //Prepares key up
             SendInput(1, &ip, sizeof(INPUT));    //Key up
-
             RegisterHotKey(hWnd, UID, HKModifier(config.keybdHotkey),LOBYTE (config.keybdHotkey));
             SwitchMicState();
 
@@ -352,6 +362,10 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
                     SendMessage(GetDlgItem(hDlg, ID_AUTOSTARTUP), BM_SETCHECK, param, 0);
                     break;
                 }
+
+                case HOTKEY_AVAIL:
+                    configTemp.keybdHotkeyAvail = !configTemp.keybdHotkeyAvail;
+                    break;
 
                 case ID_HOTKEY_MOUSE_BTN:
 
@@ -534,7 +548,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         audioManager->SetAppVolume(config.volume);
     }
 
- //   DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
+   // DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);
