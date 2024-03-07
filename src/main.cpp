@@ -21,7 +21,7 @@ HWND hWnd;
 HWND settingsHwnd;
 
 HINSTANCE hInst;
-NOTIFYICONDATA structNID;
+NOTIFYICONDATAW structNID;
 HHOOK hMouseHook;
 bool preventCancel = false;
 
@@ -63,7 +63,7 @@ void SwitchMicState()
         audioManager->SetMicState(TRUE);
     }
 
-    Shell_NotifyIcon(NIM_MODIFY, &structNID);
+    Shell_NotifyIconW(NIM_MODIFY, &structNID);
 }
 
 void LoadResource(LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
@@ -78,7 +78,7 @@ void LoadResource(LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD
 
 bool IsInAutoStartup()
 {
-    return RegGetValue(HKEY_CURRENT_USER,AutoStartupHKEY,
+    return RegGetValueW(HKEY_CURRENT_USER,AutoStartupHKEY,
                        AppName,RRF_RT_REG_SZ,
                        nullptr,nullptr,nullptr) == ERROR_SUCCESS;
 }
@@ -86,7 +86,7 @@ bool IsInAutoStartup()
 bool AddToAutoStartup()
 {
     HKEY hkey;
-    auto result = RegOpenKeyEx(HKEY_CURRENT_USER,AutoStartupHKEY,0,
+    auto result = RegOpenKeyExW(HKEY_CURRENT_USER,AutoStartupHKEY,0,
                                KEY_WRITE,&hkey);
 
     if(result != ERROR_SUCCESS)
@@ -95,13 +95,13 @@ bool AddToAutoStartup()
     char szFileName[MAX_PATH];
 
     GetModuleFileName(nullptr, szFileName, MAX_PATH);
-    return RegSetValueEx(hkey, AppName, 0, REG_SZ, reinterpret_cast<const BYTE *>(szFileName),
+    return RegSetValueExW(hkey, AppName, 0, REG_SZ, reinterpret_cast<const BYTE *>(szFileName),
                          strlen(szFileName)) == ERROR_SUCCESS;
 }
 
 bool RemoveFromAutoStartup()
 {
-    return RegDeleteKeyValue(HKEY_CURRENT_USER,AutoStartupHKEY,AppName);
+    return RegDeleteKeyValueW(HKEY_CURRENT_USER,AutoStartupHKEY,AppName);
 }
 
 //#endregion
@@ -129,14 +129,14 @@ void CenterWindow(HWND hwnd)
 
 bool InitWindow()
 {
-    WNDCLASSEX wndClass;
+    WNDCLASSEXW wndClass;
 
     // loading state icons
     micIcon =  LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC));
     micMutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_MUTED));
     appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
 
-    wndClass.cbSize =			sizeof(WNDCLASSEX);
+    wndClass.cbSize =			sizeof(WNDCLASSEXW);
     wndClass.style = CS_HREDRAW | CS_VREDRAW;
     wndClass.lpfnWndProc =	WndProc;
     wndClass.cbClsExtra =		0;
@@ -148,12 +148,12 @@ bool InitWindow()
     wndClass.lpszClassName =	AppName;
     wndClass.hIconSm		 =	appIcon;
 
-    if(!RegisterClassEx(&wndClass)) {
+    if(!RegisterClassExW(&wndClass)) {
         return false;
     }
 
     // Creating the hidden window
-    hWnd = CreateWindowEx(
+    hWnd = CreateWindowExW(
             WS_EX_CLIENTEDGE,
             AppName,
             AppName,
@@ -172,16 +172,17 @@ bool InitWindow()
 
 bool InitTrayIcon()
 {
-    structNID.cbSize = sizeof(NOTIFYICONDATA);
+    structNID.cbSize = sizeof(NOTIFYICONDATAW);
     structNID.hWnd = (HWND)hWnd;
     structNID.uID = IDI_MIC;
     structNID.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    strcpy(structNID.szTip, AppName);
+    auto micName = std::wstring(AppName).append(L" | ").append(audioManager->GetDefaultMicName());
+    wcscpy(structNID.szTip, micName.c_str());
     structNID.hIcon = audioManager->IsMicMuted() ? micMutedIcon : micIcon;
     structNID.uCallbackMessage = WM_USER_SHELLICON;
 
     // Display tray icon
-    return Shell_NotifyIcon(NIM_ADD, &structNID);
+    return Shell_NotifyIconW(NIM_ADD, &structNID);
 }
 
 void InitSettingsElements(HWND& hDlg)
@@ -239,7 +240,7 @@ void ApplyConfigChanges()
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 {
-    if(Message == WM_TASKBAR_CREATE && !Shell_NotifyIcon(NIM_ADD, &structNID)) {
+    if(Message == WM_TASKBAR_CREATE && !Shell_NotifyIconW(NIM_ADD, &structNID)) {
         DestroyWindow(hWnd);
         return -1;
     }
@@ -247,7 +248,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
     switch(Message)
     {
         case WM_DESTROY:
-            Shell_NotifyIcon(NIM_DELETE, &structNID);	// Remove Tray Item
+            Shell_NotifyIconW(NIM_DELETE, &structNID);	// Remove Tray Item
             PostQuitMessage(0);							// Quit
             break;
 

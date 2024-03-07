@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <string>
 
+
 #define	WM_USER_SHELLICON (WM_USER + 1)
 #define WM_TASKBAR_CREATE RegisterWindowMessage(_T("TaskbarCreated"))
 #define HKModifier(h) ((HIBYTE (h) & 2) | ((HIBYTE (h) & 4) >> 2) | ((HIBYTE (h) & 1) << 2))
@@ -13,8 +14,8 @@
 #define ConfigName "conf.bin"
 #define MutexName "Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B1"
 #define UID 565746541
-#define AutoStartupHKEY R"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)"
-#define AppName "Easymic"
+#define AutoStartupHKEY LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)"
+#define AppName L"Easymic"
 
 struct Config {
 

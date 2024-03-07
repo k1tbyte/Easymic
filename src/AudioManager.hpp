@@ -6,16 +6,25 @@
 #include <endpointvolume.h>
 #include <audiopolicy.h>
 #include <windows.h>
+#include <functiondiscoverykeys_devpkey.h>
+#include <propvarutil.h>
 
 // WASAPI manager
 //
 class AudioManager {
 
 private:
+    constexpr static const GUID IDeviceFriendlyName =
+            { 0xa45c254e, 0xdf1c, 0x4efd,
+              { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 }
+            };
+    PROPERTYKEY key{};
+
     IMMDeviceEnumerator* deviceEnumerator = nullptr;
 
     IMMDevice* captureDevice = nullptr;
     IAudioEndpointVolume* micVolumeEndpoint = nullptr;
+    PROPVARIANT micProperties{};
 
     IMMDevice* renderDevice = nullptr;
     IAudioSessionManager2* pSessionManager = nullptr;
@@ -23,6 +32,12 @@ private:
     ISimpleAudioVolume* appVolume = nullptr;
 
 public:
+
+    AudioManager()
+    {
+        key.pid = 14;
+        key.fmtid = IDeviceFriendlyName;
+    }
 
     BOOL Init()
     {
@@ -39,6 +54,12 @@ public:
         // Getting IN (capture) device
         deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eCapture, ERole::eCommunications,
                                                   &captureDevice);
+
+        // Getting mic properties
+        IPropertyStore* pProperties;
+        captureDevice->OpenPropertyStore(STGM_READ, &pProperties);
+        PropVariantInit(&micProperties);
+        pProperties->GetValue(key,&micProperties);
 
         // Getting OUT (render) device
         result = deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eCommunications,
@@ -89,6 +110,11 @@ public:
     void SetMicState(BOOL muted)
     {
         micVolumeEndpoint->SetMute(muted, nullptr);
+    }
+
+    LPWSTR GetDefaultMicName() const
+    {
+        return micProperties.pwszVal;
     }
 
     ~AudioManager(){
