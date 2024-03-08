@@ -16,8 +16,11 @@
 #define ID_HOTKEY_KEYBD     204
 #define ID_HOTKEY_MOUSE_BTN 205
 #define ID_AUTOSTARTUP      206
-#define VOLUME_TRACKBAR     207
+#define BELL_VOLUME_TRACKBAR     207
 #define HOTKEY_AVAIL        208
+#define MIC_VOLUME_TRACKBAR     209
+#define MUTE_MODE     210
+#define SOUNDS_GROUPBOX     211
 
 #define RADIO_KEYBD                      1003
 #define RADIO_MOUSE                      1004

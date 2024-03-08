@@ -24,6 +24,8 @@ struct Config {
     bool  isMouseHotkeyMode = false;
     BYTE  volume = 100;
     bool  keybdHotkeyAvail = false;
+    BYTE  micVolume = -1;
+    bool  muteVolumeZero = false;
 
     [[nodiscard]] bool Equals(Config& config) const
     {
@@ -31,7 +33,9 @@ struct Config {
                config.keybdHotkey == this->keybdHotkey &&
                config.mouseHotkeyIndex == this->mouseHotkeyIndex &&
                config.volume == this->volume &&
-               config.keybdHotkeyAvail == this->keybdHotkeyAvail;
+               config.keybdHotkeyAvail == this->keybdHotkeyAvail &&
+               config.micVolume == this->micVolume &&
+               config.muteVolumeZero == this->muteVolumeZero;
     }
 
     static void Save(Config* config, const char* path)

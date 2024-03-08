@@ -48,19 +48,45 @@ AudioManager* audioManager = new AudioManager();
 
 //#endregion
 
+BOOL IsMuteMode()
+{
+    bool isMuteState = audioManager->IsMicMuted();
+
+    if (!config.muteVolumeZero) {
+        return isMuteState;
+    }
+
+    // Если режим мута громкостью и замучен физически - необходимо размутить
+    if(isMuteState) {
+        audioManager->SetMicState(false);
+    }
+
+    return audioManager->GetMicVolume() == 0;
+}
+
+void SetMuteMode(BOOL muted)
+{
+    if (!config.muteVolumeZero) {
+        audioManager->SetMicState(muted);
+        return;
+    }
+
+    audioManager->SetMicVolume(muted ? 0 : config.micVolume);
+}
+
 void SwitchMicState()
 {
-    if(audioManager->IsMicMuted())
+    if(IsMuteMode())
     {
         structNID.hIcon = micIcon;
         PlaySound((LPCSTR) unmuteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
-        audioManager->SetMicState(FALSE);
+        SetMuteMode(FALSE);
     }
     else
     {
         structNID.hIcon = micMutedIcon;
         PlaySound((LPCSTR) muteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
-        audioManager->SetMicState(TRUE);
+        SetMuteMode(TRUE);
     }
 
     Shell_NotifyIconW(NIM_MODIFY, &structNID);
@@ -127,6 +153,18 @@ void CenterWindow(HWND hwnd)
     );
 }
 
+void SetTrackBarValue(HWND hwnd, LPARAM pageSize, LPARAM minMax, LPARAM value)
+{
+    SendMessage(hwnd, TBM_SETRANGE,
+                (WPARAM) TRUE,  // redraw flag
+                minMax);
+
+    SendMessage(hwnd, TBM_SETPAGESIZE,
+                0, pageSize);                  // new page size
+
+    SendMessage(hwnd, TBM_SETPOS,(WPARAM) TRUE,value);
+}
+
 bool InitWindow()
 {
     WNDCLASSEXW wndClass;
@@ -178,7 +216,7 @@ bool InitTrayIcon()
     structNID.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     auto micName = std::wstring(AppName).append(L" | ").append(audioManager->GetDefaultMicName());
     wcscpy(structNID.szTip, micName.c_str());
-    structNID.hIcon = audioManager->IsMicMuted() ? micMutedIcon : micIcon;
+    structNID.hIcon = IsMuteMode() ? micMutedIcon : micIcon;
     structNID.uCallbackMessage = WM_USER_SHELLICON;
 
     // Display tray icon
@@ -206,20 +244,27 @@ void InitSettingsElements(HWND& hDlg)
         SendMessage(GetDlgItem(hDlg,HOTKEY_AVAIL), BM_SETCHECK, BST_CHECKED, 0);
     }
 
+    if(config.muteVolumeZero) {
+        SendMessage(GetDlgItem(hDlg,MUTE_MODE), BM_SETCHECK, BST_CHECKED, 0);
+    }
+
     SetMouseHotkey(config.mouseHotkeyIndex);
     UpdateHotkeyType();
 
     SendDlgItemMessageW(hDlg,ID_HOTKEY_KEYBD,HKM_SETHOTKEY,config.keybdHotkey,0 );
 
-    HWND hwndTrack = GetDlgItem(hDlg, VOLUME_TRACKBAR);
-    SendMessage(hwndTrack, TBM_SETRANGE,
-                (WPARAM) TRUE,                   // redraw flag
-                (LPARAM) MAKELONG(0, 100));  // min. & max. positions
+    HWND hwndGroupBox = GetDlgItem(hDlg, SOUNDS_GROUPBOX);
+    SetWindowTextW(hwndGroupBox,
+                   std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
+                   .c_str());
 
-    SendMessage(hwndTrack, TBM_SETPAGESIZE,
-                0, (LPARAM) 1);                  // new page size
+    SetTrackBarValue(GetDlgItem(hDlg, BELL_VOLUME_TRACKBAR),1,
+                     (LPARAM) MAKELONG(0, 100),
+                     config.volume);
 
-    SendMessage(hwndTrack, TBM_SETPOS,(WPARAM) TRUE,(LPARAM) config.volume);
+    SetTrackBarValue(GetDlgItem(hDlg, MIC_VOLUME_TRACKBAR),1,
+                     (LPARAM) MAKELONG(0, 100),
+                     config.micVolume);
 }
 
 void ApplyConfigChanges()
@@ -230,6 +275,15 @@ void ApplyConfigChanges()
 
     if(config.volume != configTemp.volume) {
         audioManager->SetAppVolume(configTemp.volume);
+    }
+
+    if(config.muteVolumeZero != configTemp.muteVolumeZero) {
+        config.muteVolumeZero = configTemp.muteVolumeZero;
+        SwitchMicState();
+    }
+    if(config.micVolume != configTemp.micVolume &&
+            (!configTemp.muteVolumeZero || (configTemp.muteVolumeZero && !IsMuteMode()))){
+        audioManager->SetMicVolume(configTemp.micVolume);
     }
 
     config = configTemp;
@@ -310,7 +364,8 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
 
         case WM_HSCROLL:
             if (LOWORD(wParam) == TB_ENDTRACK) {
-                configTemp.volume = SendMessage(GetDlgItem(hDlg, VOLUME_TRACKBAR), TBM_GETPOS, 0, 0);
+                configTemp.volume = SendMessage(GetDlgItem(hDlg, BELL_VOLUME_TRACKBAR), TBM_GETPOS, 0, 0);
+                configTemp.micVolume = SendMessage(GetDlgItem(hDlg, MIC_VOLUME_TRACKBAR), TBM_GETPOS, 0, 0);
             }
             break;
 
@@ -366,6 +421,10 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
 
                 case HOTKEY_AVAIL:
                     configTemp.keybdHotkeyAvail = !configTemp.keybdHotkeyAvail;
+                    break;
+
+                case MUTE_MODE:
+                    configTemp.muteVolumeZero = !configTemp.muteVolumeZero;
                     break;
 
                 case ID_HOTKEY_MOUSE_BTN:
@@ -513,7 +572,6 @@ void InitHotkey()
 
     }
 }
-
 //#endregion
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
@@ -530,7 +588,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     CoInitialize(nullptr); // Initialize COM
 
-    if(!InitWindow() || !audioManager->Init() || !InitTrayIcon()) {
+    if(!InitWindow() || !audioManager->Init()) {
         MessageBox(nullptr, "Initialization failed!", "Error",  MB_OK);
         return -1;
     }
@@ -543,13 +601,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     configPath = Config::GetConfigPath();
     Config::Load(&config, configPath);
 
+    InitTrayIcon();
+
     InitHotkey();
 
     if(config.volume != 100) {
         audioManager->SetAppVolume(config.volume);
     }
 
-   // DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
+    if(config.micVolume == BYTE(-1)) {
+        config.micVolume = audioManager->GetMicVolume();
+    }
+    else if(!config.muteVolumeZero && config.micVolume != audioManager->GetMicVolume()) {
+        audioManager->SetMicVolume(config.micVolume);
+    }
+
+ //   DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);

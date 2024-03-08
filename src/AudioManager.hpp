@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
+#include <cmath>
 
 // WASAPI manager
 //
@@ -84,6 +85,7 @@ public:
         renderDevice->Release();
         pSessionControl->Release();
         pSessionManager->Release();
+        pProperties->Release();
 
         return TRUE;
     }
@@ -112,9 +114,21 @@ public:
         micVolumeEndpoint->SetMute(muted, nullptr);
     }
 
-    LPWSTR GetDefaultMicName() const
+    [[nodiscard]] LPWSTR GetDefaultMicName() const
     {
         return micProperties.pwszVal;
+    }
+
+    [[nodiscard]] BYTE GetMicVolume() const
+    {
+        float level;
+        micVolumeEndpoint->GetMasterVolumeLevelScalar(&level);
+        return std::ceil(level * 100) ;
+    }
+
+    void SetMicVolume(BYTE level) const
+    {
+        micVolumeEndpoint->SetMasterVolumeLevelScalar((float)level/100, nullptr);
     }
 
     ~AudioManager(){
