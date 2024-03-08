@@ -193,17 +193,14 @@ bool InitWindow()
         return false;
     }
 
-    configPath = Config::GetConfigPath();
-    Config::Load(&config, configPath);
-
     // Creating the hidden window
     hWnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             AppName,
             AppName,
             WS_POPUP,
-            config.windowPosX,
-            config.windowPosY,
+            0,
+            0,
             32,
             32,
             nullptr,
@@ -674,10 +671,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return -1;
     }
 
+    configPath = Config::GetConfigPath();
+    Config::Load(&config, configPath);
+
     LoadResource(MAKEINTRESOURCE(IDR_UNMUTE), _T("WAVE"),
                 &unmuteSound.buffer, &unmuteSound.fileSize);
     LoadResource(MAKEINTRESOURCE(IDR_MUTE), _T("WAVE"),
                  &muteSound.buffer, &muteSound.fileSize);
+
+    SetWindowPos(hWnd,nullptr, config.windowPosX, config.windowPosY,0,0, SWP_NOSIZE | SWP_NOZORDER);
 
     if(config.volume != 100) {
         audioManager->SetAppVolume(config.volume);
