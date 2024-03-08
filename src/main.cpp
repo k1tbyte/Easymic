@@ -601,10 +601,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     configPath = Config::GetConfigPath();
     Config::Load(&config, configPath);
 
-    InitTrayIcon();
-
-    InitHotkey();
-
     if(config.volume != 100) {
         audioManager->SetAppVolume(config.volume);
     }
@@ -616,7 +612,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         audioManager->SetMicVolume(config.micVolume);
     }
 
- //   DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
+    InitTrayIcon();
+    InitHotkey();
+
+#ifdef DEBUG
+  //  DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
+#endif
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);
