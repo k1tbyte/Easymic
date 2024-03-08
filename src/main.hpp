@@ -26,6 +26,9 @@ struct Config {
     bool  keybdHotkeyAvail = false;
     BYTE  micVolume = -1;
     bool  muteVolumeZero = false;
+    USHORT windowPosX = 10;
+    USHORT windowPosY = 10;
+    bool indicatorActive = false;
 
     [[nodiscard]] bool Equals(Config& config) const
     {
@@ -35,7 +38,10 @@ struct Config {
                config.volume == this->volume &&
                config.keybdHotkeyAvail == this->keybdHotkeyAvail &&
                config.micVolume == this->micVolume &&
-               config.muteVolumeZero == this->muteVolumeZero;
+               config.muteVolumeZero == this->muteVolumeZero &&
+               config.windowPosX == this->windowPosX &&
+               config.windowPosY == this->windowPosY &&
+               config.indicatorActive == this->indicatorActive;
     }
 
     static void Save(Config* config, const char* path)

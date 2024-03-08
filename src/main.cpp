@@ -76,19 +76,23 @@ void SetMuteMode(BOOL muted)
 
 void SwitchMicState()
 {
+    BOOL muted;
     if(IsMuteMode())
     {
         structNID.hIcon = micIcon;
         PlaySound((LPCSTR) unmuteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
-        SetMuteMode(FALSE);
+        SetMuteMode(muted = FALSE);
     }
     else
     {
         structNID.hIcon = micMutedIcon;
         PlaySound((LPCSTR) muteSound.buffer,hInst,SND_ASYNC | SND_MEMORY);
-        SetMuteMode(TRUE);
+        SetMuteMode(muted = TRUE);
     }
 
+    if (config.indicatorActive) {
+        ShowWindow(hWnd, muted ? SW_SHOW : SW_HIDE);
+    }
     Shell_NotifyIconW(NIM_MODIFY, &structNID);
 }
 
@@ -175,13 +179,12 @@ bool InitWindow()
     appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
 
     wndClass.cbSize =			sizeof(WNDCLASSEXW);
-    wndClass.style = CS_HREDRAW | CS_VREDRAW;
+    wndClass.style = CS_VREDRAW | CS_HREDRAW | CS_DROPSHADOW;
     wndClass.lpfnWndProc =	WndProc;
     wndClass.cbClsExtra =		0;
     wndClass.cbWndExtra =		0;
     wndClass.hInstance =		hInst;
     wndClass.hIcon =			appIcon;
-    wndClass.hCursor =		LoadCursor(nullptr, IDC_ARROW);
     wndClass.hbrBackground =	(HBRUSH)GetStockObject(WHITE_BRUSH);
     wndClass.lpszClassName =	AppName;
     wndClass.hIconSm		 =	appIcon;
@@ -190,16 +193,19 @@ bool InitWindow()
         return false;
     }
 
+    configPath = Config::GetConfigPath();
+    Config::Load(&config, configPath);
+
     // Creating the hidden window
     hWnd = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             AppName,
             AppName,
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            WS_POPUP,
+            config.windowPosX,
+            config.windowPosY,
+            32,
+            32,
             nullptr,
             nullptr,
             hInst,
@@ -248,6 +254,12 @@ void InitSettingsElements(HWND& hDlg)
         SendMessage(GetDlgItem(hDlg,MUTE_MODE), BM_SETCHECK, BST_CHECKED, 0);
     }
 
+    if(config.indicatorActive) {
+        SendMessage(GetDlgItem(hDlg,MUTE_INDICATOR), BM_SETCHECK, BST_CHECKED, 0);
+        ShowWindow(hWnd, SW_SHOW);
+    }
+
+
     SetMouseHotkey(config.mouseHotkeyIndex);
     UpdateHotkeyType();
 
@@ -286,6 +298,10 @@ void ApplyConfigChanges()
         audioManager->SetMicVolume(configTemp.micVolume);
     }
 
+    if(!configTemp.indicatorActive && configTemp.indicatorActive != config.indicatorActive && IsMuteMode()) {
+        ShowWindow(hWnd, SW_HIDE);
+    }
+
     config = configTemp;
     Config::Save(&config, configPath);
 }
@@ -301,6 +317,40 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 
     switch(Message)
     {
+        case WM_CREATE:
+        {
+            // Устанавливаем прозрачность окна
+            SetLayeredWindowAttributes(hwnd, RGB(255, 255, 255), 220, LWA_ALPHA  | LWA_COLORKEY);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            HRGN hRgnUpper = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 15, 15);
+            SetWindowRgn(hwnd, hRgnUpper, TRUE);
+            break;
+        }
+
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps;
+            HDC hdc;
+            RECT rc;
+
+            hdc = BeginPaint(hwnd, &ps);
+            GetClientRect(hwnd, &rc);
+
+            int width = rc.right - rc.left;
+            int height = rc.bottom - rc.top;
+
+            HRGN hRgnUpper = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 15, 15);
+            FillRgn( hdc, hRgnUpper, CreateSolidBrush(RGB(24,27,40)));
+            DeleteObject(hRgnUpper);
+
+            DrawIconEx(hdc,width / 2 - 16 / 2,
+                       height / 2 - 16 / 2,
+                       micMutedIcon,16,16,0,0,DI_NORMAL);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+
         case WM_DESTROY:
             Shell_NotifyIconW(NIM_DELETE, &structNID);	// Remove Tray Item
             PostQuitMessage(0);							// Quit
@@ -346,6 +396,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
             break;
         }
 
+        case WM_NCHITTEST:
+        {
+            LRESULT position = DefWindowProc(hWnd, Message, wParam, lParam);
+            return position == HTCLIENT ? HTCAPTION : position;
+        }
+
+        case WM_EXITSIZEMOVE: {
+            RECT rect;
+            GetWindowRect(hWnd, &rect);
+            configTemp.windowPosX = rect.left;
+            configTemp.windowPosY = rect.top;
+            break;
+        }
+
         default:
             return DefWindowProc(hwnd, Message, wParam, lParam);
     }
@@ -378,15 +442,14 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
                     return FALSE;
                 }
 
-                EndDialog(hDlg, LOWORD(wParam));
-                return TRUE;
+                DestroyWindow(hDlg);
             }
 
             switch(LOWORD(wParam))
             {
                 case IDOK:
                     ApplyConfigChanges();
-                    EndDialog(hDlg, LOWORD(wParam));
+                    DestroyWindow(hDlg);
                     break;
 
                 case RADIO_KEYBD:
@@ -427,6 +490,12 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
                     configTemp.muteVolumeZero = !configTemp.muteVolumeZero;
                     break;
 
+                case MUTE_INDICATOR:
+                    configTemp.indicatorActive = !configTemp.indicatorActive;
+                    ShowWindow(hWnd, configTemp.indicatorActive ? SW_SHOW : SW_HIDE);
+
+                    break;
+
                 case ID_HOTKEY_MOUSE_BTN:
 
                     while(settingsHwnd)
@@ -450,10 +519,17 @@ INT_PTR CALLBACK SettingsHandler(HWND hDlg, UINT message, WPARAM wParam, [[maybe
             }
             break;
 
-        case WM_DESTROY:
+        case WM_DESTROY: {
             InitHotkey();
+            SetWindowLongPtr(hWnd, GWL_EXSTYLE, GetWindowLongPtr(hWnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
             settingsHwnd = nullptr;
+
+            if(!IsMuteMode()) {
+                ShowWindow(hWnd,SW_HIDE);
+            }
+
             break;
+        }
 
         default:
             return FALSE;
@@ -476,7 +552,11 @@ void OnCommandEvent(WPARAM wParam)
                 SetForegroundWindow(settingsHwnd);
                 return;
             }
-            DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
+
+            LONG_PTR dwExStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+            dwExStyle &= ~WS_EX_TRANSPARENT; //Deleting WS_EX_TRANSPARENT
+            SetWindowLongPtr(hWnd, GWL_EXSTYLE, dwExStyle);
+            ShowWindow(CreateDialog(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler), SW_SHOW);
             break;
     }
 }
@@ -490,6 +570,7 @@ void OnShellIconEvent(LPARAM lParam)
         case WM_RBUTTONUP:
             HMENU hMenu, hSubMenu;
             // get mouse cursor position x and y as lParam has the Message itself
+
             GetCursorPos(&lpClickPoint);
 
             hMenu = LoadMenu(hInst, MAKEINTRESOURCE(IDR_TRAY_MENU));
@@ -598,9 +679,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoadResource(MAKEINTRESOURCE(IDR_MUTE), _T("WAVE"),
                  &muteSound.buffer, &muteSound.fileSize);
 
-    configPath = Config::GetConfigPath();
-    Config::Load(&config, configPath);
-
     if(config.volume != 100) {
         audioManager->SetAppVolume(config.volume);
     }
@@ -615,9 +693,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     InitTrayIcon();
     InitHotkey();
 
+    if(IsMuteMode() && config.indicatorActive)
+    {
+        ShowWindow(hWnd, nCmdShow);
+    }
+
 #ifdef DEBUG
   //  DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hWnd, SettingsHandler);
 #endif
+
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);
