@@ -96,13 +96,7 @@ void SwitchMicState()
     Shell_NotifyIconW(NIM_MODIFY, &structNID);
 }
 
-void LoadResource(LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
-{
-    HRSRC hResInfo = FindResource(hInst,resourceName, resourceType);
-    HANDLE hRes = LoadResource(hInst, hResInfo);
-    *buffer = (BYTE*)LockResource(hRes);
-    *size = SizeofResource(hInst, hResInfo);
-}
+
 
 //#region <== Registry ==>
 
@@ -138,36 +132,6 @@ bool RemoveFromAutoStartup()
 
 //#region <== UI ==>
 
-void CenterWindow(HWND hwnd)
-{
-    HWND hwndOwner = GetDesktopWindow();
-    RECT rcDlg, rcOwner, rc;
-
-    GetWindowRect(hwndOwner, &rcOwner);
-    GetWindowRect(hwnd, &rcDlg);
-    CopyRect(&rc, &rcOwner);
-
-    OffsetRect(&rcDlg, -rcDlg.left, -rcDlg.top);
-    OffsetRect(&rc, -rc.left, -rc.top);
-    OffsetRect(&rc, -rcDlg.right, -rcDlg.bottom);
-
-    SetWindowPos(hwnd,HWND_TOP,
-                 rcOwner.left + (rc.right / 2),
-                 rcOwner.top + (rc.bottom / 2),0, 0,SWP_NOSIZE
-    );
-}
-
-void SetTrackBarValue(HWND hwnd, LPARAM pageSize, LPARAM minMax, LPARAM value)
-{
-    SendMessage(hwnd, TBM_SETRANGE,
-                (WPARAM) TRUE,  // redraw flag
-                minMax);
-
-    SendMessage(hwnd, TBM_SETPAGESIZE,
-                0, pageSize);                  // new page size
-
-    SendMessage(hwnd, TBM_SETPOS,(WPARAM) TRUE,value);
-}
 
 bool InitWindow()
 {
@@ -196,17 +160,11 @@ bool InitWindow()
     // Creating the hidden window
     hWnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
-            AppName,
-            AppName,
+            AppName,AppName,
             WS_POPUP,
-            0,
-            0,
-            32,
-            32,
-            nullptr,
-            nullptr,
-            hInst,
-            nullptr);
+            0,0,
+            32,32,
+            nullptr,nullptr,hInst,nullptr);
 
     return hWnd;
 }
@@ -228,7 +186,7 @@ bool InitTrayIcon()
 
 void InitSettingsElements(HWND& hDlg)
 {
-    CenterWindow(hDlg);
+    Utils::CenterWindowOnScreen(hDlg);
     SendMessage(hDlg, WM_SETICON, ICON_BIG, (LPARAM)appIcon);
 
     if(config.keybdHotkey != 0) {
@@ -267,11 +225,11 @@ void InitSettingsElements(HWND& hDlg)
                    std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
                    .c_str());
 
-    SetTrackBarValue(GetDlgItem(hDlg, BELL_VOLUME_TRACKBAR),1,
+    Utils::InitTrackbar(GetDlgItem(hDlg, BELL_VOLUME_TRACKBAR),1,
                      (LPARAM) MAKELONG(0, 100),
                      config.volume);
 
-    SetTrackBarValue(GetDlgItem(hDlg, MIC_VOLUME_TRACKBAR),1,
+    Utils::InitTrackbar(GetDlgItem(hDlg, MIC_VOLUME_TRACKBAR),1,
                      (LPARAM) MAKELONG(0, 100),
                      config.micVolume);
 }
@@ -317,7 +275,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
         case WM_CREATE:
         {
             // Устанавливаем прозрачность окна
-            SetLayeredWindowAttributes(hwnd, RGB(255, 255, 255), 220, LWA_ALPHA  | LWA_COLORKEY);
+            SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 220, LWA_ALPHA  | LWA_COLORKEY);
             RECT rc;
             GetClientRect(hwnd, &rc);
             HRGN hRgnUpper = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 15, 15);
@@ -343,7 +301,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 
             DrawIconEx(hdc,width / 2 - 16 / 2,
                        height / 2 - 16 / 2,
-                       micMutedIcon,16,16,0,0,DI_NORMAL);
+                       micIcon,16,16,0,nullptr,DI_NORMAL);
             EndPaint(hwnd, &ps);
             return 0;
         }
@@ -674,9 +632,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     configPath = Config::GetConfigPath();
     Config::Load(&config, configPath);
 
-    LoadResource(MAKEINTRESOURCE(IDR_UNMUTE), _T("WAVE"),
+    Utils::LoadResource(hInstance,MAKEINTRESOURCE(IDR_UNMUTE), _T("WAVE"),
                 &unmuteSound.buffer, &unmuteSound.fileSize);
-    LoadResource(MAKEINTRESOURCE(IDR_MUTE), _T("WAVE"),
+    Utils::LoadResource(hInstance,MAKEINTRESOURCE(IDR_MUTE), _T("WAVE"),
                  &muteSound.buffer, &muteSound.fileSize);
 
     SetWindowPos(hWnd,nullptr, config.windowPosX, config.windowPosY,0,0, SWP_NOSIZE | SWP_NOZORDER);

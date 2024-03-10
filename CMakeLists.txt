@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/main.hpp
         src/AudioManager.hpp
+        src/Utils.hpp
 )
 
 set(WIN32   23)

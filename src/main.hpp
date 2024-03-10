@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <sys/stat.h>
 #include <string>
+#include "Utils.hpp"
 
 
 #define	WM_USER_SHELLICON (WM_USER + 1)
