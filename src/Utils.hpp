@@ -6,6 +6,8 @@
 
 namespace Utils {
 
+    #define AutoStartupHKEY LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)"
+
     static void CenterWindowOnScreen(HWND hWnd)
     {
         HWND hWndDesktop = GetDesktopWindow();
@@ -44,6 +46,38 @@ namespace Utils {
         *buffer = (BYTE*)LockResource(hRes);
         *size = SizeofResource(hInst, hResInfo);
     }
+
+    //#region <== Registry ==>
+
+    bool IsInAutoStartup(LPCWSTR appName)
+    {
+        return RegGetValueW(HKEY_CURRENT_USER,AutoStartupHKEY,
+                            appName,RRF_RT_REG_SZ,
+                            nullptr,nullptr,nullptr) == ERROR_SUCCESS;
+    }
+
+    bool AddToAutoStartup(LPCWSTR appName)
+    {
+        HKEY hkey;
+        auto result = RegOpenKeyExW(HKEY_CURRENT_USER,AutoStartupHKEY,0,
+                                    KEY_WRITE,&hkey);
+
+        if(result != ERROR_SUCCESS)
+            return false;
+
+        char szFileName[MAX_PATH];
+
+        GetModuleFileName(nullptr, szFileName, MAX_PATH);
+        return RegSetValueExW(hkey, appName, 0, REG_SZ, reinterpret_cast<const BYTE *>(szFileName),
+                              strlen(szFileName)) == ERROR_SUCCESS;
+    }
+
+    bool RemoveFromAutoStartup(LPCWSTR appName)
+    {
+        return RegDeleteKeyValueW(HKEY_CURRENT_USER,AutoStartupHKEY,appName);
+    }
+
+//#endregion
 }
 
 #endif //EASYMIC_UTILS_HPP

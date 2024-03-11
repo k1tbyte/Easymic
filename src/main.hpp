@@ -15,7 +15,7 @@
 #define ConfigName "conf.bin"
 #define MutexName "Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B1"
 #define UID 565746541
-#define AutoStartupHKEY LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)"
+
 #define AppName L"Easymic"
 
 struct Config {
@@ -31,19 +31,7 @@ struct Config {
     USHORT windowPosY = 10;
     bool indicatorActive = false;
 
-    [[nodiscard]] bool Equals(Config& config) const
-    {
-        return config.isMouseHotkeyMode == this->isMouseHotkeyMode &&
-               config.keybdHotkey == this->keybdHotkey &&
-               config.mouseHotkeyIndex == this->mouseHotkeyIndex &&
-               config.volume == this->volume &&
-               config.keybdHotkeyAvail == this->keybdHotkeyAvail &&
-               config.micVolume == this->micVolume &&
-               config.muteVolumeZero == this->muteVolumeZero &&
-               config.windowPosX == this->windowPosX &&
-               config.windowPosY == this->windowPosY &&
-               config.indicatorActive == this->indicatorActive;
-    }
+    bool operator==(const Config&) const = default;
 
     static void Save(Config* config, const char* path)
     {
