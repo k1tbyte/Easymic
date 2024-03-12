@@ -1,12 +1,8 @@
 #include "main.hpp"
 #include <tchar.h>
 #include <commctrl.h>
-#include "Resources/Resource.h"
 #include "AudioManager.hpp"
 #include "View/MainWindow.h"
-
-//#endregion
-
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -20,11 +16,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     CoInitialize(nullptr); // Initialize COM
+
+    Config config;
+    Config::Load(&config,Config::GetConfigPath());
+
+    const auto& manager = new AudioManager();
+    manager->Init();
+
    // InitWindow(hInstance);
-    auto* mw = new MainWindow(hInstance);
-    mw->InitWindow(L"Test");
-    SetWindowPos(mw->hWnd,nullptr, 10, 10,0,0, SWP_NOSIZE | SWP_NOZORDER);
-    ShowWindow(mw->hWnd,nCmdShow);
+    auto* mw = new MainWindow(AppName,hInstance,&config, manager);
+    mw->InitWindow();
+    mw->InitTrayIcon();
+    mw->Show();
 
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {

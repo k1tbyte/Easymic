@@ -12,58 +12,12 @@
 #define WM_TASKBAR_CREATE RegisterWindowMessage(_T("TaskbarCreated"))
 #define HKModifier(h) ((HIBYTE (h) & 2) | ((HIBYTE (h) & 4) >> 2) | ((HIBYTE (h) & 1) << 2))
 
-#define ConfigName "conf.bin"
 #define MutexName "Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B1"
 #define UID 565746541
 
 #define AppName L"Easymic"
 
-struct Config {
 
-    WORD  keybdHotkey{};
-    WORD  mouseHotkeyIndex{};
-    bool  isMouseHotkeyMode = false;
-    BYTE  volume = 100;
-    bool  keybdHotkeyAvail = false;
-    BYTE  micVolume = -1;
-    bool  muteVolumeZero = false;
-    USHORT windowPosX = 10;
-    USHORT windowPosY = 10;
-    bool indicatorActive = false;
-
-    bool operator==(const Config&) const = default;
-
-    static void Save(Config* config, const char* path)
-    {
-        FILE* file = fopen(path, "wb");
-        fwrite(config, sizeof(Config), 1,file);
-        fclose(file);
-    }
-
-    static void Load(Config* config, const char* path)
-    {
-        struct stat   buffer{};
-
-        if(stat(path, &buffer) == 0) {
-            FILE* file = fopen(path, "rb");
-            fread(config, sizeof(Config), 1,file);
-            fclose(file);
-        }
-    }
-
-    static const char* GetConfigPath()
-    {
-        char buffer[MAX_PATH];
-
-        GetModuleFileName(nullptr, buffer, MAX_PATH);
-
-        const auto pos = std::string(buffer).find_last_of("\\/");
-        const auto path =std::string(buffer).substr(0, pos).append("\\").append(ConfigName);
-        char* configPath = new char[path.length()];
-        strcpy(configPath,path.c_str());
-        return configPath;
-    }
-};
 
 struct Hotkey {
     const char* Name;

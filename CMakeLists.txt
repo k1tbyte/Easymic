@@ -11,6 +11,9 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/Utils.hpp
         src/View/MainWindow.cpp
         src/View/MainWindow.h
+        src/config.h
+        src/View/SettingsWindow.h
+        src/View/AbstractWindow.h
 )
 
 set(WIN32   23)

@@ -1,31 +1,26 @@
 #include "MainWindow.h"
 
-static MainWindow* instance;
+static MainWindow* mainWindow;
+#define WND_BACKGROUND RGB(24,27,40)
+#define WND_CORNER_RADIUS 15
+#define WND_PADDING 2
 
-LRESULT CALLBACK WindowHandler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioManager* audioManager)
+    : AbstractWindow(hInstance, &events)
 {
-    if(message == WM_PAINT) {
-        printf("SUCK");
-    }
-    if(auto it {instance->events.find(message)};
-        it != std::end(instance->events))
-    {
-        (instance->*(it->second))(wParam,lParam);
-        return 0;
-    }
-    return DefWindowProc(hwnd, message, wParam, lParam);
+    this->name = name;
+    this->config = config;
+    this->audioManager = audioManager;
+    this->settings = new SettingsWindow(hInstance, &hWnd);
+    mainWindow = this;
 }
 
-MainWindow::MainWindow(HINSTANCE hInstance)
-{
-    hInst = hInstance;
-    instance = this;
-}
-
-bool MainWindow::InitWindow(LPCWSTR name)
+bool MainWindow::InitWindow()
 {
     static WNDCLASSEXW wndClass;
     appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
+    mutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_MUTED));
+    unmutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC));
 
     wndClass.cbSize =			sizeof(WNDCLASSEXW);
     wndClass.style = CS_VREDRAW | CS_HREDRAW | CS_DROPSHADOW;
@@ -36,61 +31,117 @@ bool MainWindow::InitWindow(LPCWSTR name)
     wndClass.hbrBackground =	(HBRUSH)GetStockObject(WHITE_BRUSH);
     wndClass.lpszClassName =	name;
     wndClass.hIconSm		 =	appIcon;
-    wndClass.lpfnWndProc =	WindowHandler;
+    wndClass.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+            { return mainWindow->WindowHandler(hwnd,msg,wp,lp); };
 
     if(!RegisterClassExW(&wndClass)) {
         return false;
     }
 
-    // Creating the hidden window
-    hWnd = CreateWindowExW(
+    windowSize = config->indicatorSize*WND_PADDING;
+    CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             name,name,
             WS_POPUP,
-            10,10,
-            32,32,
+            config->windowPosX,config->windowPosY,
+            windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
 
     return true;
 }
 
+bool MainWindow::InitTrayIcon() {
+    trayIcon.cbSize = sizeof(NOTIFYICONDATAW);
+    trayIcon.hWnd = (HWND)hWnd;
+    trayIcon.uID = IDI_MIC;
+    trayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    wcscpy(trayIcon.szTip, (std::wstring(name) + L" | " + audioManager->GetDefaultMicName()).c_str());
+    trayIcon.hIcon = audioManager->IsMicMuted() ? mutedIcon : unmutedIcon;
+    trayIcon.uCallbackMessage = WM_SHELLICON;
+
+    // Display tray icon
+    return Shell_NotifyIconW(NIM_ADD, &trayIcon);
+}
+
 void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam)
 {
-    // Устанавливаем прозрачность окна
+    // Window transparency
     SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 220, LWA_ALPHA  | LWA_COLORKEY);
-    RECT rc;
-    GetClientRect(hWnd, &rc);
-    HRGN hRgnUpper = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 15, 15);
-    SetWindowRgn(hWnd, hRgnUpper, TRUE);
+    HRGN windowRegion = _getWindowRegion();
+    SetWindowRgn(hWnd, windowRegion, TRUE);
+    DeleteObject(windowRegion);
 }
 
 void MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam)
 {
+    Shell_NotifyIconW(NIM_DELETE, &trayIcon);	// Remove Tray Item
     PostQuitMessage(0);
 }
 
 void MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
-    HDC hdc;
-    RECT rc;
+    HDC hdc = BeginPaint(hWnd, &ps);
+    HRGN windowRegion = _getWindowRegion();
+    BYTE iconSize = config->indicatorSize;
 
-    hdc = BeginPaint(hWnd, &ps);
-    GetClientRect(hWnd, &rc);
+    FillRgn(hdc, windowRegion, CreateSolidBrush(WND_BACKGROUND));
 
-    int width = rc.right - rc.left;
-    int height = rc.bottom - rc.top;
-
-    HRGN hRgnUpper = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, 15, 15);
-    FillRgn( hdc, hRgnUpper, CreateSolidBrush(RGB(24,27,40)));
-    DeleteObject(hRgnUpper);
-
-    DrawIconEx(hdc,width / 2 - 16 / 2,
-               height / 2 - 16 / 2,
-               appIcon,16,16,0,nullptr,DI_NORMAL);
+    DrawIconEx(hdc, windowSize / 2 - iconSize / 2, windowSize / 2 - iconSize / 2,
+               appIcon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
     EndPaint(hWnd, &ps);
+    DeleteObject(windowRegion);
 }
 
 void MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
     DestroyWindow(hWnd);
 }
+
+void MainWindow::OnShellIcon(WPARAM wParam, LPARAM lParam){
+    if(LOWORD(lParam) != WM_LBUTTONDBLCLK && LOWORD(lParam) != WM_RBUTTONUP){
+        return;
+    }
+
+    POINT lpClickPoint;
+    GetCursorPos(&lpClickPoint);
+
+    HMENU hMenu = LoadMenu(hInst, MAKEINTRESOURCE(IDR_TRAY_MENU));
+    if (!hMenu) {
+        return;
+    }
+
+    // Select the first submenu
+    HMENU hSubMenu = GetSubMenu(hMenu, 0);
+    if(hSubMenu) {
+        // Display menu
+        SetForegroundWindow(hWnd);
+        TrackPopupMenu(hSubMenu,
+                       TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN,
+                       lpClickPoint.x, lpClickPoint.y, 0, hWnd, nullptr);
+        SendMessage(hWnd, WM_NULL, 0, 0);
+    }
+
+    // Kill off objects we're done with
+    DestroyMenu(hMenu);
+}
+
+void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
+    if(wParam == ID_APP_EXIT) {
+        DestroyWindow(hWnd);
+        return;
+    }
+
+    if(wParam == ID_APP_SETTINGS) {
+        settings->Show();
+    }
+}
+
+
+HRGN MainWindow::_getWindowRegion() const {
+    return CreateRoundRectRgn(0, 0, windowSize, windowSize,
+                       WND_CORNER_RADIUS, WND_CORNER_RADIUS);
+}
+
+
+
+
 

@@ -5,43 +5,59 @@
 #include <unordered_map>
 #include <cstdio>
 #include "../Resources/Resource.h"
+#include "../config.h"
+#include "../AudioManager.hpp"
+#include "SettingsWindow.h"
 
-class MainWindow;
+#define WM_SHELLICON (WM_USER + 1)
 
-typedef void (MainWindow::*WindowEvent)(WPARAM, LPARAM);
 
-class MainWindow final {
-    HINSTANCE hInst;
-    HICON appIcon;
+class MainWindow final : public AbstractWindow {
+    LPCWSTR name;
+    AudioManager* audioManager;
+    Config* config;
+    SettingsWindow* settings;
+
+    NOTIFYICONDATAW trayIcon{};
+    int windowSize{};
+    HICON appIcon{};
+    HICON mutedIcon{};
+    HICON unmutedIcon{};
 
 private:
-    friend LRESULT CALLBACK WindowHandler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     void OnCreate(WPARAM wParam, LPARAM lParam);
     void OnDestroy(WPARAM wParam, LPARAM lParam);
     void OnPaint(WPARAM wParam, LPARAM lParam);
     void OnClose(WPARAM wParam, LPARAM lParam);
+    void OnShellIcon(WPARAM wParam, LPARAM lParam);
+    void OnCommand(WPARAM wParam, LPARAM lParam);
+
+    HRGN _getWindowRegion() const;
 
 public:
-    HWND hWnd;
-    MainWindow(HINSTANCE hInstance);
-    bool InitWindow(LPCWSTR name);
+    MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config, AudioManager* audioManager);
+    bool InitWindow();
+    bool InitTrayIcon();
 
-    void Show(int cmdShow) {
-        ShowWindow(hWnd,cmdShow);
+    void SetWindowSize(int width, int height) {
+        RECT rcClient;//screen size
+
+        GetClientRect(hWnd, &rcClient);
+        SetWindowPos(hWnd,nullptr, 20,20 ,
+                     width, height,SWP_NOSIZE | SWP_NOZORDER);
     }
 
-    void Hide() {
-        ShowWindow(hWnd,SW_HIDE);
-    }
 
 private:
 
     const std::unordered_map<UINT,WindowEvent> events = {
-            {WM_CREATE, &MainWindow::OnCreate },
-            {WM_DESTROY, &MainWindow::OnDestroy },
-            {WM_PAINT, &MainWindow::OnPaint },
-            {WM_CLOSE, &MainWindow::OnClose }
+            {WM_CREATE, [this](WPARAM wParam, LPARAM lParam) { OnCreate(wParam, lParam); }  },
+            {WM_DESTROY, [this](WPARAM wParam, LPARAM lParam) { OnDestroy(wParam, lParam); }  },
+            {WM_PAINT, [this](WPARAM wParam, LPARAM lParam) { OnPaint(wParam, lParam); }  },
+            {WM_CLOSE, [this](WPARAM wParam, LPARAM lParam) { OnClose(wParam, lParam); }  },
+            {WM_SHELLICON, [this](WPARAM wParam, LPARAM lParam) { OnShellIcon(wParam, lParam); }  },
+            {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  }
     };
 };
 

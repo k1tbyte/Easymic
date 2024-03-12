@@ -49,14 +49,14 @@ namespace Utils {
 
     //#region <== Registry ==>
 
-    bool IsInAutoStartup(LPCWSTR appName)
+    static bool IsInAutoStartup(LPCWSTR appName)
     {
         return RegGetValueW(HKEY_CURRENT_USER,AutoStartupHKEY,
                             appName,RRF_RT_REG_SZ,
                             nullptr,nullptr,nullptr) == ERROR_SUCCESS;
     }
 
-    bool AddToAutoStartup(LPCWSTR appName)
+    static bool AddToAutoStartup(LPCWSTR appName)
     {
         HKEY hkey;
         auto result = RegOpenKeyExW(HKEY_CURRENT_USER,AutoStartupHKEY,0,
@@ -72,7 +72,7 @@ namespace Utils {
                               strlen(szFileName)) == ERROR_SUCCESS;
     }
 
-    bool RemoveFromAutoStartup(LPCWSTR appName)
+    static bool RemoveFromAutoStartup(LPCWSTR appName)
     {
         return RegDeleteKeyValueW(HKEY_CURRENT_USER,AutoStartupHKEY,appName);
     }
