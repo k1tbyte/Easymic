@@ -39,13 +39,15 @@ bool MainWindow::InitWindow()
     }
 
     windowSize = config->indicatorSize*WND_PADDING;
-    CreateWindowExW(
+    this->hWnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             name,name,
             WS_POPUP,
             config->windowPosX,config->windowPosY,
             windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
+
+    HotkeyManager::Initialize(&this->hWnd,[]() { mainWindow->OnHotkeyPressed(); } );
 
     return true;
 }
@@ -63,6 +65,7 @@ bool MainWindow::InitTrayIcon() {
     return Shell_NotifyIconW(NIM_ADD, &trayIcon);
 }
 
+//#region <== Window events ==>
 void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam)
 {
     // Window transparency
@@ -135,13 +138,13 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     }
 }
 
+//#endregion
 
 HRGN MainWindow::_getWindowRegion() const {
     return CreateRoundRectRgn(0, 0, windowSize, windowSize,
                        WND_CORNER_RADIUS, WND_CORNER_RADIUS);
 }
 
+void MainWindow::OnHotkeyPressed() {
 
-
-
-
+}

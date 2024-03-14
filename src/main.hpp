@@ -17,17 +17,4 @@
 
 #define AppName L"Easymic"
 
-
-
-struct Hotkey {
-    const char* Name;
-    int VK;
-    int WM;
-};
-
-struct Resource {
-    BYTE* buffer;
-    DWORD fileSize;
-};
-
 #endif //EASYMIC_MAIN_HPP

@@ -7,6 +7,7 @@
 #include "../Resources/Resource.h"
 #include "../config.h"
 #include "../AudioManager.hpp"
+#include "../HotkeyManager.h"
 #include "SettingsWindow.h"
 
 #define WM_SHELLICON (WM_USER + 1)
@@ -32,6 +33,8 @@ private:
     void OnClose(WPARAM wParam, LPARAM lParam);
     void OnShellIcon(WPARAM wParam, LPARAM lParam);
     void OnCommand(WPARAM wParam, LPARAM lParam);
+
+    void OnHotkeyPressed();
 
     HRGN _getWindowRegion() const;
 

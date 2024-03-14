@@ -14,6 +14,7 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/config.h
         src/View/SettingsWindow.h
         src/View/AbstractWindow.h
+        src/HotkeyManager.h
 )
 
 set(WIN32   23)
