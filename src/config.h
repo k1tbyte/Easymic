@@ -13,6 +13,14 @@
 #define WM_SHELLICON (WM_USER + 1)
 #define WM_UPDATE_MIC (WM_USER + 2)
 
+enum class IndicatorState {
+    Hidden,
+    Muted,
+    MutedOrTalk,
+    Always,
+    AlwaysAndTalk
+};
+
 struct Config {
 
     BYTE indicatorSize = 16;
@@ -22,7 +30,7 @@ struct Config {
     BYTE bellVolume = 50;
     BYTE micVolume = -1;
     bool muteZeroMode = false;
-    bool muteIndicator = false;
+    IndicatorState muteIndicator = IndicatorState::Hidden;
 
     bool operator==(const Config&) const = default;
 

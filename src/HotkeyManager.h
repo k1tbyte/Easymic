@@ -31,8 +31,8 @@ public:
         }
 
         // If WM is known, we do not need to iterate through everything
-        if(mouseWm && wParam == mouseWm) {
-            OnHotkeyPressed();
+        if(mouseWm) {
+            if(wParam == mouseWm) OnHotkeyPressed();
             goto exit;
         }
 
@@ -138,6 +138,8 @@ public:
         for(const auto& key : keys) {
             if(!mouseHooked && (key == VK_MBUTTON || key == VK_XBUTTON1 || key == VK_XBUTTON2 || key == VK_RBUTTON)) {
                 mouseHook = SetWindowsHookEx(WH_MOUSE_LL, MouseInterceptor, nullptr, 0);
+                mouseWm = (key == VK_MBUTTON ? WM_MBUTTONUP :
+                        (key == VK_RBUTTON ? WM_RBUTTONUP : WM_XBUTTONUP));
                 mouseHooked = true;
                 continue;
             }
@@ -146,6 +148,10 @@ public:
                 keybdHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardInterceptor, nullptr, 0);
                 keybdHooked = true;
             }
+        }
+
+        if(keybdHooked && mouseHooked) {
+            mouseWm = 0;
         }
     }
 
@@ -197,6 +203,7 @@ public:
         }
         OnHotkeyBound = nullptr;
         hotkeySequenceMask = 0;
+        mouseWm = 0;
     }
 
     //#region <== Names table ==>
