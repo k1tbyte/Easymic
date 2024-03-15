@@ -230,10 +230,10 @@ public:
             nullptr,          // VK_HANJA/VK_KANJI 	0x19
             nullptr,          // 0x1A
             "Escape",         // VK_ESCAPE 	0x1B
-            nullptr,          // VK_CONVERT 	0x1C
-            nullptr,          // VK_NONCONVERT 	0x1D
-            nullptr,          // VK_ACCEPT 	0x1E
-            nullptr,          // VK_MODECHANGE 	0x1F
+            "Convert",          // VK_CONVERT 	0x1C
+            "NonConvert",          // VK_NONCONVERT 	0x1D
+            "Accept",          // VK_ACCEPT 	0x1E
+            "ModeChange",          // VK_MODECHANGE 	0x1F
             "Space",          // VK_SPACE 	0x20
             "PageUp",         // VK_PRIOR 	0x21
             "PageDown",       // VK_NEXT 	0x22
@@ -243,9 +243,9 @@ public:
             "Up",             // VK_UP 	0x26
             "Right",          // VK_RIGHT 	0x27
             "Down",           // VK_DOWN 	0x28
-            nullptr,          // VK_SELECT 	0x29
-            nullptr,          // VK_PRINT 	0x2A
-            nullptr,          // VK_EXECUTE 	0x2B
+            "Select",          // VK_SELECT 	0x29
+            "Print",          // VK_PRINT 	0x2A
+            "Execute",          // VK_EXECUTE 	0x2B
             "PrintScreen",    // VK_SNAPSHOT 	0x2C
             "Insert",         // VK_INSERT 	0x2D
             "Delete",         // VK_DELETE 	0x2E
@@ -293,11 +293,11 @@ public:
             "X",              // 'X' 	0x58
             "Y",              // 'Y' 	0x59
             "Z",              // 'Z' 	0x5A
-            nullptr,          // VK_LWIN 	0x5B
-            nullptr,          // VK_RWIN 	0x5C
-            nullptr,          // VK_APPS 	0x5D
+            "LWin",          // VK_LWIN 	0x5B
+            "RWin",          // VK_RWIN 	0x5C
+            "Apps",          // VK_APPS 	0x5D
             nullptr,          // 0x5E
-            nullptr,          // VK_SLEEP 	0x5F
+            "Sleep",          // VK_SLEEP 	0x5F
             "NumPad0",        // VK_NUMPAD0 	0x60
             "NumPad1",        // VK_NUMPAD1 	0x61
             "NumPad2",        // VK_NUMPAD2 	0x62

@@ -10,12 +10,19 @@
 #define AppName L"Easymic"
 #define ConfigName "conf.bin"
 
+#define WM_SHELLICON (WM_USER + 1)
+#define WM_UPDATE_MIC (WM_USER + 2)
+
 struct Config {
 
     BYTE indicatorSize = 16;
     USHORT windowPosX = 0;
     USHORT windowPosY = 0;
     DWORD muteHotkey = 0;
+    BYTE bellVolume = 50;
+    BYTE micVolume = -1;
+    bool muteZeroMode = false;
+    bool muteIndicator = false;
 
     bool operator==(const Config&) const = default;
 

@@ -13,14 +13,19 @@ static SettingsWindow* settings;
 class SettingsWindow final : AbstractWindow {
 
     HWND* ownerHwnd = nullptr;
+    AudioManager* audioManager;
     Config* config;
     Config configTemp;
+    HWND micVolTrackbar;
+    HWND bellVolTrackbar;
+    HWND muteHotkey;
 
 public:
 
-    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config) : AbstractWindow(hInstance, &events)
+    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager) : AbstractWindow(hInstance, &events)
     {
         settings = this;
+        this->audioManager = audioManager;
         this->config = config;
         this->ownerHwnd = ownerHwnd;
     }
@@ -30,15 +35,52 @@ public:
         if(Utils::IsInAutoStartup(AppName)) {
             SendMessage(GetDlgItem(hWnd,ID_AUTOSTARTUP), BM_SETCHECK, BST_CHECKED, 0);
         }
+
+        if(config->muteZeroMode) {
+            SendMessage(GetDlgItem(hWnd,MUTE_MODE), BM_SETCHECK, BST_CHECKED, 0);
+        }
+
+        SetWindowTextW(GetDlgItem(hWnd, SOUNDS_GROUPBOX),
+                       std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
+                               .c_str());
+
+        Utils::InitTrackbar(GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR),1,MAKELONG(0,100),config->bellVolume);
+        Utils::InitTrackbar(GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR),1,MAKELONG(0,100), config->micVolume);
         SetBindingState(config->muteHotkey);
     }
 
+    void ApplyChanges() {
+        if(config->bellVolume != configTemp.bellVolume) {
+            audioManager->SetAppVolume(configTemp.bellVolume);
+        }
+        if(config->muteZeroMode != configTemp.muteZeroMode) {
+            config->muteZeroMode = configTemp.muteZeroMode;
+            SendMessage(*ownerHwnd,WM_UPDATE_MIC,0,0);
+        }
+        if(config->micVolume != configTemp.micVolume && (!configTemp.muteZeroMode || !CurrentlyMuted())) {
+            audioManager->SetMicVolume(configTemp.micVolume);
+        }
+    }
+
     inline void SetBindingState(DWORD hotkey) {
-        SendMessage(
-                GetDlgItem(this->hWnd, MUTE_HOTKEY),
-                WM_SETTEXT, 0, (LPARAM) ((LPARAM) hotkey == 0 ? "Click to bind" :
-                                         HotkeyManager::GetSequenceName(hotkey).c_str())
-        );
+        SendMessage(muteHotkey,WM_SETTEXT, 0,
+                    (LPARAM) (hotkey == 0 ? "Click to bind" :
+                            HotkeyManager::GetSequenceName(hotkey).c_str()));
+    }
+
+    bool CurrentlyMuted() {
+        bool isMuteState = audioManager->IsMicMuted();
+
+        if (!config->muteZeroMode) {
+            return isMuteState;
+        }
+
+        // If the mode is muted, need to turn on for mute/unmute by volume
+        if(isMuteState) {
+            audioManager->SetMicState(false);
+        }
+
+        return audioManager->GetMicVolume() == 0;
     }
 
     void Show() override {
@@ -57,6 +99,9 @@ public:
                             { return settings->WindowHandler(hwnd,msg,wp,lp); }
         );
 
+        micVolTrackbar = GetDlgItem(hWnd,MIC_VOLUME_TRACKBAR);
+        bellVolTrackbar = GetDlgItem(hWnd,BELL_VOLUME_TRACKBAR);
+        muteHotkey = GetDlgItem(hWnd, MUTE_HOTKEY);
         configTemp = *config;
         HotkeyManager::UnregisterHotkey();
         InitControls();
@@ -80,6 +125,7 @@ private:
         {
             case IDOK:
                 if(*config != configTemp) {
+                    ApplyChanges();
                     *config = configTemp;
                     Config::Save(&configTemp, Config::GetConfigPath());
                 }
@@ -87,18 +133,34 @@ private:
                 this->Close();
                 break;
             case MUTE_HOTKEY:
+                SendMessage(muteHotkey,WM_SETTEXT, 0, (LPARAM)"Waiting for the hotkey...");
                 HotkeyManager::Bind([this](DWORD mask)
                 {
                     SetBindingState(mask);
                     this->configTemp.muteHotkey = mask;
                 });
                 break;
-
-            case ID_AUTOSTARTUP: {
+            case ID_AUTOSTARTUP:
                 lParam = Utils::IsInAutoStartup(AppName) ? Utils::RemoveFromAutoStartup(AppName) :
                          Utils::AddToAutoStartup(AppName);
                 break;
-            }
+            case MUTE_MODE:
+                configTemp.muteZeroMode = !configTemp.muteZeroMode;
+                break;
+        }
+    }
+
+    void OnHorizontalScroll(WPARAM wParam, LPARAM lParam) {
+        if(LOWORD(wParam) != TB_ENDTRACK) {
+            return;
+        }
+
+        HWND trackHwnd = (HWND)lParam;
+        if(trackHwnd == bellVolTrackbar) {
+            configTemp.bellVolume = SendMessage(bellVolTrackbar, TBM_GETPOS, 0, 0);
+        }
+        else if(trackHwnd == micVolTrackbar) {
+            configTemp.micVolume = SendMessage(micVolTrackbar, TBM_GETPOS, 0, 0);
         }
     }
 
@@ -106,7 +168,8 @@ private:
     const std::unordered_map<UINT,WindowEvent> events = {
             {WM_INITDIALOG, [this](WPARAM wParam, LPARAM lParam) { OnInit(wParam, lParam); }  },
             {WM_DESTROY, [this](WPARAM wParam, LPARAM lParam) { OnDestroy(wParam, lParam); }  },
-            {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  }
+            {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
+            {WM_HSCROLL,[this](WPARAM wParam, LPARAM lParam) { OnHorizontalScroll(wParam, lParam); } }
     };
 };
 

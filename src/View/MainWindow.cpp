@@ -11,7 +11,7 @@ MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioMa
     this->name = name;
     this->config = config;
     this->audioManager = audioManager;
-    this->settings = new SettingsWindow(hInstance, &hWnd, config);
+    this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager);
     mainWindow = this;
 }
 
@@ -52,6 +52,7 @@ bool MainWindow::InitWindow()
             windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
 
+    this->_initComponents();
     HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
     HotkeyManager::RegisterHotkey(config->muteHotkey);
 
@@ -66,7 +67,7 @@ bool MainWindow::InitTrayIcon() {
     trayIcon.uID = IDI_MIC;
     trayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     wcscpy(trayIcon.szTip, (std::wstring(name) + L" | " + audioManager->GetDefaultMicName()).c_str());
-    trayIcon.hIcon = audioManager->IsMicMuted() ? mutedIcon : unmutedIcon;
+    trayIcon.hIcon = settings->CurrentlyMuted() ? mutedIcon : unmutedIcon;
     trayIcon.uCallbackMessage = WM_SHELLICON;
 
     // Display tray icon
@@ -147,23 +148,33 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 }
 
 void MainWindow::OnHotkeyPressed() {
-    _switchMicState(true);
+    SwitchMicState(true);
 }
 
 //#endregion
 
-void MainWindow::_switchMicState(bool playSound) {
+void MainWindow::SetMuteMode(BOOL muted)
+{
+    if (!config->muteZeroMode) {
+        audioManager->SetMicState(muted);
+        return;
+    }
+
+    audioManager->SetMicVolume(muted ? 0 : config->micVolume);
+}
+
+void MainWindow::SwitchMicState(bool playSound) {
 
     Resource* sound;
-    if(audioManager->IsMicMuted()) {
+    if(settings->CurrentlyMuted()) {
         trayIcon.hIcon = unmutedIcon;
         sound = &unmuteSound;
-        audioManager->SetMicState(FALSE);
+        SetMuteMode(FALSE);
     }
     else {
         trayIcon.hIcon = mutedIcon;
         sound = &muteSound;
-        audioManager->SetMicState(TRUE);
+        SetMuteMode(TRUE);
     }
 
     if(playSound) {
@@ -175,5 +186,19 @@ void MainWindow::_switchMicState(bool playSound) {
 HRGN MainWindow::_getWindowRegion() const {
     return CreateRoundRectRgn(0, 0, windowSize, windowSize,
                        WND_CORNER_RADIUS, WND_CORNER_RADIUS);
+}
+
+void MainWindow::_initComponents() {
+    if(config->bellVolume != 50) {
+        audioManager->SetAppVolume(config->bellVolume);
+    }
+
+    if(config->micVolume == BYTE(-1)) {
+        config->micVolume = audioManager->GetMicVolume();
+    }
+    else if((!config->muteZeroMode || !settings->CurrentlyMuted()) &&
+        config->micVolume != audioManager->GetMicVolume()) {
+        audioManager->SetMicVolume(config->micVolume);
+    }
 }
 

@@ -10,8 +10,6 @@
 #include "../HotkeyManager.h"
 #include "SettingsWindow.h"
 
-#define WM_SHELLICON (WM_USER + 1)
-
 
 class MainWindow final : public AbstractWindow {
     LPCWSTR name;
@@ -40,8 +38,11 @@ private:
 
     void OnHotkeyPressed();
 
+    void SwitchMicState(bool playSound = true);
+    void SetMuteMode(BOOL muted);
+
     HRGN _getWindowRegion() const;
-    void _switchMicState(bool playSound = true);
+    void _initComponents();
 
 public:
     MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config, AudioManager* audioManager);
@@ -65,7 +66,8 @@ private:
             {WM_PAINT, [this](WPARAM wParam, LPARAM lParam) { OnPaint(wParam, lParam); }  },
             {WM_CLOSE, [this](WPARAM wParam, LPARAM lParam) { OnClose(wParam, lParam); }  },
             {WM_SHELLICON, [this](WPARAM wParam, LPARAM lParam) { OnShellIcon(wParam, lParam); }  },
-            {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  }
+            {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
+            {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { SwitchMicState(); }  }
     };
 };
 
