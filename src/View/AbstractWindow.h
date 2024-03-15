@@ -47,6 +47,10 @@ public:
         ShowWindow(hWnd,SW_HIDE);
     }
 
+    virtual void Close() {
+        DestroyWindow(hWnd);
+    }
+
 };
 
 #endif //EASYMIC_ABSTRACTWINDOW_H

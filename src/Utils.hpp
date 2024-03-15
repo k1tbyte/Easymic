@@ -4,6 +4,11 @@
 #include <windows.h>
 #include <commctrl.h>
 
+struct Resource {
+    BYTE* buffer;
+    DWORD fileSize;
+};
+
 namespace Utils {
 
     #define AutoStartupHKEY LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)"
@@ -65,11 +70,11 @@ namespace Utils {
         if(result != ERROR_SUCCESS)
             return false;
 
-        char szFileName[MAX_PATH];
+        wchar_t szFileName[MAX_PATH];
 
-        GetModuleFileName(nullptr, szFileName, MAX_PATH);
+        GetModuleFileNameW(nullptr, szFileName, MAX_PATH);
         return RegSetValueExW(hkey, appName, 0, REG_SZ, reinterpret_cast<const BYTE *>(szFileName),
-                              strlen(szFileName)) == ERROR_SUCCESS;
+                              wcslen(szFileName) * sizeof(wchar_t)) == ERROR_SUCCESS;
     }
 
     static bool RemoveFromAutoStartup(LPCWSTR appName)

@@ -39,9 +39,12 @@ BEGIN
     DEFPUSHBUTTON   "Save",IDOK,65,185,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,122,185,50,14
 
-    GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,63
+    GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,42
     GROUPBOX        "System",IDC_STATIC,7,72,165,40
     GROUPBOX        "",SOUNDS_GROUPBOX,7,115,165,63
+
+    GROUPBOX        "On/off microphone",IDC_STATIC,11,16,157,28
+    PUSHBUTTON      "",MUTE_HOTKEY,14,25,151,14
 
     LTEXT           "Bell volume (%)",IDC_STATIC,20,130,100,15
     CONTROL         "",BELL_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,128,100,15
@@ -50,14 +53,6 @@ BEGIN
     CONTROL         "",MIC_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,145,100,15
 
     CONTROL         "Mute the mic by setting the volume to 0", MUTE_MODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,20,162,140,10
-
-    CONTROL         "Keyboard",RADIO_KEYBD,"Button",BS_AUTORADIOBUTTON,14,20,50,10
-    CONTROL         "",ID_HOTKEY_KEYBD,"msctls_hotkey32",WS_BORDER | WS_TABSTOP,84,19,80,14
-    CONTROL         "Make a hotkey available for any app", HOTKEY_AVAIL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,30,35,130,10
-
-
-    CONTROL         "Mouse",RADIO_MOUSE,"Button",BS_AUTORADIOBUTTON,14,51,60,10
-    PUSHBUTTON      "",ID_HOTKEY_MOUSE_BTN,84,48,80,14
 
     CONTROL         "Start with Windows",ID_AUTOSTARTUP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,85,120,10
     CONTROL         "Mute indicator",MUTE_INDICATOR,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,97,120,10

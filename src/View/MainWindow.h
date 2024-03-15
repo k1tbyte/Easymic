@@ -21,9 +21,13 @@ class MainWindow final : public AbstractWindow {
 
     NOTIFYICONDATAW trayIcon{};
     int windowSize{};
+
     HICON appIcon{};
     HICON mutedIcon{};
     HICON unmutedIcon{};
+
+    Resource muteSound;
+    Resource unmuteSound;
 
 private:
 
@@ -37,6 +41,7 @@ private:
     void OnHotkeyPressed();
 
     HRGN _getWindowRegion() const;
+    void _switchMicState(bool playSound = true);
 
 public:
     MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config, AudioManager* audioManager);

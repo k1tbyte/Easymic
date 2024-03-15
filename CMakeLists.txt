@@ -6,7 +6,6 @@ set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
 set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
 
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
-        src/main.hpp
         src/AudioManager.hpp
         src/Utils.hpp
         src/View/MainWindow.cpp

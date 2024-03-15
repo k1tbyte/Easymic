@@ -1,6 +1,4 @@
-#include "main.hpp"
-#include <tchar.h>
-#include <commctrl.h>
+#include "config.h"
 #include "AudioManager.hpp"
 #include "View/MainWindow.h"
 

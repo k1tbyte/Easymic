@@ -11,7 +11,7 @@ MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioMa
     this->name = name;
     this->config = config;
     this->audioManager = audioManager;
-    this->settings = new SettingsWindow(hInstance, &hWnd);
+    this->settings = new SettingsWindow(hInstance, &hWnd, config);
     mainWindow = this;
 }
 
@@ -21,6 +21,11 @@ bool MainWindow::InitWindow()
     appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
     mutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_MUTED));
     unmutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC));
+
+    Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE",
+                 &unmuteSound.buffer, &unmuteSound.fileSize);
+    Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE",
+                 &muteSound.buffer, &muteSound.fileSize);
 
     wndClass.cbSize =			sizeof(WNDCLASSEXW);
     wndClass.style = CS_VREDRAW | CS_HREDRAW | CS_DROPSHADOW;
@@ -47,7 +52,10 @@ bool MainWindow::InitWindow()
             windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
 
-    HotkeyManager::Initialize(&this->hWnd,[]() { mainWindow->OnHotkeyPressed(); } );
+    HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
+    HotkeyManager::RegisterHotkey(config->muteHotkey);
+
+    //settings->Show();
 
     return true;
 }
@@ -138,13 +146,34 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     }
 }
 
+void MainWindow::OnHotkeyPressed() {
+    _switchMicState(true);
+}
+
 //#endregion
+
+void MainWindow::_switchMicState(bool playSound) {
+
+    Resource* sound;
+    if(audioManager->IsMicMuted()) {
+        trayIcon.hIcon = unmutedIcon;
+        sound = &unmuteSound;
+        audioManager->SetMicState(FALSE);
+    }
+    else {
+        trayIcon.hIcon = mutedIcon;
+        sound = &muteSound;
+        audioManager->SetMicState(TRUE);
+    }
+
+    if(playSound) {
+        PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
+    }
+    Shell_NotifyIconW(NIM_MODIFY, &trayIcon);
+}
 
 HRGN MainWindow::_getWindowRegion() const {
     return CreateRoundRectRgn(0, 0, windowSize, windowSize,
                        WND_CORNER_RADIUS, WND_CORNER_RADIUS);
 }
 
-void MainWindow::OnHotkeyPressed() {
-
-}

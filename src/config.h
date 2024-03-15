@@ -6,6 +6,8 @@
 #include <sys/stat.h>
 #include <string>
 
+#define MutexName "Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B1"
+#define AppName L"Easymic"
 #define ConfigName "conf.bin"
 
 struct Config {
@@ -13,6 +15,7 @@ struct Config {
     BYTE indicatorSize = 16;
     USHORT windowPosX = 0;
     USHORT windowPosY = 0;
+    DWORD muteHotkey = 0;
 
     bool operator==(const Config&) const = default;
 
@@ -32,6 +35,8 @@ struct Config {
             fread(config, sizeof(Config), 1,file);
             fclose(file);
         }
+
+        config = new Config();
     }
 
     static const char* GetConfigPath()

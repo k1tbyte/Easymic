@@ -13,8 +13,7 @@
 #define IDD_SETTINGS        201
 #define ID_SETTINGS_OK      202
 #define ID_SETTINGS_CANCEL  203
-#define ID_HOTKEY_KEYBD     204
-#define ID_HOTKEY_MOUSE_BTN 205
+#define MUTE_HOTKEY         204
 #define ID_AUTOSTARTUP      206
 #define BELL_VOLUME_TRACKBAR     207
 #define HOTKEY_AVAIL        208
