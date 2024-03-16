@@ -20,7 +20,7 @@
 #define MIC_VOLUME_TRACKBAR     209
 #define MUTE_MODE     210
 #define SOUNDS_GROUPBOX     211
-#define MUTE_INDICATOR     212
+#define INDICATOR_COMBO     212
 
 #define RADIO_KEYBD                      1003
 #define RADIO_MOUSE                      1004

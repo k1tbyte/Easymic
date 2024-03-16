@@ -53,10 +53,15 @@ bool MainWindow::InitWindow()
             nullptr,nullptr,hInst,nullptr);
 
     this->_initComponents();
+
+#ifndef DEBUG
     HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
     HotkeyManager::RegisterHotkey(config->muteHotkey);
+#endif
 
-    //settings->Show();
+#ifdef DEBUG
+    settings->Show();
+#endif
 
     return true;
 }
@@ -149,6 +154,14 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 
 void MainWindow::OnHotkeyPressed() {
     SwitchMicState(true);
+}
+
+void MainWindow::OnDragEnd(WPARAM wParam, LPARAM lParam) {
+    RECT rect;
+    GetWindowRect(hWnd, &rect);
+    Config* configTemp = settings->GetTempSettings();
+    configTemp->windowPosX = rect.left;
+    configTemp->windowPosY = rect.top;
 }
 
 //#endregion

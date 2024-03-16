@@ -35,6 +35,7 @@ private:
     void OnClose(WPARAM wParam, LPARAM lParam);
     void OnShellIcon(WPARAM wParam, LPARAM lParam);
     void OnCommand(WPARAM wParam, LPARAM lParam);
+    void OnDragEnd(WPARAM wParam, LPARAM lParam);
 
     void OnHotkeyPressed();
 
@@ -67,6 +68,7 @@ private:
             {WM_CLOSE, [this](WPARAM wParam, LPARAM lParam) { OnClose(wParam, lParam); }  },
             {WM_SHELLICON, [this](WPARAM wParam, LPARAM lParam) { OnShellIcon(wParam, lParam); }  },
             {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
+            {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
             {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { _initComponents(); SwitchMicState(); }  }
     };
 };

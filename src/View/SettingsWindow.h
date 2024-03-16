@@ -12,6 +12,10 @@ static SettingsWindow* settings;
 
 class SettingsWindow final : AbstractWindow {
 
+    constexpr static const char* IndicatorStates[] = {
+            "Hidden", "Muted", "Muted or talking", "Always", "Always and talking"
+    };
+
     HWND* ownerHwnd = nullptr;
     AudioManager* audioManager;
     Config* config;
@@ -19,6 +23,7 @@ class SettingsWindow final : AbstractWindow {
     HWND micVolTrackbar;
     HWND bellVolTrackbar;
     HWND muteHotkey;
+    HWND indicatorCombo;
 
 public:
 
@@ -29,6 +34,8 @@ public:
         this->config = config;
         this->ownerHwnd = ownerHwnd;
     }
+
+    Config* GetTempSettings() { return &configTemp; }
 
     void InitControls() {
 
@@ -43,6 +50,13 @@ public:
         SetWindowTextW(GetDlgItem(hWnd, SOUNDS_GROUPBOX),
                        std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
                                .c_str());
+
+        for (const auto& IndicatorState : IndicatorStates) {
+            SendMessage(indicatorCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) IndicatorState);
+        }
+
+        SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->muteIndicator, (LPARAM)0);
+
 
         Utils::InitTrackbar(GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR),1,MAKELONG(0,100),config->bellVolume);
         Utils::InitTrackbar(GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR),1,MAKELONG(0,100), config->micVolume);
@@ -102,6 +116,7 @@ public:
         micVolTrackbar = GetDlgItem(hWnd,MIC_VOLUME_TRACKBAR);
         bellVolTrackbar = GetDlgItem(hWnd,BELL_VOLUME_TRACKBAR);
         muteHotkey = GetDlgItem(hWnd, MUTE_HOTKEY);
+        indicatorCombo = GetDlgItem(hWnd,INDICATOR_COMBO);
         configTemp = *config;
         HotkeyManager::UnregisterHotkey();
         InitControls();
@@ -116,6 +131,7 @@ private:
 
     void OnDestroy(WPARAM wParam, LPARAM lParam) {
         HotkeyManager::RegisterHotkey(config->muteHotkey);
+        // Lock indicator position
         SetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE, GetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
         hWnd = nullptr;
     }
@@ -146,6 +162,11 @@ private:
                 break;
             case MUTE_MODE:
                 configTemp.muteZeroMode = !configTemp.muteZeroMode;
+                break;
+            case INDICATOR_COMBO:
+                if(HIWORD(wParam) == CBN_SELCHANGE) {
+                    configTemp.muteIndicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
+                }
                 break;
         }
     }
