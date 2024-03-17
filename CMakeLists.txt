@@ -2,11 +2,13 @@ cmake_minimum_required(VERSION 3.27)
 project(Easymic)
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG_AUDIO")
 set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
 set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
 
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
-        src/AudioManager.hpp
+        src/Audio/AudioManager.hpp
         src/Utils.hpp
         src/View/MainWindow.cpp
         src/View/MainWindow.h
@@ -14,6 +16,8 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/View/SettingsWindow.h
         src/View/AbstractWindow.h
         src/HotkeyManager.h
+        src/Audio/SessionEvents.h
+        src/Audio/SessionNotification.h
 )
 
 set(WIN32   23)

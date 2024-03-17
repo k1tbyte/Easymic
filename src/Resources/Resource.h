@@ -3,8 +3,9 @@
 #define IDI_APP             4
 #define IDI_MIC	            5
 #define IDI_MIC_MUTED		6
-#define IDR_MUTE            7
-#define IDR_UNMUTE		    8
+#define IDI_MIC_ACTIVE		7
+#define IDR_MUTE            8
+#define IDR_UNMUTE		    9
 
 #define IDR_TRAY_MENU	    100
 #define ID_APP_EXIT         40009
@@ -21,6 +22,7 @@
 #define MUTE_MODE     210
 #define SOUNDS_GROUPBOX     211
 #define INDICATOR_COMBO     212
+#define THRESHOLD_TRACKBAR  213
 
 #define RADIO_KEYBD                      1003
 #define RADIO_MOUSE                      1004

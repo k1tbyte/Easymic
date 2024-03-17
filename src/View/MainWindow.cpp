@@ -5,13 +5,15 @@ static MainWindow* mainWindow;
 #define WND_CORNER_RADIUS 15
 #define WND_PADDING 2
 
+
 MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioManager* audioManager)
     : AbstractWindow(hInstance, &events)
 {
     this->name = name;
     this->config = config;
     this->audioManager = audioManager;
-    this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager);
+    this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager,
+                                        [this](){this->Reinitialize(); });
     mainWindow = this;
 }
 
@@ -21,6 +23,7 @@ bool MainWindow::InitWindow()
     appIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_APP));
     mutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_MUTED));
     unmutedIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC));
+    activeIcon = LoadIcon(hInst,(LPCTSTR)MAKEINTRESOURCE(IDI_MIC_ACTIVE));
 
     Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE",
                  &unmuteSound.buffer, &unmuteSound.fileSize);
@@ -33,7 +36,7 @@ bool MainWindow::InitWindow()
     wndClass.cbWndExtra =		0;
     wndClass.hInstance =		hInst;
     wndClass.hIcon =			appIcon;
-    wndClass.hbrBackground =	(HBRUSH)GetStockObject(WHITE_BRUSH);
+    wndClass.hbrBackground =	CreateSolidBrush(WND_BACKGROUND);
     wndClass.lpszClassName =	name;
     wndClass.hIconSm		 =	appIcon;
     wndClass.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -54,9 +57,9 @@ bool MainWindow::InitWindow()
 
     this->_initComponents();
 
-#ifndef DEBUG
-    HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
-    HotkeyManager::RegisterHotkey(config->muteHotkey);
+#ifdef DEBUG
+  //  HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
+  //  HotkeyManager::RegisterHotkey(config->muteHotkey);
 #endif
 
 #ifdef DEBUG
@@ -72,7 +75,7 @@ bool MainWindow::InitTrayIcon() {
     trayIcon.uID = IDI_MIC;
     trayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     wcscpy(trayIcon.szTip, (std::wstring(name) + L" | " + audioManager->GetDefaultMicName()).c_str());
-    trayIcon.hIcon = settings->CurrentlyMuted() ? mutedIcon : unmutedIcon;
+    trayIcon.hIcon = micMuted ? mutedIcon : unmutedIcon;
     trayIcon.uCallbackMessage = WM_SHELLICON;
 
     // Display tray icon
@@ -84,7 +87,7 @@ void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam)
 {
     // Window transparency
     SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 220, LWA_ALPHA  | LWA_COLORKEY);
-    HRGN windowRegion = _getWindowRegion();
+    HRGN windowRegion = CreateRoundRectRgn(0, 0, windowSize, windowSize,WND_CORNER_RADIUS, WND_CORNER_RADIUS);
     SetWindowRgn(hWnd, windowRegion, TRUE);
     DeleteObject(windowRegion);
 }
@@ -98,15 +101,12 @@ void MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam)
 void MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
-    HRGN windowRegion = _getWindowRegion();
     BYTE iconSize = config->indicatorSize;
-
-    FillRgn(hdc, windowRegion, CreateSolidBrush(WND_BACKGROUND));
+    HICON icon = micActive ? activeIcon : (micMuted ? mutedIcon : unmutedIcon);
 
     DrawIconEx(hdc, windowSize / 2 - iconSize / 2, windowSize / 2 - iconSize / 2,
-               appIcon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
+               icon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
     EndPaint(hWnd, &ps);
-    DeleteObject(windowRegion);
 }
 
 void MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
@@ -147,7 +147,21 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
         return;
     }
 
-    if(wParam == ID_APP_SETTINGS) {
+    if(wParam == ID_APP_SETTINGS && !settings->IsShown()) {
+
+        HotkeyManager::UnregisterHotkey();
+        audioManager->DisposeMicSessionsWatcher();
+
+        if(peakMeterActive) {
+            KillTimer(hWnd,MIC_PEAK_TIMER);
+            micActive = peakMeterActive = false;
+            InvalidateRect(hWnd,nullptr,TRUE);
+        }
+
+        if(config->indicator != IndicatorState::Hidden) {
+            this->Show();
+        }
+
         settings->Show();
     }
 }
@@ -177,28 +191,78 @@ void MainWindow::SetMuteMode(BOOL muted)
 }
 
 void MainWindow::SwitchMicState(bool playSound) {
-
     Resource* sound;
     if(settings->CurrentlyMuted()) {
         trayIcon.hIcon = unmutedIcon;
         sound = &unmuteSound;
+        micMuted = false;
         SetMuteMode(FALSE);
+
+        // If there are active sessions and the mode is shown only when muting
+        // or the mode is shown when muting or talking
+        if(hasActiveSessions && (config->indicator == IndicatorState::Muted ||
+           (config->indicator == IndicatorState::MutedOrTalk && !micActive))) {
+            this->Hide();
+        }
     }
     else {
         trayIcon.hIcon = mutedIcon;
         sound = &muteSound;
+        micMuted = true;
         SetMuteMode(TRUE);
+
+        if(hasActiveSessions && (config->indicator != IndicatorState::Hidden)){
+            this->Show();
+        }
     }
 
     if(playSound) {
         PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
     }
+
+    InvalidateRect(this->hWnd, nullptr, TRUE);
     Shell_NotifyIconW(NIM_MODIFY, &trayIcon);
 }
 
-HRGN MainWindow::_getWindowRegion() const {
-    return CreateRoundRectRgn(0, 0, windowSize, windowSize,
-                       WND_CORNER_RADIUS, WND_CORNER_RADIUS);
+void MainWindow::Reinitialize() {
+    if(config->indicator == IndicatorState::Hidden) {
+        return;
+    }
+
+    audioManager->StartMicSessionsWatcher([this](int count) {
+        // !!! Important !!!
+        // If we directly call this->Hide this->Show, strange things will
+        // happen to the window (as with all the crap in WinApi)
+        // Perhaps this has something to do with the fact that the calls are coming from different threads, idk
+        if(count > 0) {
+
+            if(!peakMeterActive && (config->indicator == IndicatorState::AlwaysAndTalk ||
+                                    config->indicator == IndicatorState::MutedOrTalk)) {
+                SetTimer(hWnd,MIC_PEAK_TIMER,150,nullptr);
+                peakMeterActive = true;
+            }
+
+            // If mic not muted -> return
+            if((config->indicator == IndicatorState::Muted || config->indicator == IndicatorState::MutedOrTalk) &&
+                !this->micMuted) {
+                SendMessage(hWnd,WM_SWITCH_STATE, 0, SW_HIDE);
+                return;
+            }
+
+            SendMessage(hWnd, WM_SWITCH_STATE, 0, SW_SHOW);
+
+            hasActiveSessions = true;
+            return;
+        }
+
+        if(peakMeterActive) {
+            KillTimer(hWnd,MIC_PEAK_TIMER);
+            peakMeterActive = false;
+        }
+
+        SendMessage(hWnd,WM_SWITCH_STATE, 0, SW_HIDE);
+        hasActiveSessions = false;
+    });
 }
 
 void MainWindow::_initComponents() {
@@ -206,12 +270,15 @@ void MainWindow::_initComponents() {
         audioManager->SetAppVolume(config->bellVolume);
     }
 
+    micMuted = settings->CurrentlyMuted();
+
     if(config->micVolume == BYTE(-1)) {
         config->micVolume = audioManager->GetMicVolume();
     }
-    else if((!config->muteZeroMode || !settings->CurrentlyMuted()) &&
+    else if((!config->muteZeroMode || !micMuted) &&
         config->micVolume != audioManager->GetMicVolume()) {
         audioManager->SetMicVolume(config->micVolume);
     }
+    Reinitialize();
 }
 

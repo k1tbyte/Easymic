@@ -1,5 +1,5 @@
 #include "config.h"
-#include "AudioManager.hpp"
+#include "Audio/AudioManager.hpp"
 #include "View/MainWindow.h"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
@@ -25,7 +25,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     auto* mw = new MainWindow(AppName,hInstance,&config, manager);
     mw->InitWindow();
     mw->InitTrayIcon();
-    mw->Show();
 
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {

@@ -5,6 +5,7 @@
 IDI_APP            ICON                    "appicon.ico"
 IDI_MIC            ICON                    "mic-unmuted.ico"
 IDI_MIC_MUTED      ICON                    "mic-muted-2.ico"
+IDI_MIC_ACTIVE     ICON                    "mic-active.ico"
 
 IDR_MUTE           WAVE                    "mute.wav"
 IDR_UNMUTE         WAVE                    "unmute.wav"
@@ -40,7 +41,7 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,122,185,50,14
 
     GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,42
-    GROUPBOX        "System",IDC_STATIC,7,50,165,46
+    GROUPBOX        "System",IDC_STATIC,7,50,165,63
     GROUPBOX        "",SOUNDS_GROUPBOX,7,115,165,63
 
     GROUPBOX        "On/off microphone",IDC_STATIC,11,16,157,28
@@ -57,6 +58,9 @@ BEGIN
     CONTROL         "Start with Windows",ID_AUTOSTARTUP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
     LTEXT           "Microphone indicator",IDC_STATIC,14,79,100,15
     COMBOBOX        INDICATOR_COMBO,90,77,78,70,CBS_DROPDOWNLIST  | CBS_HASSTRINGS  | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
+
+    LTEXT           "Volume threshold",IDC_STATIC,14,95,100,15
+    CONTROL         "",THRESHOLD_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,92,100,15
 END
 
 

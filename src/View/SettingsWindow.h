@@ -10,7 +10,7 @@ class SettingsWindow;
 
 static SettingsWindow* settings;
 
-class SettingsWindow final : AbstractWindow {
+class SettingsWindow final : public AbstractWindow {
 
     constexpr static const char* IndicatorStates[] = {
             "Hidden", "Muted", "Muted or talking", "Always", "Always and talking"
@@ -22,17 +22,21 @@ class SettingsWindow final : AbstractWindow {
     Config configTemp;
     HWND micVolTrackbar;
     HWND bellVolTrackbar;
+    HWND thresholdTrackbar;
     HWND muteHotkey;
     HWND indicatorCombo;
+    std::function<void()> reinitializeAction;
 
 public:
 
-    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager) : AbstractWindow(hInstance, &events)
+    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager,
+                   const std::function<void()>& reinitializeCallback) : AbstractWindow(hInstance, &events)
     {
         settings = this;
         this->audioManager = audioManager;
         this->config = config;
         this->ownerHwnd = ownerHwnd;
+        reinitializeAction = reinitializeCallback;
     }
 
     Config* GetTempSettings() { return &configTemp; }
@@ -55,11 +59,17 @@ public:
             SendMessage(indicatorCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) IndicatorState);
         }
 
-        SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->muteIndicator, (LPARAM)0);
+        SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->indicator, (LPARAM)0);
 
 
-        Utils::InitTrackbar(GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR),1,MAKELONG(0,100),config->bellVolume);
-        Utils::InitTrackbar(GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR),1,MAKELONG(0,100), config->micVolume);
+        Utils::InitTrackbar(bellVolTrackbar,1,MAKELONG(0,100),config->bellVolume);
+        Utils::InitTrackbar(micVolTrackbar,1,MAKELONG(0,100), config->micVolume);
+        Utils::InitTrackbar(thresholdTrackbar,1,MAKELONG(0,100),
+                            (int)(config->volumeThreshold*100));
+
+        if(config->indicator != IndicatorState::MutedOrTalk || config->indicator != IndicatorState::AlwaysAndTalk) {
+            EnableWindow(thresholdTrackbar,false);
+        }
         SetBindingState(config->muteHotkey);
     }
 
@@ -115,10 +125,10 @@ public:
 
         micVolTrackbar = GetDlgItem(hWnd,MIC_VOLUME_TRACKBAR);
         bellVolTrackbar = GetDlgItem(hWnd,BELL_VOLUME_TRACKBAR);
+        thresholdTrackbar = GetDlgItem(hWnd,THRESHOLD_TRACKBAR);
         muteHotkey = GetDlgItem(hWnd, MUTE_HOTKEY);
         indicatorCombo = GetDlgItem(hWnd,INDICATOR_COMBO);
         configTemp = *config;
-        HotkeyManager::UnregisterHotkey();
         InitControls();
         AbstractWindow::Show();
     }
@@ -134,6 +144,8 @@ private:
         // Lock indicator position
         SetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE, GetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
         hWnd = nullptr;
+        isShown = false;
+        reinitializeAction();
     }
 
     void OnCommand(WPARAM wParam, LPARAM lParam) {
@@ -165,7 +177,11 @@ private:
                 break;
             case INDICATOR_COMBO:
                 if(HIWORD(wParam) == CBN_SELCHANGE) {
-                    configTemp.muteIndicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
+                    configTemp.indicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
+                    SendMessage(*ownerHwnd, WM_SWITCH_STATE, 0,
+                                configTemp.indicator == IndicatorState::Hidden ? SW_HIDE : SW_SHOW );
+                    EnableWindow(thresholdTrackbar,configTemp.indicator == IndicatorState::AlwaysAndTalk ||
+                            configTemp.indicator == IndicatorState::MutedOrTalk);
                 }
                 break;
         }
@@ -182,6 +198,9 @@ private:
         }
         else if(trackHwnd == micVolTrackbar) {
             configTemp.micVolume = SendMessage(micVolTrackbar, TBM_GETPOS, 0, 0);
+        }
+        else if(trackHwnd == thresholdTrackbar) {
+            configTemp.volumeThreshold = (float)SendMessage(thresholdTrackbar, TBM_GETPOS, 0, 0) / 100;
         }
     }
 

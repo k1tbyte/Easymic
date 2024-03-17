@@ -12,6 +12,7 @@ class AbstractWindow {
 protected:
     HINSTANCE hInst = nullptr;
     HWND hWnd = nullptr;
+    bool isShown = false;
 
     const std::unordered_map<UINT, WindowEvent>* callbackList;
 
@@ -39,15 +40,38 @@ protected:
     }
 
 public:
+    inline HWND GetHwnd() { return hWnd; }
+
+    [[nodiscard]] inline bool IsShown() const { return isShown; }
+
     virtual void Show() {
+        if(isShown) {
+            return;
+        }
+
         ShowWindow(hWnd,SW_SHOW);
+        isShown = true;
     }
 
     virtual void Hide() {
+        if(!isShown) {
+            return;
+        }
+
         ShowWindow(hWnd,SW_HIDE);
+        isShown = false;
     }
 
-    virtual void Close() {
+    inline virtual void Show(int showCode) {
+        if(showCode == SW_SHOW) {
+            Show();
+            return;
+        }
+
+        Hide();
+    }
+
+    inline virtual void Close() {
         DestroyWindow(hWnd);
     }
 

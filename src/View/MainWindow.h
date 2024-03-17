@@ -6,7 +6,7 @@
 #include <cstdio>
 #include "../Resources/Resource.h"
 #include "../config.h"
-#include "../AudioManager.hpp"
+#include "../Audio/AudioManager.hpp"
 #include "../HotkeyManager.h"
 #include "SettingsWindow.h"
 
@@ -19,10 +19,15 @@ class MainWindow final : public AbstractWindow {
 
     NOTIFYICONDATAW trayIcon{};
     int windowSize{};
+    bool peakMeterActive{};
+    bool micActive{};
+    bool micMuted{};
+    bool hasActiveSessions{};
 
     HICON appIcon{};
     HICON mutedIcon{};
     HICON unmutedIcon{};
+    HICON activeIcon{};
 
     Resource muteSound;
     Resource unmuteSound;
@@ -41,8 +46,7 @@ private:
 
     void SwitchMicState(bool playSound = true);
     void SetMuteMode(BOOL muted);
-
-    HRGN _getWindowRegion() const;
+    void Reinitialize();
     void _initComponents();
 
 public:
@@ -59,6 +63,33 @@ public:
     }
 
 
+    void OnTimer(WPARAM wParam, LPARAM lParam) {
+        if(wParam != MIC_PEAK_TIMER) {
+            return;
+        }
+
+        const auto& peak = audioManager->GetMicPeak();
+        if(peak > config->volumeThreshold) {
+            if(!micActive) {
+#ifdef DEBUG_AUDIO
+                printf("The microphone has become active\n");
+#endif
+                micActive = true;
+                Show();
+                InvalidateRect(hWnd, nullptr, TRUE);
+            }
+        } else if(micActive) {
+            if(config->indicator == IndicatorState::MutedOrTalk && !micMuted) {
+                Hide();
+            }
+#ifdef DEBUG_AUDIO
+            printf("The microphone has switched to a passive state\n");
+#endif
+            micActive = false;
+            InvalidateRect(hWnd,nullptr, TRUE);
+        }
+    }
+
 private:
 
     const std::unordered_map<UINT,WindowEvent> events = {
@@ -69,7 +100,9 @@ private:
             {WM_SHELLICON, [this](WPARAM wParam, LPARAM lParam) { OnShellIcon(wParam, lParam); }  },
             {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
             {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
-            {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { _initComponents(); SwitchMicState(); }  }
+            {WM_TIMER, [this](WPARAM wParam, LPARAM lParam) { OnTimer(wParam, lParam); }  },
+            {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { _initComponents(); SwitchMicState(); }  },
+            {WM_SWITCH_STATE, [this](WPARAM wParam, LPARAM lParam){ Show((int)lParam); } }
     };
 };
 
