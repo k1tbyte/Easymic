@@ -25,6 +25,7 @@ class SettingsWindow final : public AbstractWindow {
     HWND thresholdTrackbar;
     HWND muteHotkey;
     HWND indicatorCombo;
+    HWND indicatorSizeCombo;
     std::function<void()> reinitializeAction;
 
 public:
@@ -58,6 +59,11 @@ public:
         for (const auto& IndicatorState : IndicatorStates) {
             SendMessage(indicatorCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) IndicatorState);
         }
+
+        SendMessage(indicatorSizeCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) "Tiny");
+        SendMessage(indicatorSizeCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) "Large");
+        SendMessage(indicatorSizeCombo, CB_SETCURSEL, (WPARAM)
+            (config->indicatorSize == (BYTE)IndicatorSize::Large ? 1 :0), (LPARAM)0);
 
         SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->indicator, (LPARAM)0);
 
@@ -128,6 +134,7 @@ public:
         thresholdTrackbar = GetDlgItem(hWnd,THRESHOLD_TRACKBAR);
         muteHotkey = GetDlgItem(hWnd, MUTE_HOTKEY);
         indicatorCombo = GetDlgItem(hWnd,INDICATOR_COMBO);
+        indicatorSizeCombo = GetDlgItem(hWnd,INDICATOR_SIZE_COMBO);
         configTemp = *config;
         InitControls();
         AbstractWindow::Show();
@@ -182,6 +189,13 @@ private:
                                 configTemp.indicator == IndicatorState::Hidden ? SW_HIDE : SW_SHOW );
                     EnableWindow(thresholdTrackbar,configTemp.indicator == IndicatorState::AlwaysAndTalk ||
                             configTemp.indicator == IndicatorState::MutedOrTalk);
+                }
+                break;
+
+            case INDICATOR_SIZE_COMBO:
+                if(HIWORD(wParam) == CBN_SELCHANGE) {
+                    configTemp.indicatorSize = (BYTE)(SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0) ?
+                            IndicatorSize::Tiny : IndicatorSize::Large);
                 }
                 break;
         }

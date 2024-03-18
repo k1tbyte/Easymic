@@ -23,6 +23,7 @@
 #define SOUNDS_GROUPBOX     211
 #define INDICATOR_COMBO     212
 #define THRESHOLD_TRACKBAR  213
+#define INDICATOR_SIZE_COMBO  214
 
 #define RADIO_KEYBD                      1003
 #define RADIO_MOUSE                      1004

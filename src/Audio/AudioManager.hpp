@@ -214,6 +214,8 @@ public:
 
         int sessionsCount{};
         int activeSessions{};
+        micSessions->Release();
+        micSessionManager->GetSessionEnumerator(&micSessions);
         micSessions->GetCount(&sessionsCount);
         for(int i = 0; i < sessionsCount; i++) {
             IAudioSessionControl* control;

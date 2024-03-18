@@ -23,9 +23,13 @@ enum class IndicatorState {
     AlwaysAndTalk
 };
 
+enum class IndicatorSize {
+    Tiny = 16,
+    Large = 32
+};
+
 struct Config {
 
-    BYTE indicatorSize = 16;
     USHORT windowPosX = 0;
     USHORT windowPosY = 0;
     DWORD muteHotkey = 0;
@@ -33,6 +37,7 @@ struct Config {
     BYTE micVolume = -1;
     bool muteZeroMode = false;
     IndicatorState indicator = IndicatorState::Hidden;
+    BYTE indicatorSize = 16;
     float volumeThreshold = .01f;
 
     bool operator==(const Config&) const = default;

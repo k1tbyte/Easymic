@@ -58,12 +58,12 @@ bool MainWindow::InitWindow()
     this->_initComponents();
 
 #ifdef DEBUG
-  //  HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
-  //  HotkeyManager::RegisterHotkey(config->muteHotkey);
+    HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
+    HotkeyManager::RegisterHotkey(config->muteHotkey);
 #endif
 
 #ifdef DEBUG
-    settings->Show();
+   // settings->Show();
 #endif
 
     return true;
@@ -225,6 +225,7 @@ void MainWindow::SwitchMicState(bool playSound) {
 }
 
 void MainWindow::Reinitialize() {
+    this->Hide();
     if(config->indicator == IndicatorState::Hidden) {
         return;
     }
