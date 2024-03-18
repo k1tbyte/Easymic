@@ -1,9 +1,9 @@
-#ifndef EASYMIC_SETTINGSWINDOW_H
-#define EASYMIC_SETTINGSWINDOW_H
+#ifndef EASYMIC_SETTINGSWINDOW_HPP
+#define EASYMIC_SETTINGSWINDOW_HPP
 #include <Windows.h>
 #include <cstdio>
 #include "../Resources/Resource.h"
-#include "AbstractWindow.h"
+#include "AbstractWindow.hpp"
 #include "../Utils.hpp"
 
 class SettingsWindow;
@@ -17,6 +17,7 @@ class SettingsWindow final : public AbstractWindow {
     };
 
     HWND* ownerHwnd = nullptr;
+    HICON appIcon = nullptr;
     AudioManager* audioManager;
     Config* config;
     Config configTemp;
@@ -30,10 +31,11 @@ class SettingsWindow final : public AbstractWindow {
 
 public:
 
-    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager,
+    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager, HICON icon,
                    const std::function<void()>& reinitializeCallback) : AbstractWindow(hInstance, &events)
     {
         settings = this;
+        appIcon = icon;
         this->audioManager = audioManager;
         this->config = config;
         this->ownerHwnd = ownerHwnd;
@@ -43,6 +45,7 @@ public:
     Config* GetTempSettings() { return &configTemp; }
 
     void InitControls() {
+        SendMessage(hWnd, WM_SETICON, ICON_BIG, (LPARAM)appIcon);
 
         if(Utils::IsInAutoStartup(AppName)) {
             SendMessage(GetDlgItem(hWnd,ID_AUTOSTARTUP), BM_SETCHECK, BST_CHECKED, 0);
@@ -228,5 +231,5 @@ private:
 };
 
 
-#endif //EASYMIC_SETTINGSWINDOW_H
+#endif //EASYMIC_SETTINGSWINDOW_HPP
 

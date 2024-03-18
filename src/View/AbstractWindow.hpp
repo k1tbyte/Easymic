@@ -1,5 +1,5 @@
-#ifndef EASYMIC_ABSTRACTWINDOW_H
-#define EASYMIC_ABSTRACTWINDOW_H
+#ifndef EASYMIC_ABSTRACTWINDOW_HPP
+#define EASYMIC_ABSTRACTWINDOW_HPP
 
 #include <Windows.h>
 #include <unordered_map>
@@ -77,4 +77,4 @@ public:
 
 };
 
-#endif //EASYMIC_ABSTRACTWINDOW_H
+#endif //EASYMIC_ABSTRACTWINDOW_HPP

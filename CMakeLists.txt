@@ -11,13 +11,13 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/Audio/AudioManager.hpp
         src/Utils.hpp
         src/View/MainWindow.cpp
-        src/View/MainWindow.h
-        src/config.h
-        src/View/SettingsWindow.h
-        src/View/AbstractWindow.h
-        src/HotkeyManager.h
-        src/Audio/SessionEvents.h
-        src/Audio/SessionNotification.h
+        src/View/MainWindow.hpp
+        src/config.hpp
+        src/View/SettingsWindow.hpp
+        src/View/AbstractWindow.hpp
+        src/HotkeyManager.hpp
+        src/Audio/SessionEvents.hpp
+        src/Audio/SessionNotification.hpp
 )
 
 set(WIN32   23)

@@ -1,5 +1,5 @@
-#ifndef EASYMIC_HOTKEYMANAGER_H
-#define EASYMIC_HOTKEYMANAGER_H
+#ifndef EASYMIC_HOTKEYMANAGER_HPP
+#define EASYMIC_HOTKEYMANAGER_HPP
 
 #include <functional>
 #include <utility>
@@ -450,4 +450,4 @@ inline BYTE HotkeyManager::prevCode;
 inline std::function<void()> HotkeyManager::OnHotkeyPressed;
 inline std::function<void(DWORD)> HotkeyManager::OnHotkeyBound;
 
-#endif //EASYMIC_HOTKEYMANAGER_H
+#endif //EASYMIC_HOTKEYMANAGER_HPP

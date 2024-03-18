@@ -1,10 +1,10 @@
-#ifndef EASYMIC_SESSIONNOTIFICATION_H
-#define EASYMIC_SESSIONNOTIFICATION_H
+#ifndef EASYMIC_SESSIONNOTIFICATION_HPP
+#define EASYMIC_SESSIONNOTIFICATION_HPP
 
 #include <windows.h>
 #include <audiopolicy.h>
 #include <functional>
-#include "SessionEvents.h"
+#include "SessionEvents.hpp"
 
 struct AudioSession final {
     SessionEvents* eventHandler;
@@ -64,4 +64,4 @@ public:
     }
 };
 
-#endif //EASYMIC_SESSIONNOTIFICATION_H
+#endif //EASYMIC_SESSIONNOTIFICATION_HPP

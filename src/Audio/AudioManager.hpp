@@ -9,7 +9,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
 #include <cmath>
-#include "SessionNotification.h"
+#include "SessionNotification.hpp"
 
 __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64)
 MIDL_INTERFACE("C02216F6-8C67-4B5B-9D00-D008E73E0064")

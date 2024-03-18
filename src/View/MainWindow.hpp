@@ -1,14 +1,14 @@
-#ifndef EASYMIC_MAINWINDOW_H
-#define EASYMIC_MAINWINDOW_H
+#ifndef EASYMIC_MAINWINDOW_HPP
+#define EASYMIC_MAINWINDOW_HPP
 
 #include <windows.h>
 #include <unordered_map>
 #include <cstdio>
 #include "../Resources/Resource.h"
-#include "../config.h"
+#include "../config.hpp"
 #include "../Audio/AudioManager.hpp"
-#include "../HotkeyManager.h"
-#include "SettingsWindow.h"
+#include "../HotkeyManager.hpp"
+#include "SettingsWindow.hpp"
 
 
 class MainWindow final : public AbstractWindow {
@@ -107,4 +107,4 @@ private:
 };
 
 
-#endif //EASYMIC_MAINWINDOW_H
+#endif //EASYMIC_MAINWINDOW_HPP

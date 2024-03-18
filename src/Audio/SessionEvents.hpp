@@ -1,5 +1,5 @@
-#ifndef EASYMIC_SESSIONEVENTS_H
-#define EASYMIC_SESSIONEVENTS_H
+#ifndef EASYMIC_SESSIONEVENTS_HPP
+#define EASYMIC_SESSIONEVENTS_HPP
 
 #include <windows.h>
 #include <audiopolicy.h>
@@ -102,4 +102,4 @@ public:
     }
 };
 
-#endif //EASYMIC_SESSIONEVENTS_H
+#endif //EASYMIC_SESSIONEVENTS_HPP

@@ -1,5 +1,5 @@
-#ifndef EASYMIC_CONFIG_H
-#define EASYMIC_CONFIG_H
+#ifndef EASYMIC_CONFIG_HPP
+#define EASYMIC_CONFIG_HPP
 
 #include <windows.h>
 #include <cstdio>
@@ -76,4 +76,4 @@ struct Config {
     }
 };
 
-#endif //EASYMIC_CONFIG_H
+#endif //EASYMIC_CONFIG_HPP

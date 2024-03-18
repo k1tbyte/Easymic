@@ -1,6 +1,6 @@
-#include "config.h"
+#include "config.hpp"
 #include "Audio/AudioManager.hpp"
-#include "View/MainWindow.h"
+#include "View/MainWindow.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {

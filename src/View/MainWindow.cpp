@@ -1,4 +1,4 @@
-#include "MainWindow.h"
+#include "MainWindow.hpp"
 
 static MainWindow* mainWindow;
 #define WND_BACKGROUND RGB(24,27,40)
@@ -12,7 +12,7 @@ MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioMa
     this->name = name;
     this->config = config;
     this->audioManager = audioManager;
-    this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager,
+    this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager,appIcon,
                                         [this](){this->Reinitialize(); });
     mainWindow = this;
 }
@@ -57,7 +57,7 @@ bool MainWindow::InitWindow()
 
     this->_initComponents();
 
-#ifdef DEBUG
+#ifndef DEBUG
     HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
     HotkeyManager::RegisterHotkey(config->muteHotkey);
 #endif
