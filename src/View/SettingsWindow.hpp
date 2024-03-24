@@ -18,15 +18,15 @@ class SettingsWindow final : public AbstractWindow {
 
     HWND* ownerHwnd = nullptr;
     HICON appIcon = nullptr;
-    AudioManager* audioManager;
-    Config* config;
+    AudioManager* audioManager = nullptr;
+    Config* config = nullptr;
     Config configTemp;
-    HWND micVolTrackbar;
-    HWND bellVolTrackbar;
-    HWND thresholdTrackbar;
-    HWND muteHotkey;
-    HWND indicatorCombo;
-    HWND indicatorSizeCombo;
+    HWND micVolTrackbar = nullptr;
+    HWND bellVolTrackbar = nullptr;
+    HWND thresholdTrackbar = nullptr;
+    HWND muteHotkey = nullptr;
+    HWND indicatorCombo = nullptr;
+    HWND indicatorSizeCombo = nullptr;
     std::function<void()> reinitializeAction;
 
 public:
@@ -76,8 +76,8 @@ public:
         Utils::InitTrackbar(thresholdTrackbar,1,MAKELONG(0,100),
                             (int)(config->volumeThreshold*100));
 
-        if(config->indicator != IndicatorState::MutedOrTalk || config->indicator != IndicatorState::AlwaysAndTalk) {
-            EnableWindow(thresholdTrackbar,false);
+        if(config->indicator == IndicatorState::MutedOrTalk || config->indicator == IndicatorState::AlwaysAndTalk) {
+            EnableWindow(thresholdTrackbar,true);
         }
         SetBindingState(config->muteHotkey);
     }
@@ -187,9 +187,8 @@ private:
                 break;
             case INDICATOR_COMBO:
                 if(HIWORD(wParam) == CBN_SELCHANGE) {
-                    configTemp.indicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
-                    SendMessage(*ownerHwnd, WM_SWITCH_STATE, 0,
-                                configTemp.indicator == IndicatorState::Hidden ? SW_HIDE : SW_SHOW );
+                    config->indicator = configTemp.indicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
+                    SendMessage(*ownerHwnd,WM_UPDATE_STATE,0,0);
                     EnableWindow(thresholdTrackbar,configTemp.indicator == IndicatorState::AlwaysAndTalk ||
                             configTemp.indicator == IndicatorState::MutedOrTalk);
                 }
@@ -220,7 +219,6 @@ private:
             configTemp.volumeThreshold = (float)SendMessage(thresholdTrackbar, TBM_GETPOS, 0, 0) / 100;
         }
     }
-
 
     const std::unordered_map<UINT,WindowEvent> events = {
             {WM_INITDIALOG, [this](WPARAM wParam, LPARAM lParam) { OnInit(wParam, lParam); }  },

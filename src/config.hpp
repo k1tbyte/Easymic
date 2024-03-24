@@ -13,7 +13,7 @@
 #define WM_SHELLICON (WM_USER + 1)
 #define WM_UPDATE_MIC (WM_USER + 2)
 #define MIC_PEAK_TIMER (WM_USER + 3)
-#define WM_SWITCH_STATE (WM_USER + 4)
+#define WM_UPDATE_STATE (WM_USER + 4)
 
 enum class IndicatorState {
     Hidden,

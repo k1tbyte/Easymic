@@ -20,8 +20,11 @@ class MainWindow final : public AbstractWindow {
     NOTIFYICONDATAW trayIcon{};
     int windowSize{};
     bool peakMeterActive{};
-    bool micActive{};
     bool micMuted{};
+
+    // if the mic captures sound
+    bool micActive{};
+    // if at least one microphone session is active
     bool hasActiveSessions{};
 
     HICON appIcon{};
@@ -62,6 +65,23 @@ public:
                      width, height,SWP_NOSIZE | SWP_NOZORDER);
     }
 
+    void UpdateWindowState() {
+        using enum IndicatorState;
+        static const auto& state = config->indicator;
+
+        if(!hasActiveSessions || state == Hidden) {
+            this->Hide();
+            return;
+        }
+
+        if(state == Always || state == AlwaysAndTalk || micMuted || (micActive && state == MutedOrTalk)) {
+            this->Show();
+            return;
+        }
+        this->Hide();
+
+    }
+
 
     void OnTimer(WPARAM wParam, LPARAM lParam) {
         if(wParam != MIC_PEAK_TIMER) {
@@ -75,17 +95,16 @@ public:
                 printf("The microphone has become active\n");
 #endif
                 micActive = true;
-                Show();
+                UpdateWindowState();
                 InvalidateRect(hWnd, nullptr, TRUE);
             }
-        } else if(micActive) {
-            if(config->indicator == IndicatorState::MutedOrTalk && !micMuted) {
-                Hide();
-            }
+        }
+        else if(micActive) {
 #ifdef DEBUG_AUDIO
             printf("The microphone has switched to a passive state\n");
 #endif
             micActive = false;
+            UpdateWindowState();
             InvalidateRect(hWnd,nullptr, TRUE);
         }
     }
@@ -102,7 +121,7 @@ private:
             {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
             {WM_TIMER, [this](WPARAM wParam, LPARAM lParam) { OnTimer(wParam, lParam); }  },
             {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { _initComponents(); SwitchMicState(); }  },
-            {WM_SWITCH_STATE, [this](WPARAM wParam, LPARAM lParam){ Show((int)lParam); } }
+            {WM_UPDATE_STATE, [this](WPARAM wParam, LPARAM lParam){ UpdateWindowState(); } }
     };
 };
 

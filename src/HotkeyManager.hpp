@@ -22,6 +22,10 @@ public:
 
     static void Initialize(const std::function<void()>& hotkeyPressed) {
         HotkeyManager::OnHotkeyPressed = hotkeyPressed;
+        keybdHook = mouseHook = nullptr;
+        hotkeySequenceMask = currentSequenceMask = 0;
+        mouseWm = 0;
+        prevCode = codeNum = 0;
     }
 
     static LRESULT CALLBACK MouseInterceptor(int code, WPARAM wParam, LPARAM lParam) {
@@ -130,7 +134,7 @@ public:
     }
 
     static void RegisterHotkey(DWORD hotkeyMask) {
-        bool mouseHooked, keybdHooked;
+        bool mouseHooked = false, keybdHooked = false;
         UnregisterHotkey();
         HotkeyManager::hotkeySequenceMask = hotkeyMask;
         const auto& keys = GetKeys(hotkeyMask);

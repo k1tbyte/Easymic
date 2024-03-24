@@ -57,10 +57,10 @@ bool MainWindow::InitWindow()
 
     this->_initComponents();
 
-#ifndef DEBUG
+
     HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
     HotkeyManager::RegisterHotkey(config->muteHotkey);
-#endif
+
 
 #ifdef DEBUG
    // settings->Show();
@@ -197,35 +197,26 @@ void MainWindow::SwitchMicState(bool playSound) {
         sound = &unmuteSound;
         micMuted = false;
         SetMuteMode(FALSE);
-
-        // If there are active sessions and the mode is shown only when muting
-        // or the mode is shown when muting or talking
-        if(hasActiveSessions && (config->indicator == IndicatorState::Muted ||
-           (config->indicator == IndicatorState::MutedOrTalk && !micActive))) {
-            this->Hide();
-        }
     }
     else {
         trayIcon.hIcon = mutedIcon;
         sound = &muteSound;
         micMuted = true;
         SetMuteMode(TRUE);
-
-        if(hasActiveSessions && (config->indicator != IndicatorState::Hidden)){
-            this->Show();
-        }
     }
 
     if(playSound) {
         PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
     }
 
+    UpdateWindowState();
     InvalidateRect(this->hWnd, nullptr, TRUE);
     Shell_NotifyIconW(NIM_MODIFY, &trayIcon);
 }
 
+
 void MainWindow::Reinitialize() {
-    this->Hide();
+    SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
     if(config->indicator == IndicatorState::Hidden) {
         return;
     }
@@ -243,16 +234,8 @@ void MainWindow::Reinitialize() {
                 peakMeterActive = true;
             }
 
-            // If mic not muted -> return
-            if((config->indicator == IndicatorState::Muted || config->indicator == IndicatorState::MutedOrTalk) &&
-                !this->micMuted) {
-                SendMessage(hWnd,WM_SWITCH_STATE, 0, SW_HIDE);
-                return;
-            }
-
-            SendMessage(hWnd, WM_SWITCH_STATE, 0, SW_SHOW);
-
             hasActiveSessions = true;
+            SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
             return;
         }
 
@@ -261,7 +244,7 @@ void MainWindow::Reinitialize() {
             peakMeterActive = false;
         }
 
-        SendMessage(hWnd,WM_SWITCH_STATE, 0, SW_HIDE);
+        SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
         hasActiveSessions = false;
     });
 }
