@@ -10,6 +10,7 @@
 #include <propvarutil.h>
 #include <cmath>
 #include "SessionNotification.hpp"
+#include "VolumeNotification.hpp"
 
 __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64)
 MIDL_INTERFACE("C02216F6-8C67-4B5B-9D00-D008E73E0064")
@@ -25,7 +26,7 @@ public:
 
 // WASAPI manager
 //
-class AudioManager {
+class AudioManager final {
 
 private:
     constexpr static const GUID IDeviceFriendlyName =
@@ -50,7 +51,13 @@ private:
     IAudioSessionControl* pSessionControl = nullptr;
     ISimpleAudioVolume* appVolume = nullptr;
 
+    BOOL isMicMuted = false;
+    float micVolumeLevel = .0f;
+
 public:
+
+    std::function<void()> OnMicStateChanged = nullptr;
+
 
     AudioManager()
     {
@@ -107,6 +114,16 @@ public:
         pSessionManager->GetAudioSessionControl(nullptr, FALSE, &pSessionControl);
         pSessionControl->QueryInterface(IID_PPV_ARGS(&appVolume));
 
+        micVolumeEndpoint->GetMute(&isMicMuted);
+        micVolumeEndpoint->GetMasterVolumeLevelScalar(&micVolumeLevel);
+        micVolumeEndpoint->RegisterControlChangeNotify(new VolumeNotification([this] (BOOL isMuted, float volume) {
+            this->isMicMuted = isMuted;
+            this->micVolumeLevel = volume;
+            if(this->OnMicStateChanged) {
+                this->OnMicStateChanged();
+            }
+        }));
+
         deviceEnumerator->Release();
         captureDevice->Release();
         renderDevice->Release();
@@ -129,11 +146,9 @@ public:
         this->SetAppVolume((float)volume/100);
     }
 
-    BOOL IsMicMuted()
+    [[nodiscard]] BOOL IsMicMuted() const
     {
-        BOOL wasMuted;
-        micVolumeEndpoint->GetMute(&wasMuted);
-        return wasMuted;
+        return isMicMuted;
     }
 
     void SetMicState(BOOL muted)
@@ -148,9 +163,7 @@ public:
 
     [[nodiscard]] BYTE GetMicVolume() const
     {
-        float level;
-        micVolumeEndpoint->GetMasterVolumeLevelScalar(&level);
-        return std::ceil(level * 100) ;
+        return std::ceil(micVolumeLevel * 100) ;
     }
 
     [[nodiscard]] float GetMicPeak() const

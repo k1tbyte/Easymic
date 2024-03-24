@@ -57,6 +57,13 @@ bool MainWindow::InitWindow()
 
     this->_initComponents();
 
+    audioManager->OnMicStateChanged = [this](){
+        const auto& state = this->settings->CurrentlyMuted();
+        if(state != micMuted) {
+            micMuted = state;
+            SendMessage(this->hWnd, WM_UPDATE_MIC,0, 1);
+        }
+    };
 
     HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
     HotkeyManager::RegisterHotkey(config->muteHotkey);
@@ -167,7 +174,7 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 }
 
 void MainWindow::OnHotkeyPressed() {
-    SwitchMicState(true);
+    SwitchMicState();
 }
 
 void MainWindow::OnDragEnd(WPARAM wParam, LPARAM lParam) {
@@ -190,29 +197,10 @@ void MainWindow::SetMuteMode(BOOL muted)
     audioManager->SetMicVolume(muted ? 0 : config->micVolume);
 }
 
-void MainWindow::SwitchMicState(bool playSound) {
-    Resource* sound;
-    if(settings->CurrentlyMuted()) {
-        trayIcon.hIcon = unmutedIcon;
-        sound = &unmuteSound;
-        micMuted = false;
-        SetMuteMode(FALSE);
-    }
-    else {
-        trayIcon.hIcon = mutedIcon;
-        sound = &muteSound;
-        micMuted = true;
-        SetMuteMode(TRUE);
-    }
-
-    if(playSound) {
-        PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
-    }
-
-    UpdateWindowState();
-    InvalidateRect(this->hWnd, nullptr, TRUE);
-    Shell_NotifyIconW(NIM_MODIFY, &trayIcon);
+inline void MainWindow::SwitchMicState() {
+    SetMuteMode(!micMuted);
 }
+
 
 
 void MainWindow::Reinitialize() {
@@ -244,8 +232,8 @@ void MainWindow::Reinitialize() {
             peakMeterActive = false;
         }
 
-        SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
         hasActiveSessions = false;
+        SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
     });
 }
 

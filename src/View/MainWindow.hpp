@@ -20,10 +20,10 @@ class MainWindow final : public AbstractWindow {
     NOTIFYICONDATAW trayIcon{};
     int windowSize{};
     bool peakMeterActive{};
-    bool micMuted{};
+    bool micMuted = false;
 
     // if the mic captures sound
-    bool micActive{};
+    BYTE micActive{};
     // if at least one microphone session is active
     bool hasActiveSessions{};
 
@@ -47,7 +47,7 @@ private:
 
     void OnHotkeyPressed();
 
-    void SwitchMicState(bool playSound = true);
+    void SwitchMicState();
     void SetMuteMode(BOOL muted);
     void Reinitialize();
     void _initComponents();
@@ -82,6 +82,31 @@ public:
 
     }
 
+    void SetMicState(bool playSound) {
+        Resource* sound;
+        if(this->micMuted) {
+            trayIcon.hIcon = mutedIcon;
+            sound = &muteSound;
+        }
+        else {
+            trayIcon.hIcon = unmutedIcon;
+            sound = &unmuteSound;
+        }
+
+        if(playSound) {
+            PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
+        }
+
+        if(config->indicator != IndicatorState::Hidden) {
+            UpdateWindowState();
+            InvalidateRect(this->hWnd, nullptr, TRUE);
+        }
+
+        Shell_NotifyIconW(NIM_MODIFY, &trayIcon);
+    }
+
+
+    int timerCallbacks = 0;
 
     void OnTimer(WPARAM wParam, LPARAM lParam) {
         if(wParam != MIC_PEAK_TIMER) {
@@ -94,18 +119,22 @@ public:
 #ifdef DEBUG_AUDIO
                 printf("The microphone has become active\n");
 #endif
-                micActive = true;
+                micActive = 2;
                 UpdateWindowState();
                 InvalidateRect(hWnd, nullptr, TRUE);
             }
         }
         else if(micActive) {
+            // This is necessary so that the indicator does not irritate with its frequent blinking
+            // There will be a slight delay after the volume indicator goes silent.
+            micActive--;
+            if(!micActive) {
 #ifdef DEBUG_AUDIO
-            printf("The microphone has switched to a passive state\n");
+                printf("The microphone has switched to a passive state\n");
 #endif
-            micActive = false;
-            UpdateWindowState();
-            InvalidateRect(hWnd,nullptr, TRUE);
+                UpdateWindowState();
+                InvalidateRect(hWnd, nullptr, TRUE);
+            }
         }
     }
 
@@ -120,7 +149,7 @@ private:
             {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
             {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
             {WM_TIMER, [this](WPARAM wParam, LPARAM lParam) { OnTimer(wParam, lParam); }  },
-            {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { _initComponents(); SwitchMicState(); }  },
+            {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { SetMicState(lParam); }  },
             {WM_UPDATE_STATE, [this](WPARAM wParam, LPARAM lParam){ UpdateWindowState(); } }
     };
 };

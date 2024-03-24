@@ -18,6 +18,7 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
         src/HotkeyManager.hpp
         src/Audio/SessionEvents.hpp
         src/Audio/SessionNotification.hpp
+        src/Audio/VolumeNotification.hpp
 )
 
 set(WIN32   23)

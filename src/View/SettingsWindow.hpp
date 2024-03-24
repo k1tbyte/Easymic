@@ -110,7 +110,10 @@ public:
 
         // If the mode is muted, need to turn on for mute/unmute by volume
         if(isMuteState) {
+            const auto temp = audioManager->OnMicStateChanged;
+            audioManager->OnMicStateChanged = nullptr;
             audioManager->SetMicState(false);
+            audioManager->OnMicStateChanged = temp;
         }
 
         return audioManager->GetMicVolume() == 0;

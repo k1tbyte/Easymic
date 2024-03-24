@@ -11,12 +11,12 @@ struct AudioSession final {
     IAudioSessionControl* audioControl;
 };
 
-class SessionNotification : public IAudioSessionNotification {
+class SessionNotification final : public IAudioSessionNotification {
 
 private:
     LONG rc;
     std::function<void(IAudioSessionControl*)> OnSessionRegistered;
-    ~SessionNotification() {}
+    ~SessionNotification() = default;
 
 public:
     SessionNotification(const std::function<void(IAudioSessionControl*)>& onRegistered) : rc(1) {
