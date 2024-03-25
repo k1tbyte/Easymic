@@ -15,6 +15,7 @@ class HotkeyManager final {
     static DWORD currentSequenceMask;
     static DWORD hotkeySequenceMask;
     static WORD mouseWm;
+    static BYTE mouseData;
 
     static int codeNum;
     static BYTE prevCode;
@@ -25,43 +26,47 @@ public:
         keybdHook = mouseHook = nullptr;
         hotkeySequenceMask = currentSequenceMask = 0;
         mouseWm = 0;
+        mouseData = 0;
         prevCode = codeNum = 0;
     }
 
     static LRESULT CALLBACK MouseInterceptor(int code, WPARAM wParam, LPARAM lParam) {
 
-        if(code != HC_ACTION) {
+        if(code != HC_ACTION || wParam == WM_MOUSEMOVE ||
+            wParam == WM_LBUTTONUP || wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONDBLCLK) {
             goto exit;
         }
 
+        static MSLLHOOKSTRUCT * event;
         // If WM is known, we do not need to iterate through everything
         if(mouseWm) {
-            if(wParam == mouseWm) OnHotkeyPressed();
+            if(wParam == mouseWm && (mouseData == 0 ||
+                (((MSLLHOOKSTRUCT *)lParam)->mouseData >> 16) == mouseData)) {
+                OnHotkeyPressed();
+            }
             goto exit;
         }
 
-        {
-            auto *event = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
-            switch (wParam) {
-                case WM_XBUTTONDOWN: {
-                    HotkeyPressed((event->mouseData >> 16) + 4, true);
-                    break;
-                }
-                case WM_MBUTTONDOWN:
-                    HotkeyPressed(VK_MBUTTON, true);
-                    break;
-                case WM_RBUTTONDOWN:
-                    HotkeyPressed(VK_RBUTTON, true);
-                    break;
-
-                case WM_LBUTTONDOWN:
-                case WM_XBUTTONUP:
-                case WM_MBUTTONUP:
-                case WM_RBUTTONUP:
-                    ResetSequence();
-                    break;
-
+        event = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
+        switch (wParam) {
+            case WM_XBUTTONDOWN: {
+                HotkeyPressed((event->mouseData >> 16) + 4, true);
+                break;
             }
+            case WM_MBUTTONDOWN:
+                HotkeyPressed(VK_MBUTTON, true);
+                break;
+            case WM_RBUTTONDOWN:
+                HotkeyPressed(VK_RBUTTON, true);
+                break;
+
+            case WM_LBUTTONDOWN:
+            case WM_XBUTTONUP:
+            case WM_MBUTTONUP:
+            case WM_RBUTTONUP:
+                ResetSequence();
+                break;
+
         }
 
         exit: return CallNextHookEx(nullptr, code, wParam, lParam);
@@ -141,9 +146,10 @@ public:
 
         for(const auto& key : keys) {
             if(!mouseHooked && (key == VK_MBUTTON || key == VK_XBUTTON1 || key == VK_XBUTTON2 || key == VK_RBUTTON)) {
-                mouseHook = SetWindowsHookEx(WH_MOUSE_LL, MouseInterceptor, nullptr, 0);
                 mouseWm = (key == VK_MBUTTON ? WM_MBUTTONUP :
-                        (key == VK_RBUTTON ? WM_RBUTTONUP : WM_XBUTTONUP));
+                           (key == VK_RBUTTON ? WM_RBUTTONUP : WM_XBUTTONUP));
+                mouseData = (key == VK_XBUTTON1  || key == VK_XBUTTON2)  ? (key - 4) : 0;
+                mouseHook = SetWindowsHookEx(WH_MOUSE_LL, MouseInterceptor, nullptr, 0);
                 mouseHooked = true;
                 continue;
             }
@@ -208,6 +214,7 @@ public:
         OnHotkeyBound = nullptr;
         hotkeySequenceMask = 0;
         mouseWm = 0;
+        mouseData = 0;
     }
 
     //#region <== Names table ==>
@@ -447,6 +454,7 @@ public:
 inline DWORD HotkeyManager::hotkeySequenceMask;
 inline DWORD HotkeyManager::currentSequenceMask;
 inline WORD HotkeyManager::mouseWm;
+inline BYTE HotkeyManager::mouseData;
 inline HHOOK HotkeyManager::keybdHook;
 inline HHOOK HotkeyManager::mouseHook;
 inline int HotkeyManager::codeNum;
