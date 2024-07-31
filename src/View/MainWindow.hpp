@@ -150,7 +150,9 @@ private:
             {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
             {WM_TIMER, [this](WPARAM wParam, LPARAM lParam) { OnTimer(wParam, lParam); }  },
             {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { SetMicState(lParam); }  },
-            {WM_UPDATE_STATE, [this](WPARAM wParam, LPARAM lParam){ UpdateWindowState(); } }
+            {WM_UPDATE_STATE, [this](WPARAM wParam, LPARAM lParam){ UpdateWindowState(); } },
+            // We need to re-initialize the tray icon when the explorer restarts or crashes.
+            { RegisterWindowMessageA("TaskbarCreated"), [this](WPARAM wParam, LPARAM lParam){ InitTrayIcon(); } }
     };
 };
 
