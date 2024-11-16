@@ -4,7 +4,7 @@
 
 By intercepting **system-level microphone callbacks**, Easymic guarantees that your microphone is muted when you need it to be, preventing awkward moments during calls or streams. The app is designed for speed, efficiency, and simplicity, all while consuming minimal system resources.
 
-Built with **Native WinAPI** in **C++**, Easymic leverages the full power of the Windows ecosystem to provide an unparalleled experience for managing your microphone.
+Easymic, built using **Native WinAPI** in **C++**. Sacrificing the beauty of the UI for maximum performance.
 
 ---
 
