@@ -40,6 +40,8 @@ protected:
     }
 
 public:
+    virtual ~AbstractWindow() = default;
+
     inline HWND GetHwnd() { return hWnd; }
 
     [[nodiscard]] inline bool IsShown() const { return isShown; }

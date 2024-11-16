@@ -30,15 +30,15 @@ enum class IndicatorSize {
 
 struct Config {
 
-    USHORT windowPosX = 0;
-    USHORT windowPosY = 0;
-    DWORD muteHotkey = 0;
-    BYTE bellVolume = 50;
-    BYTE micVolume = -1;
-    bool muteZeroMode = false;
+    USHORT windowPosX        = 0;
+    USHORT windowPosY        = 0;
+    DWORD muteHotkey         = 0;
+    BYTE bellVolume          = 50;
+    BYTE micVolume           = -1;
+    bool muteZeroMode        = false;
     IndicatorState indicator = IndicatorState::Hidden;
-    BYTE indicatorSize = 16;
-    float volumeThreshold = .01f;
+    BYTE indicatorSize       = 16;
+    float volumeThreshold    = .01f;
 
     bool operator==(const Config&) const = default;
 
@@ -69,7 +69,7 @@ struct Config {
         GetModuleFileName(nullptr, buffer, MAX_PATH);
 
         const auto pos = std::string(buffer).find_last_of("\\/");
-        const auto path =std::string(buffer).substr(0, pos).append("\\").append(ConfigName);
+        const auto path = std::string(buffer).substr(0, pos).append("\\").append(ConfigName);
         char* configPath = new char[path.length()];
         strcpy(configPath,path.c_str());
         return configPath;

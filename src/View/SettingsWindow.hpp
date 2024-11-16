@@ -1,7 +1,6 @@
 #ifndef EASYMIC_SETTINGSWINDOW_HPP
 #define EASYMIC_SETTINGSWINDOW_HPP
 #include <Windows.h>
-#include <cstdio>
 #include "../Resources/Resource.h"
 #include "AbstractWindow.hpp"
 #include "../Utils.hpp"
@@ -16,17 +15,17 @@ class SettingsWindow final : public AbstractWindow {
             "Hidden", "Muted", "Muted or talking", "Always", "Always and talking"
     };
 
-    HWND* ownerHwnd = nullptr;
-    HICON appIcon = nullptr;
+    HWND* ownerHwnd            = nullptr;
+    HICON appIcon              = nullptr;
     AudioManager* audioManager = nullptr;
-    Config* config = nullptr;
+    Config* config             = nullptr;
     Config configTemp;
-    HWND micVolTrackbar = nullptr;
-    HWND bellVolTrackbar = nullptr;
-    HWND thresholdTrackbar = nullptr;
-    HWND muteHotkey = nullptr;
-    HWND indicatorCombo = nullptr;
-    HWND indicatorSizeCombo = nullptr;
+    HWND micVolTrackbar        = nullptr;
+    HWND bellVolTrackbar       = nullptr;
+    HWND thresholdTrackbar     = nullptr;
+    HWND muteHotkey            = nullptr;
+    HWND indicatorCombo        = nullptr;
+    HWND indicatorSizeCombo    = nullptr;
     std::function<void()> reinitializeAction;
 
 public:
@@ -34,11 +33,11 @@ public:
     SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager, HICON icon,
                    const std::function<void()>& reinitializeCallback) : AbstractWindow(hInstance, &events)
     {
-        settings = this;
-        appIcon = icon;
+        settings           = this;
+        appIcon            = icon;
         this->audioManager = audioManager;
-        this->config = config;
-        this->ownerHwnd = ownerHwnd;
+        this->config       = config;
+        this->ownerHwnd    = ownerHwnd;
         reinitializeAction = reinitializeCallback;
     }
 
@@ -82,7 +81,7 @@ public:
         SetBindingState(config->muteHotkey);
     }
 
-    void ApplyChanges() {
+    void ApplyChanges() const {
         if(config->bellVolume != configTemp.bellVolume) {
             audioManager->SetAppVolume(configTemp.bellVolume);
         }
@@ -95,13 +94,13 @@ public:
         }
     }
 
-    inline void SetBindingState(DWORD hotkey) {
+    inline void SetBindingState(DWORD hotkey) const {
         SendMessage(muteHotkey,WM_SETTEXT, 0,
                     (LPARAM) (hotkey == 0 ? "Click to bind" :
                             HotkeyManager::GetSequenceName(hotkey).c_str()));
     }
 
-    bool CurrentlyMuted() {
+    bool CurrentlyMuted() const {
         bool isMuteState = audioManager->IsMicMuted();
 
         if (!config->muteZeroMode) {
@@ -135,20 +134,20 @@ public:
                             { return settings->WindowHandler(hwnd,msg,wp,lp); }
         );
 
-        micVolTrackbar = GetDlgItem(hWnd,MIC_VOLUME_TRACKBAR);
-        bellVolTrackbar = GetDlgItem(hWnd,BELL_VOLUME_TRACKBAR);
-        thresholdTrackbar = GetDlgItem(hWnd,THRESHOLD_TRACKBAR);
-        muteHotkey = GetDlgItem(hWnd, MUTE_HOTKEY);
-        indicatorCombo = GetDlgItem(hWnd,INDICATOR_COMBO);
-        indicatorSizeCombo = GetDlgItem(hWnd,INDICATOR_SIZE_COMBO);
-        configTemp = *config;
+        micVolTrackbar     = GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR);
+        bellVolTrackbar    = GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR);
+        thresholdTrackbar  = GetDlgItem(hWnd, THRESHOLD_TRACKBAR);
+        muteHotkey         = GetDlgItem(hWnd, MUTE_HOTKEY);
+        indicatorCombo     = GetDlgItem(hWnd, INDICATOR_COMBO);
+        indicatorSizeCombo = GetDlgItem(hWnd, INDICATOR_SIZE_COMBO);
+        configTemp         = *config;
         InitControls();
         AbstractWindow::Show();
     }
 
 private:
 
-    void OnInit(WPARAM wParam, LPARAM lParam) {
+    void OnInit(WPARAM wParam, LPARAM lParam) const {
         Utils::CenterWindowOnScreen(hWnd);
     }
 
@@ -156,7 +155,7 @@ private:
         HotkeyManager::RegisterHotkey(config->muteHotkey);
         // Lock indicator position
         SetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE, GetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
-        hWnd = nullptr;
+        hWnd    = nullptr;
         isShown = false;
         reinitializeAction();
     }
@@ -182,7 +181,7 @@ private:
                 });
                 break;
             case ID_AUTOSTARTUP:
-                lParam = Utils::IsInAutoStartup(AppName) ? Utils::RemoveFromAutoStartup(AppName) :
+                Utils::IsInAutoStartup(AppName) ? Utils::RemoveFromAutoStartup(AppName) :
                          Utils::AddToAutoStartup(AppName);
                 break;
             case MUTE_MODE:
@@ -190,7 +189,7 @@ private:
                 break;
             case INDICATOR_COMBO:
                 if(HIWORD(wParam) == CBN_SELCHANGE) {
-                    config->indicator = configTemp.indicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
+                    configTemp.indicator = (IndicatorState)SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0);
                     SendMessage(*ownerHwnd,WM_UPDATE_STATE,0,0);
                     EnableWindow(thresholdTrackbar,configTemp.indicator == IndicatorState::AlwaysAndTalk ||
                             configTemp.indicator == IndicatorState::MutedOrTalk);
@@ -211,7 +210,7 @@ private:
             return;
         }
 
-        HWND trackHwnd = (HWND)lParam;
+        auto trackHwnd = (HWND)lParam;
         if(trackHwnd == bellVolTrackbar) {
             configTemp.bellVolume = SendMessage(bellVolTrackbar, TBM_GETPOS, 0, 0);
         }
