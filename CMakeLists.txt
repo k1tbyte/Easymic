@@ -1,40 +1,87 @@
 cmake_minimum_required(VERSION 3.27)
-project(Easymic)
 
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG_AUDIO")
-set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
-set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
+project(Easymic)
 
-set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
-        src/Audio/AudioManager.hpp
-        src/Utils.hpp
-        src/View/MainWindow.cpp
-        src/View/MainWindow.hpp
-        src/config.hpp
-        src/View/SettingsWindow.hpp
-        src/View/AbstractWindow.hpp
-        src/HotkeyManager.hpp
-        src/Audio/SessionEvents.hpp
-        src/Audio/SessionNotification.hpp
-        src/Audio/VolumeNotification.hpp
+
+set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
+file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
+
+add_executable(${PROJECT_NAME} #[[WIN32]])
+
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        ole32
+        uuid
+        wsock32
+        ws2_32
+        winmm
+        gdiplus
+        comctl32
 )
 
-set(WIN32   23)
 
-set(CMAKE_CXX_STANDARD_LIBRARIES "-static-libgcc -static-libstdc++ -lwsock32 -lws2_32 -lwinmm ${CMAKE_CXX_STANDARD_LIBRARIES}")
+set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")
 
-if (${IS_RELEASE})
+target_sources(${PROJECT_NAME} PRIVATE ${RESOURCE}
+        ${CPP_FILES}
+        ${HPP_FILES}
+)
 
-    #[[ We indicate that we do not need a console ]]
-    set(CMAKE_WIN32_EXECUTABLE TRUE)
+target_include_directories(${PROJECT_NAME} PUBLIC
+        src
+        src/Lib
+        src/Audio
+        src/View
+)
 
-    set(CMAKE_EXE_LINKER_FLAGS "-Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive ${CMAKE_EXE_LINKER_FLAGS}")
+if(MINGW)
+#[[    target_compile_options(${PROJECT_NAME} PRIVATE
+            -ffunction-sections
+            -fdata-sections
+            -fno-rtti
+            -fno-unwind-tables
+    )]]
 
-    #[[ !! You must put FLAGS and LINKER FLAGS at the end, otherwise the WIN PTHREADS version will be used !! ]]
-    set(CMAKE_CXX_LINK_EXECUTABLE "<CMAKE_CXX_COMPILER> <OBJECTS> <LINK_LIBRARIES> -o <TARGET> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS>")
-endif ()
+    target_link_options(${PROJECT_NAME} PRIVATE
+            -static-libgcc
+            -static-libstdc++
+            -Wl,--allow-multiple-definition
+#[[            -Wl,--gc-sections         # remove unused sections
+            -Wl,--strip-all          # remove debugging symbols
+            -Wl,--strip-debug
+            -s                       # additional stripping]]
+    )
+
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+
+        target_link_options(${PROJECT_NAME} PRIVATE
+                -Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive
+        )
+    endif()
+elseif(MSVC)
+
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            /GS-                     # отключить проверки переполнения буфера
+            /GR-                     # отключить RTTI если не нужен
+    )
+
+    # MSVC specific settings for Windows application
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+
+    # Disable automatic manifest generation to avoid conflicts with Resource.rc
+    target_link_options(${PROJECT_NAME} PRIVATE
+        /MANIFEST:NO
+    )
+endif()
 
 
-add_executable(${PROJECT_NAME} ${RESOURCE} src/main.cpp)
+
+
+
+

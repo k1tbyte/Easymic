@@ -1,9 +1,6 @@
 #ifndef EASYMIC_HOTKEYMANAGER_HPP
 #define EASYMIC_HOTKEYMANAGER_HPP
 
-#include <functional>
-#include <utility>
-
 #define HKModifier(h) ((HIBYTE (h) & 2) | ((HIBYTE (h) & 4) >> 2) | ((HIBYTE (h) & 1) << 2))
 
 class HotkeyManager final {
@@ -42,7 +39,14 @@ public:
         if(mouseWm) {
             if(wParam == mouseWm && (mouseData == 0 ||
                 (((MSLLHOOKSTRUCT *)lParam)->mouseData >> 16) == mouseData)) {
-                OnHotkeyPressed();
+                /*std::future<void> result = std::async(std::launch::async,[]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    const auto mask = HotkeyManager::hotkeySequenceMask;
+                    UnregisterHotkey();
+                    OnHotkeyPressed();
+                    RegisterHotkey(mask);
+                });*/
+                /*OnHotkeyPressed();*/
             }
             goto exit;
         }

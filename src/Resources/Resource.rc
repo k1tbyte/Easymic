@@ -1,10 +1,16 @@
+﻿#include <windows.h>
+#include <commctrl.h>
+#include <richedit.h>
 
 #include "resource.h"
 #include "winres.h"
 
+
+#pragma code_page(65001)
+
 IDI_APP            ICON                    "appicon.ico"
-IDI_MIC            ICON                    "mic-unmuted.ico"
-IDI_MIC_MUTED      ICON                    "mic-muted-2.ico"
+IDI_MIC_MUTED      ICON                    "mic-muted.ico"
+IDI_MIC_UNMUTED    ICON                    "mic-unmuted.ico"
 IDI_MIC_ACTIVE     ICON                    "mic-active.ico"
 
 IDR_MUTE           WAVE                    "mute.wav"
@@ -29,40 +35,69 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Dialog
+// Dialog - include separate .rc file for each window
 //
 
-IDD_SETTINGS DIALOGEX 0, 0, 179, 217
-STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Easymic settings"
-FONT 8, "MS Shell Dlg", 400, 0, 0x1
-BEGIN
-    DEFPUSHBUTTON   "Save",IDOK,65,197,50,14
-    PUSHBUTTON      "Cancel",IDCANCEL,122,197,50,14
+/////////////////////////////////////////////////////////////////////////////
+// Settings Window Dialog
+/////////////////////////////////////////////////////////////////////////////
 
-    GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,42
-    GROUPBOX        "System",IDC_STATIC,7,50,165,78
-    GROUPBOX        "",SOUNDS_GROUPBOX,7,130,165,63
+IDD_SETTINGS DIALOGEX 0, 0, 270, 170
+STYLE DS_MODALFRAME | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Easymic - settings"
+FONT 8, "Ms Shell Dlg"
+{
+    DEFPUSHBUTTON   "OK", IDOK, 158, 149, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 213, 149, 50, 14
+}
 
-    GROUPBOX        "On/off microphone",IDC_STATIC,11,16,157,28
-    PUSHBUTTON      "",MUTE_HOTKEY,14,25,151,14
+IDD_SETTINGS_GENERAL DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+    CONTROL         "Start with Windows", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,0,180,10
+}
 
-    LTEXT           "Bell volume (%)",IDC_STATIC,20,144,100,15
-    CONTROL         "",BELL_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,142,100,15
+IDD_SETTINGS_INDICATOR DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+    CONTROL         "Exclude from capture", IDC_SETTINGS_INDICATOR_CAPTURE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,0,180,10
+    CONTROL         "On top of all the windows (* administrator required)", IDC_SETTINGS_INDICATOR_ON_TOP, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,11,180,10
+    LTEXT           "Show while",IDC_STATIC,0,26,80,15
+    COMBOBOX        IDC_SETTINGS_INDICATOR_COMBO,84,24,95,70,CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
+    LTEXT           "Size (px)",IDC_STATIC,0,42,80,15
+    CONTROL         "",IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR,"msctls_trackbar32",TBS_AUTOTICKS | TBS_ENABLESELRANGE | WS_CHILD | WS_VISIBLE | TBS_TOOLTIPS,84,39,95,15
+    LTEXT           "Volume threshold (%)",IDC_STATIC,0,59,70,15
+    CONTROL         "",IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR,"msctls_trackbar32",TBS_AUTOTICKS | TBS_ENABLESELRANGE | WS_CHILD | WS_VISIBLE | TBS_TOOLTIPS,84,56,95,15
+}
 
-    LTEXT           "Mic volume (%)",IDC_STATIC,20,160,100,15
-    CONTROL         "",MIC_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,157,100,15
+IDD_SETTINGS_SOUNDS DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+ CONTROL         "Sounds", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
+}
 
-    CONTROL         "Mute the mic by setting the volume to 0", MUTE_MODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,20,175,140,10
+IDD_SETTINGS_HOTKEYS DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+ CONTROL         "Hotkeys", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
+}
 
-    CONTROL         "Start with Windows",ID_AUTOSTARTUP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
-    LTEXT           "Microphone indicator",IDC_STATIC,14,79,100,15
-    COMBOBOX        INDICATOR_COMBO,90,77,78,70,CBS_DROPDOWNLIST  | CBS_HASSTRINGS  | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
-    LTEXT           "Size of indicator",IDC_STATIC,14,95,100,15
-    COMBOBOX        INDICATOR_SIZE_COMBO,90,92,78,70,CBS_DROPDOWNLIST  | CBS_HASSTRINGS  | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
-    LTEXT           "Volume threshold",IDC_STATIC,14,110,100,15
-    CONTROL         "",THRESHOLD_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,108,100,15
-END
+IDD_SETTINGS_ABOUT DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+ CONTROL         "About", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
+}
+
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -80,7 +115,7 @@ END
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
-        BLOCK "040904b0"
+        BLOCK "041904b0"
         BEGIN
             VALUE "CompanyName", "kitbyte"
             VALUE "FileDescription", "Easymic"
@@ -93,6 +128,8 @@ BEGIN
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x409, 1200
+        VALUE "Translation", 0x419, 1200
     END
 END
+
+1 24 "app.manifest"

@@ -1,19 +1,20 @@
 #ifndef EASYMIC_VOLUMENOTIFICATION_HPP
 #define EASYMIC_VOLUMENOTIFICATION_HPP
-
+#include <audiopolicy.h>
 #include <endpointvolume.h>
-#include <cstdio>
 
-class VolumeNotification final : public IAudioEndpointVolumeCallback {
+class VolumeEventsHandler final : public IAudioEndpointVolumeCallback {
 
     LONG rc;
-    ~VolumeNotification() = default;
-    const std::function<void(BOOL,float)> OnMicStateChanged;
 
 public:
-    explicit VolumeNotification(const std::function<void(BOOL,float)>& onChanged) :
-        rc(1),
-        OnMicStateChanged(onChanged) {}
+
+    std::function<void(PAUDIO_VOLUME_NOTIFICATION_DATA)> OnChange;
+
+    ~VolumeEventsHandler() = default;
+
+    explicit VolumeEventsHandler() :
+        rc(1) {}
 
     ULONG STDMETHODCALLTYPE AddRef() override {
         return InterlockedIncrement(&rc);
@@ -33,22 +34,20 @@ public:
             *ppv = static_cast<IUnknown*>(this);
             return S_OK;
         }
-        else if(__uuidof(IAudioEndpointVolumeCallback) == riid) {
+
+        if(__uuidof(IAudioEndpointVolumeCallback) == riid) {
             AddRef();
             *ppv = static_cast<IAudioEndpointVolumeCallback*>(this);
             return S_OK;
         }
-        else {
-            *ppv = nullptr;
-            return E_NOINTERFACE;
-        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
     }
 
     HRESULT OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA pNotify) override {
-        OnMicStateChanged(pNotify->bMuted, pNotify->fMasterVolume);
-#ifdef DEBUG_AUDIO
-        printf("Mic muted state: %i\n", pNotify->bMuted);
-#endif
+        if (OnChange) {
+            OnChange(pNotify);
+        }
         return S_OK;
     }
 };
