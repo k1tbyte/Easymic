@@ -53,14 +53,23 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE OnDisplayNameChanged(LPCWSTR NewDisplayName, LPCGUID EventContext) override {
+#ifdef DEBUG_AUDIO
+        printf("Display name changed, id: %i\n", id);
+#endif
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE OnIconPathChanged(LPCWSTR NewIconPath, LPCGUID EventContext) override {
+#ifdef DEBUG_AUDIO
+        printf("Icon path changed, id: %i\n", id);
+#endif
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE OnSimpleVolumeChanged(float NewVolume, BOOL NewMute, LPCGUID EventContext) override {
+#ifdef DEBUG_AUDIO
+        printf("Simple volume changed, id: %i\n", id);
+#endif
         return S_OK;
     }
 
@@ -68,6 +77,9 @@ public:
                                                      float NewChannelVolumeArray[],
                                                      DWORD ChangedChannel,
                                                      LPCGUID EventContext) override {
+#ifdef DEBUG_AUDIO
+        printf("Channel volume changed, id: %i\n", id);
+#endif
         return S_OK;
     }
 

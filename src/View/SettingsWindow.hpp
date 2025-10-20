@@ -20,12 +20,13 @@ class SettingsWindow final : public AbstractWindow {
     AudioManager* audioManager = nullptr;
     Config* config             = nullptr;
     Config configTemp;
-    HWND micVolTrackbar        = nullptr;
-    HWND bellVolTrackbar       = nullptr;
-    HWND thresholdTrackbar     = nullptr;
-    HWND muteHotkey            = nullptr;
-    HWND indicatorCombo        = nullptr;
-    HWND indicatorSizeCombo    = nullptr;
+    HWND micVolTrackbar         = nullptr;
+    HWND bellVolTrackbar        = nullptr;
+    HWND thresholdTrackbar      = nullptr;
+    HWND muteHotkey             = nullptr;
+    HWND indicatorCombo         = nullptr;
+    HWND indicatorSizeTrackbar  = nullptr;
+    HWND excludeCaptureCheckbox = nullptr;
     std::function<void()> reinitializeAction;
 
 public:
@@ -54,6 +55,10 @@ public:
             SendMessage(GetDlgItem(hWnd,MUTE_MODE), BM_SETCHECK, BST_CHECKED, 0);
         }
 
+        if (config->excludeFromCapture) {
+            SendMessage(GetDlgItem(hWnd, ID_EXCLUDE_CAPTURE), BM_SETCHECK, BST_CHECKED, 0);
+        }
+
         SetWindowTextW(GetDlgItem(hWnd, SOUNDS_GROUPBOX),
                        std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
                                .c_str());
@@ -62,14 +67,9 @@ public:
             SendMessage(indicatorCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) IndicatorState);
         }
 
-        SendMessage(indicatorSizeCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) "Tiny");
-        SendMessage(indicatorSizeCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) "Large");
-        SendMessage(indicatorSizeCombo, CB_SETCURSEL, (WPARAM)
-            (config->indicatorSize == (BYTE)IndicatorSize::Large ? 1 :0), (LPARAM)0);
-
         SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->indicator, (LPARAM)0);
-
-
+        
+        Utils::InitTrackbar(indicatorSizeTrackbar, 1, MAKELONG(10, 32), config->indicatorSize);
         Utils::InitTrackbar(bellVolTrackbar,1,MAKELONG(0,100),config->bellVolume);
         Utils::InitTrackbar(micVolTrackbar,1,MAKELONG(0,100), config->micVolume);
         Utils::InitTrackbar(thresholdTrackbar,1,MAKELONG(0,100),
@@ -92,6 +92,12 @@ public:
         if(config->micVolume != configTemp.micVolume && (!configTemp.muteZeroMode || !CurrentlyMuted())) {
             audioManager->SetMicVolume(configTemp.micVolume);
         }
+        if (config->indicatorSize != configTemp.indicatorSize) {
+            config->indicatorSize = configTemp.indicatorSize;
+            SendMessage(*ownerHwnd, WM_USER + 5, 0, 0);
+        }
+
+        SetWindowDisplayAffinity(*ownerHwnd, configTemp.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
     }
 
     inline void SetBindingState(DWORD hotkey) const {
@@ -134,13 +140,14 @@ public:
                             { return settings->WindowHandler(hwnd,msg,wp,lp); }
         );
 
-        micVolTrackbar     = GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR);
-        bellVolTrackbar    = GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR);
-        thresholdTrackbar  = GetDlgItem(hWnd, THRESHOLD_TRACKBAR);
-        muteHotkey         = GetDlgItem(hWnd, MUTE_HOTKEY);
-        indicatorCombo     = GetDlgItem(hWnd, INDICATOR_COMBO);
-        indicatorSizeCombo = GetDlgItem(hWnd, INDICATOR_SIZE_COMBO);
-        configTemp         = *config;
+        micVolTrackbar         = GetDlgItem(hWnd, MIC_VOLUME_TRACKBAR);
+        bellVolTrackbar        = GetDlgItem(hWnd, BELL_VOLUME_TRACKBAR);
+        thresholdTrackbar      = GetDlgItem(hWnd, THRESHOLD_TRACKBAR);
+        muteHotkey             = GetDlgItem(hWnd, MUTE_HOTKEY);
+        indicatorCombo         = GetDlgItem(hWnd, INDICATOR_COMBO);
+        indicatorSizeTrackbar  = GetDlgItem(hWnd, INDICATOR_SIZE_TRACKBAR);
+        excludeCaptureCheckbox = GetDlgItem(hWnd, ID_EXCLUDE_CAPTURE);
+        configTemp             = *config;
         InitControls();
         AbstractWindow::Show();
     }
@@ -196,11 +203,8 @@ private:
                 }
                 break;
 
-            case INDICATOR_SIZE_COMBO:
-                if(HIWORD(wParam) == CBN_SELCHANGE) {
-                    configTemp.indicatorSize = (BYTE)(SendMessage(indicatorCombo, CB_GETCURSEL, (WPARAM)0, (LPARAM)0) ?
-                            IndicatorSize::Tiny : IndicatorSize::Large);
-                }
+            case ID_EXCLUDE_CAPTURE:
+                configTemp.excludeFromCapture = SendMessage(excludeCaptureCheckbox, BM_GETCHECK, 0, 0);
                 break;
         }
     }
@@ -220,6 +224,9 @@ private:
         else if(trackHwnd == thresholdTrackbar) {
             configTemp.volumeThreshold = (float)SendMessage(thresholdTrackbar, TBM_GETPOS, 0, 0) / 100;
         }
+        else if(trackHwnd == indicatorSizeTrackbar) {
+            configTemp.indicatorSize = SendMessage(indicatorSizeTrackbar, TBM_GETPOS, 0, 0);
+        }
     }
 
     const std::unordered_map<UINT,WindowEvent> events = {
@@ -232,4 +239,3 @@ private:
 
 
 #endif //EASYMIC_SETTINGSWINDOW_HPP
-

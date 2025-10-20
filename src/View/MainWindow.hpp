@@ -10,6 +10,7 @@
 #include "../HotkeyManager.hpp"
 #include "SettingsWindow.hpp"
 
+#define WND_PADDING 2
 
 class MainWindow final : public AbstractWindow {
     LPCWSTR name;
@@ -138,6 +139,14 @@ public:
         }
     }
 
+    void UpdateWindowSize() {
+        RECT rect;
+        GetWindowRect(hWnd, &rect);
+        windowSize = config->indicatorSize * WND_PADDING;
+        SetWindowPos(hWnd, nullptr, rect.left, rect.top, windowSize, windowSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        InvalidateRect(hWnd, nullptr, TRUE);
+    }
+
 private:
 
     const std::unordered_map<UINT,WindowEvent> events = {
@@ -149,6 +158,7 @@ private:
             {WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) { OnCommand(wParam, lParam); }  },
             {WM_EXITSIZEMOVE, [this](WPARAM wParam, LPARAM lParam) { OnDragEnd(wParam, lParam); }  },
             {WM_TIMER, [this](WPARAM wParam, LPARAM lParam) { OnTimer(wParam, lParam); }  },
+            {WM_USER + 5, [this](WPARAM wParam, LPARAM lParam) { UpdateWindowSize(); }  },
             {WM_UPDATE_MIC, [this](WPARAM wParam, LPARAM lParam) { SetMicState(lParam); }  },
             {WM_UPDATE_STATE, [this](WPARAM wParam, LPARAM lParam){ UpdateWindowState(); } },
             // We need to re-initialize the tray icon when the explorer restarts or crashes.

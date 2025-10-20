@@ -23,7 +23,7 @@ set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
 
 set(WIN32   23)
 
-set(CMAKE_CXX_STANDARD_LIBRARIES "-static-libgcc -static-libstdc++ -lwsock32 -lws2_32 -lwinmm ${CMAKE_CXX_STANDARD_LIBRARIES}")
+set(CMAKE_CXX_STANDARD_LIBRARIES "-static-libgcc -static-libstdc++ -lwsock32 -lws2_32 -lwinmm -lgdiplus ${CMAKE_CXX_STANDARD_LIBRARIES}")
 
 if (${IS_RELEASE})
 

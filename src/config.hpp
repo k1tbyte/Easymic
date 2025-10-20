@@ -23,11 +23,6 @@ enum class IndicatorState {
     AlwaysAndTalk
 };
 
-enum class IndicatorSize {
-    Tiny = 16,
-    Large = 32
-};
-
 struct Config {
 
     USHORT windowPosX        = 0;
@@ -39,6 +34,7 @@ struct Config {
     IndicatorState indicator = IndicatorState::Hidden;
     BYTE indicatorSize       = 16;
     float volumeThreshold    = .01f;
+    bool excludeFromCapture  = false;
 
     bool operator==(const Config&) const = default;
 

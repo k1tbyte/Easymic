@@ -1,9 +1,14 @@
 #include "MainWindow.hpp"
+#include <gdiplus.h>
+
+#pragma comment(lib, "gdiplus.lib")
+
+using namespace Gdiplus;
 
 static MainWindow* mainWindow;
+static ULONG_PTR gdiplusToken;
 #define WND_BACKGROUND RGB(24,27,40)
 #define WND_CORNER_RADIUS 15
-#define WND_PADDING 2
 
 
 MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioManager* audioManager)
@@ -31,7 +36,7 @@ bool MainWindow::InitWindow()
                  &muteSound.buffer, &muteSound.fileSize);
 
     wndClass.cbSize =			sizeof(WNDCLASSEXW);
-    wndClass.style = CS_VREDRAW | CS_HREDRAW | CS_DROPSHADOW;
+    wndClass.style = CS_VREDRAW | CS_HREDRAW;
     wndClass.cbClsExtra =		0;
     wndClass.cbWndExtra =		0;
     wndClass.hInstance =		hInst;
@@ -46,7 +51,7 @@ bool MainWindow::InitWindow()
         return false;
     }
 
-    windowSize = config->indicatorSize*WND_PADDING;
+    windowSize = config->indicatorSize * WND_PADDING;
     this->hWnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             name,name,
@@ -54,6 +59,10 @@ bool MainWindow::InitWindow()
             config->windowPosX,config->windowPosY,
             windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
+
+    if (config->excludeFromCapture) {
+        SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
+    }
 
     this->_initComponents();
 
@@ -92,28 +101,76 @@ bool MainWindow::InitTrayIcon() {
 //#region <== Window events ==>
 void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam)
 {
-    // Window transparency
-    SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 220, LWA_ALPHA  | LWA_COLORKEY);
-    HRGN windowRegion = CreateRoundRectRgn(0, 0, windowSize, windowSize,WND_CORNER_RADIUS, WND_CORNER_RADIUS);
-    SetWindowRgn(hWnd, windowRegion, TRUE);
-    DeleteObject(windowRegion);
+    // Initialize GDI+
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 }
 
 void MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam)
 {
+    // Cleanup GDI+
+    GdiplusShutdown(gdiplusToken);
     Shell_NotifyIconW(NIM_DELETE, &trayIcon);	// Remove Tray Item
     PostQuitMessage(0);
 }
 
 void MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
-    PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(hWnd, &ps);
+    // Create a 32-bit bitmap with an alpha channel
+    HDC hdcScreen = GetDC(nullptr);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = windowSize;
+    bmi.bmiHeader.biHeight = -windowSize; // Negative value for top-down bitmap
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pvBits = nullptr;
+    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pvBits, nullptr, 0);
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
+
+    Graphics graphics(hdcMem);
+    graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+    graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+    graphics.Clear(Color(0, 0, 0, 0));
+
+    GraphicsPath path;
+    REAL radius = WND_CORNER_RADIUS;
+    REAL diameter = radius * 1.2f;
+    RectF rect(0, 0, windowSize, windowSize);
+
+    // rounded rectangle
+    path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90); // Левый верхний угол
+    path.AddArc(rect.X + rect.Width - diameter, rect.Y, diameter, diameter, 270, 90); // Правый верхний угол
+    path.AddArc(rect.X + rect.Width - diameter, rect.Y + rect.Height - diameter, diameter, diameter, 0, 90); // Правый нижний угол
+    path.AddArc(rect.X, rect.Y + rect.Height - diameter, diameter, diameter, 90, 90); // Левый нижний угол
+    path.CloseFigure();
+
+    SolidBrush brush(Color(220, GetRValue(WND_BACKGROUND), GetGValue(WND_BACKGROUND), GetBValue(WND_BACKGROUND)));
+    graphics.FillPath(&brush, &path);
+
     BYTE iconSize = config->indicatorSize;
     HICON icon = micActive ? activeIcon : (micMuted ? mutedIcon : unmutedIcon);
+    Bitmap iconBitmap(icon);
+    graphics.DrawImage(&iconBitmap, windowSize / 2 - iconSize / 2, windowSize / 2 - iconSize / 2, iconSize, iconSize);
 
-    DrawIconEx(hdc, windowSize / 2 - iconSize / 2, windowSize / 2 - iconSize / 2,
-               icon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
-    EndPaint(hWnd, &ps);
+    POINT ptSrc = {0, 0};
+    RECT rcWnd;
+    GetWindowRect(hWnd, &rcWnd);
+    POINT ptDst = {rcWnd.left, rcWnd.top};
+    SIZE sizeWnd = {windowSize, windowSize};
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+
+    UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeWnd, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    // Cleanup
+    SelectObject(hdcMem, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(nullptr, hdcScreen);
 }
 
 void MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
@@ -253,4 +310,3 @@ void MainWindow::_initComponents() {
     }
     Reinitialize();
 }
-
