@@ -1,6 +1,7 @@
+#include "definitions.h"
 #include "config.hpp"
-#include "Audio/AudioManager.hpp"
-#include "View/MainWindow.hpp"
+#include "MainWindow.hpp"
+#include "AudioManager.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -18,11 +19,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     Config config;
     Config::Load(&config,Config::GetConfigPath());
 
-    const auto& manager = new AudioManager();
-    manager->Init();
+    auto manager = AudioManager();
+    manager.Init();
 
    // InitWindow(hInstance);
-    auto* mw = new MainWindow(AppName,hInstance,&config, manager);
+    auto* mw = new MainWindow(AppName,hInstance, config, manager);
     mw->InitWindow();
     mw->InitTrayIcon();
 

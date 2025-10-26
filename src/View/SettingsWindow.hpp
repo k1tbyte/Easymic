@@ -1,9 +1,8 @@
 #ifndef EASYMIC_SETTINGSWINDOW_HPP
 #define EASYMIC_SETTINGSWINDOW_HPP
-#include <Windows.h>
 #include "../Resources/Resource.h"
 #include "AbstractWindow.hpp"
-#include "../Utils.hpp"
+#include "../Lib/Utils.hpp"
 
 class SettingsWindow;
 
@@ -15,10 +14,11 @@ class SettingsWindow final : public AbstractWindow {
             "Hidden", "Muted", "Muted or talking", "Always", "Always and talking"
     };
 
+    AudioManager& audioManager;
+    Config& config;
+
     HWND* ownerHwnd            = nullptr;
     HICON appIcon              = nullptr;
-    AudioManager* audioManager = nullptr;
-    Config* config             = nullptr;
     Config configTemp;
     HWND micVolTrackbar         = nullptr;
     HWND bellVolTrackbar        = nullptr;
@@ -31,13 +31,19 @@ class SettingsWindow final : public AbstractWindow {
 
 public:
 
-    SettingsWindow(HINSTANCE hInstance, HWND* ownerHwnd,Config* config, AudioManager* audioManager, HICON icon,
-                   const std::function<void()>& reinitializeCallback) : AbstractWindow(hInstance, &events)
+    SettingsWindow(
+        HINSTANCE hInstance,
+        HWND* ownerHwnd,
+        Config& config,
+        AudioManager& audioManager,
+        HICON icon,
+        const std::function<void()>& reinitializeCallback) :
+        AbstractWindow(hInstance, &events),
+        audioManager(audioManager),
+        config(config)
     {
         settings           = this;
         appIcon            = icon;
-        this->audioManager = audioManager;
-        this->config       = config;
         this->ownerHwnd    = ownerHwnd;
         reinitializeAction = reinitializeCallback;
     }
@@ -51,49 +57,41 @@ public:
             SendMessage(GetDlgItem(hWnd,ID_AUTOSTARTUP), BM_SETCHECK, BST_CHECKED, 0);
         }
 
-        if(config->muteZeroMode) {
-            SendMessage(GetDlgItem(hWnd,MUTE_MODE), BM_SETCHECK, BST_CHECKED, 0);
-        }
-
-        if (config->excludeFromCapture) {
+        if (config.excludeFromCapture) {
             SendMessage(GetDlgItem(hWnd, ID_EXCLUDE_CAPTURE), BM_SETCHECK, BST_CHECKED, 0);
         }
 
         SetWindowTextW(GetDlgItem(hWnd, SOUNDS_GROUPBOX),
-                       std::wstring(L"Sounds - ").append(audioManager->GetDefaultMicName())
+                       std::wstring(L"Sounds - ")
                                .c_str());
 
         for (const auto& IndicatorState : IndicatorStates) {
             SendMessage(indicatorCombo,(UINT) CB_ADDSTRING,(WPARAM) 0,(LPARAM) IndicatorState);
         }
 
-        SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config->indicator, (LPARAM)0);
+        SendMessage(indicatorCombo, CB_SETCURSEL, (WPARAM)config.indicator, (LPARAM)0);
         
-        Utils::InitTrackbar(indicatorSizeTrackbar, 1, MAKELONG(10, 32), config->indicatorSize);
-        Utils::InitTrackbar(bellVolTrackbar,1,MAKELONG(0,100),config->bellVolume);
-        Utils::InitTrackbar(micVolTrackbar,1,MAKELONG(0,100), config->micVolume);
+        Utils::InitTrackbar(indicatorSizeTrackbar, 1, MAKELONG(10, 32), config.indicatorSize);
+        Utils::InitTrackbar(bellVolTrackbar,1,MAKELONG(0,100),config.bellVolume);
+        Utils::InitTrackbar(micVolTrackbar,1,MAKELONG(0,100), config.micVolume);
         Utils::InitTrackbar(thresholdTrackbar,1,MAKELONG(0,100),
-                            (int)(config->volumeThreshold*100));
+                            (int)(config.volumeThreshold*100));
 
-        if(config->indicator == IndicatorState::MutedOrTalk || config->indicator == IndicatorState::AlwaysAndTalk) {
+        if(config.indicator == IndicatorState::MutedOrTalk || config.indicator == IndicatorState::AlwaysAndTalk) {
             EnableWindow(thresholdTrackbar,true);
         }
-        SetBindingState(config->muteHotkey);
+        SetBindingState(config.muteHotkey);
     }
 
     void ApplyChanges() const {
-        if(config->bellVolume != configTemp.bellVolume) {
+        /*if(config->bellVolume != configTemp.bellVolume) {
             audioManager->SetAppVolume(configTemp.bellVolume);
+        }*/
+        if(config.micVolume != configTemp.micVolume) {
+            audioManager.CaptureDevice()->SetVolumePercent(configTemp.micVolume);
         }
-        if(config->muteZeroMode != configTemp.muteZeroMode) {
-            config->muteZeroMode = configTemp.muteZeroMode;
-            SendMessage(*ownerHwnd,WM_UPDATE_MIC,0,0);
-        }
-        if(config->micVolume != configTemp.micVolume && (!configTemp.muteZeroMode || !CurrentlyMuted())) {
-            audioManager->SetMicVolume(configTemp.micVolume);
-        }
-        if (config->indicatorSize != configTemp.indicatorSize) {
-            config->indicatorSize = configTemp.indicatorSize;
+        if (config.indicatorSize != configTemp.indicatorSize) {
+            config.indicatorSize = configTemp.indicatorSize;
             SendMessage(*ownerHwnd, WM_USER + 5, 0, 0);
         }
 
@@ -104,24 +102,6 @@ public:
         SendMessage(muteHotkey,WM_SETTEXT, 0,
                     (LPARAM) (hotkey == 0 ? "Click to bind" :
                             HotkeyManager::GetSequenceName(hotkey).c_str()));
-    }
-
-    bool CurrentlyMuted() const {
-        bool isMuteState = audioManager->IsMicMuted();
-
-        if (!config->muteZeroMode) {
-            return isMuteState;
-        }
-
-        // If the mode is muted, need to turn on for mute/unmute by volume
-        if(isMuteState) {
-            const auto temp = audioManager->OnMicStateChanged;
-            audioManager->OnMicStateChanged = nullptr;
-            audioManager->SetMicState(false);
-            audioManager->OnMicStateChanged = temp;
-        }
-
-        return audioManager->GetMicVolume() == 0;
     }
 
     void Show() override {
@@ -147,7 +127,7 @@ public:
         indicatorCombo         = GetDlgItem(hWnd, INDICATOR_COMBO);
         indicatorSizeTrackbar  = GetDlgItem(hWnd, INDICATOR_SIZE_TRACKBAR);
         excludeCaptureCheckbox = GetDlgItem(hWnd, ID_EXCLUDE_CAPTURE);
-        configTemp             = *config;
+        configTemp             = config;
         InitControls();
         AbstractWindow::Show();
     }
@@ -159,7 +139,7 @@ private:
     }
 
     void OnDestroy(WPARAM wParam, LPARAM lParam) {
-        HotkeyManager::RegisterHotkey(config->muteHotkey);
+        HotkeyManager::RegisterHotkey(config.muteHotkey);
         // Lock indicator position
         SetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE, GetWindowLongPtr(*ownerHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
         hWnd    = nullptr;
@@ -171,9 +151,9 @@ private:
         switch(LOWORD(wParam))
         {
             case IDOK:
-                if(*config != configTemp) {
+                if(config != configTemp) {
                     ApplyChanges();
-                    *config = configTemp;
+                    config = configTemp;
                     Config::Save(&configTemp, Config::GetConfigPath());
                 }
             case IDCANCEL:
@@ -190,9 +170,6 @@ private:
             case ID_AUTOSTARTUP:
                 Utils::IsInAutoStartup(AppName) ? Utils::RemoveFromAutoStartup(AppName) :
                          Utils::AddToAutoStartup(AppName);
-                break;
-            case MUTE_MODE:
-                configTemp.muteZeroMode = !configTemp.muteZeroMode;
                 break;
             case INDICATOR_COMBO:
                 if(HIWORD(wParam) == CBN_SELCHANGE) {

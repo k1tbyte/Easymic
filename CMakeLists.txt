@@ -1,40 +1,57 @@
 cmake_minimum_required(VERSION 3.27)
-project(Easymic)
 
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG_AUDIO")
-set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
-set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
+project(Easymic)
 
-set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc"
-        src/Audio/AudioManager.hpp
-        src/Utils.hpp
-        src/View/MainWindow.cpp
-        src/View/MainWindow.hpp
-        src/config.hpp
-        src/View/SettingsWindow.hpp
-        src/View/AbstractWindow.hpp
-        src/HotkeyManager.hpp
-        src/Audio/SessionEvents.hpp
-        src/Audio/SessionNotification.hpp
-        src/Audio/VolumeNotification.hpp
+
+set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
+file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
+
+add_executable(${PROJECT_NAME})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        ole32
+        uuid
+        wsock32
+        ws2_32
+        winmm
+        gdiplus
 )
 
-set(WIN32   23)
+set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")
 
-set(CMAKE_CXX_STANDARD_LIBRARIES "-static-libgcc -static-libstdc++ -lwsock32 -lws2_32 -lwinmm -lgdiplus ${CMAKE_CXX_STANDARD_LIBRARIES}")
+target_sources(${PROJECT_NAME} PRIVATE ${RESOURCE}
+        ${CPP_FILES}
+        ${HPP_FILES}
+)
 
-if (${IS_RELEASE})
+target_include_directories(${PROJECT_NAME} PUBLIC
+        src
+        src/Lib
+        src/Audio
+        src/View
+)
 
-    #[[ We indicate that we do not need a console ]]
-    set(CMAKE_WIN32_EXECUTABLE TRUE)
+if(MINGW)
+    target_link_options(${PROJECT_NAME} PRIVATE
+            -static-libgcc
+            -static-libstdc++
+            -Wl,--allow-multiple-definition
+    )
 
-    set(CMAKE_EXE_LINKER_FLAGS "-Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive ${CMAKE_EXE_LINKER_FLAGS}")
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
 
-    #[[ !! You must put FLAGS and LINKER FLAGS at the end, otherwise the WIN PTHREADS version will be used !! ]]
-    set(CMAKE_CXX_LINK_EXECUTABLE "<CMAKE_CXX_COMPILER> <OBJECTS> <LINK_LIBRARIES> -o <TARGET> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS>")
-endif ()
+        target_link_options(${PROJECT_NAME} PRIVATE
+                -Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive
+        )
+
+        target_compile_options(${PROJECT_NAME} PRIVATE -O3)
+    endif()
+endif()
 
 
-add_executable(${PROJECT_NAME} ${RESOURCE} src/main.cpp)
+
+

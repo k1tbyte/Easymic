@@ -1,7 +1,6 @@
 #ifndef EASYMIC_ABSTRACTWINDOW_HPP
 #define EASYMIC_ABSTRACTWINDOW_HPP
 
-#include <Windows.h>
 #include <unordered_map>
 #include <functional>
 
@@ -52,6 +51,7 @@ public:
         }
 
         ShowWindow(hWnd,SW_SHOW);
+        InvalidateRect(hWnd, nullptr, TRUE);
         isShown = true;
     }
 

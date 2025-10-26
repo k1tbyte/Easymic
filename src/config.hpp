@@ -1,10 +1,10 @@
 #ifndef EASYMIC_CONFIG_HPP
 #define EASYMIC_CONFIG_HPP
 
-#include <windows.h>
 #include <cstdio>
 #include <sys/stat.h>
 #include <string>
+#include <windows.h>
 
 #define MutexName "Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B1"
 #define AppName L"Easymic"
@@ -30,7 +30,6 @@ struct Config {
     DWORD muteHotkey         = 0;
     BYTE bellVolume          = 50;
     BYTE micVolume           = -1;
-    bool muteZeroMode        = false;
     IndicatorState indicator = IndicatorState::Hidden;
     BYTE indicatorSize       = 16;
     float volumeThreshold    = .01f;

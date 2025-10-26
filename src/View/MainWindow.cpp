@@ -11,12 +11,10 @@ static ULONG_PTR gdiplusToken;
 #define WND_CORNER_RADIUS 15
 
 
-MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config,AudioManager* audioManager)
-    : AbstractWindow(hInstance, &events)
+MainWindow::MainWindow(LPCWSTR name, HINSTANCE hInstance, Config& config, AudioManager& audioManager)
+    : AbstractWindow(hInstance, &events), config(config), audioManager(audioManager)
 {
     this->name = name;
-    this->config = config;
-    this->audioManager = audioManager;
     this->settings = new SettingsWindow(hInstance, &hWnd, config, audioManager,appIcon,
                                         [this](){this->Reinitialize(); });
     mainWindow = this;
@@ -35,47 +33,53 @@ bool MainWindow::InitWindow()
     Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE",
                  &muteSound.buffer, &muteSound.fileSize);
 
-    wndClass.cbSize =			sizeof(WNDCLASSEXW);
-    wndClass.style = CS_VREDRAW | CS_HREDRAW;
-    wndClass.cbClsExtra =		0;
-    wndClass.cbWndExtra =		0;
-    wndClass.hInstance =		hInst;
-    wndClass.hIcon =			appIcon;
-    wndClass.hbrBackground =	CreateSolidBrush(WND_BACKGROUND);
-    wndClass.lpszClassName =	name;
-    wndClass.hIconSm		 =	appIcon;
-    wndClass.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+    wndClass.cbSize        = sizeof(WNDCLASSEXW);
+    wndClass.style         = CS_VREDRAW | CS_HREDRAW;
+    wndClass.cbClsExtra    = 0;
+    wndClass.cbWndExtra    = 0;
+    wndClass.hInstance     = hInst;
+    wndClass.hIcon         = appIcon;
+    wndClass.hbrBackground = CreateSolidBrush(WND_BACKGROUND);
+    wndClass.lpszClassName = name;
+    wndClass.hIconSm       = appIcon;
+    wndClass.lpfnWndProc   = [](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             { return mainWindow->WindowHandler(hwnd,msg,wp,lp); };
 
     if(!RegisterClassExW(&wndClass)) {
         return false;
     }
 
-    windowSize = config->indicatorSize * WND_PADDING;
+    windowSize = config.indicatorSize * WND_PADDING;
     this->hWnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
             name,name,
             WS_POPUP,
-            config->windowPosX,config->windowPosY,
+            config.windowPosX,config.windowPosY,
             windowSize,windowSize,
             nullptr,nullptr,hInst,nullptr);
 
-    if (config->excludeFromCapture) {
+    if (config.excludeFromCapture) {
         SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
     }
 
-    this->_initComponents();
-
-    audioManager->OnMicStateChanged = [this](){
-        const auto& state = this->settings->CurrentlyMuted();
-        if(state != micMuted) {
-            micMuted = state;
+    audioManager.OnCaptureStateChanged += [this](bool muted, float volumeLevel){
+        if(muted != micMuted) {
+            micMuted = muted;
             SendMessage(this->hWnd, WM_UPDATE_MIC,0, 1);
         }
     };
 
-    HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
-    HotkeyManager::RegisterHotkey(config->muteHotkey);
+    audioManager.OnCaptureSessionPropertyChanged += [this](ComPtr<IAudioSessionControl>, EAudioSessionProperty property){
+        if (property != State && property != Disconnected && property != Connected) {
+            return;
+        }
+
+        this->OnSessionUpdate();
+    };
+
+    this->_initComponents();
+    /*HotkeyManager::Initialize([this]() { OnHotkeyPressed(); });
+    HotkeyManager::RegisterHotkey(config.muteHotkey);*/
 
 
 #ifdef DEBUG
@@ -90,8 +94,9 @@ bool MainWindow::InitTrayIcon() {
     trayIcon.hWnd = (HWND)hWnd;
     trayIcon.uID = IDI_MIC;
     trayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    wcscpy(trayIcon.szTip, (std::wstring(name) + L" | " + audioManager->GetDefaultMicName()).c_str());
-    trayIcon.hIcon = micMuted ? mutedIcon : unmutedIcon;
+
+    wcscpy(trayIcon.szTip, (std::wstring(name) + L" | " + audioManager.CaptureDevice()->GetDeviceName()).c_str());
+    trayIcon.hIcon = micMuted || !audioManager.CaptureDevice()->IsInitialized() ? mutedIcon : unmutedIcon;
     trayIcon.uCallbackMessage = WM_SHELLICON;
 
     // Display tray icon
@@ -99,15 +104,13 @@ bool MainWindow::InitTrayIcon() {
 }
 
 //#region <== Window events ==>
-void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam)
-{
+void MainWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     // Initialize GDI+
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 }
 
-void MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam)
-{
+void MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     // Cleanup GDI+
     GdiplusShutdown(gdiplusToken);
     Shell_NotifyIconW(NIM_DELETE, &trayIcon);	// Remove Tray Item
@@ -143,16 +146,20 @@ void MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     RectF rect(0, 0, windowSize, windowSize);
 
     // rounded rectangle
-    path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90); // Левый верхний угол
-    path.AddArc(rect.X + rect.Width - diameter, rect.Y, diameter, diameter, 270, 90); // Правый верхний угол
-    path.AddArc(rect.X + rect.Width - diameter, rect.Y + rect.Height - diameter, diameter, diameter, 0, 90); // Правый нижний угол
-    path.AddArc(rect.X, rect.Y + rect.Height - diameter, diameter, diameter, 90, 90); // Левый нижний угол
+    // left top
+    path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+    // right top
+    path.AddArc(rect.X + rect.Width - diameter, rect.Y, diameter, diameter, 270, 90);
+    // right bottom
+    path.AddArc(rect.X + rect.Width - diameter, rect.Y + rect.Height - diameter, diameter, diameter, 0, 90);
+    // left bottom
+    path.AddArc(rect.X, rect.Y + rect.Height - diameter, diameter, diameter, 90, 90);
     path.CloseFigure();
 
     SolidBrush brush(Color(220, GetRValue(WND_BACKGROUND), GetGValue(WND_BACKGROUND), GetBValue(WND_BACKGROUND)));
     graphics.FillPath(&brush, &path);
 
-    BYTE iconSize = config->indicatorSize;
+    BYTE iconSize = config.indicatorSize;
     HICON icon = micActive ? activeIcon : (micMuted ? mutedIcon : unmutedIcon);
     Bitmap iconBitmap(icon);
     graphics.DrawImage(&iconBitmap, windowSize / 2 - iconSize / 2, windowSize / 2 - iconSize / 2, iconSize, iconSize);
@@ -211,10 +218,11 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
         return;
     }
 
+    // Unregister hotkey and stop audio monitoring when settings window is opened
     if(wParam == ID_APP_SETTINGS && !settings->IsShown()) {
 
         HotkeyManager::UnregisterHotkey();
-        audioManager->DisposeMicSessionsWatcher();
+        audioManager.StopWatchingForCaptureSessions();
 
         if(peakMeterActive) {
             KillTimer(hWnd,MIC_PEAK_TIMER);
@@ -222,10 +230,7 @@ void MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
             InvalidateRect(hWnd,nullptr,TRUE);
         }
 
-        if(config->indicator != IndicatorState::Hidden) {
-            this->Show();
-        }
-
+        this->Show();
         settings->Show();
     }
 }
@@ -244,69 +249,40 @@ void MainWindow::OnDragEnd(WPARAM wParam, LPARAM lParam) {
 
 //#endregion
 
-void MainWindow::SetMuteMode(BOOL muted)
-{
-    if (!config->muteZeroMode) {
-        audioManager->SetMicState(muted);
-        return;
-    }
-
-    audioManager->SetMicVolume(muted ? 0 : config->micVolume);
-}
 
 inline void MainWindow::SwitchMicState() {
-    SetMuteMode(!micMuted);
+    audioManager.CaptureDevice()->SetMute(!micMuted);
 }
 
 
 
 void MainWindow::Reinitialize() {
-    SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
-    if(config->indicator == IndicatorState::Hidden) {
-        return;
+    if(config.indicator != IndicatorState::Hidden) {
+        audioManager.WatchForCaptureSessions();
+        hasActiveSessions = audioManager.CaptureDevice()->GetActiveSessionsCount() > 0;
+        if (hasActiveSessions) {
+            this->OnSessionUpdate();
+        }
     }
 
-    audioManager->StartMicSessionsWatcher([this](int count) {
-        // !!! Important !!!
-        // If we directly call this->Hide this->Show, strange things will
-        // happen to the window (as with all the crap in WinApi)
-        // Perhaps this has something to do with the fact that the calls are coming from different threads, idk
-        if(count > 0) {
-
-            if(!peakMeterActive && (config->indicator == IndicatorState::AlwaysAndTalk ||
-                                    config->indicator == IndicatorState::MutedOrTalk)) {
-                SetTimer(hWnd,MIC_PEAK_TIMER,150,nullptr);
-                peakMeterActive = true;
-            }
-
-            hasActiveSessions = true;
-            SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
-            return;
-        }
-
-        if(peakMeterActive) {
-            KillTimer(hWnd,MIC_PEAK_TIMER);
-            peakMeterActive = false;
-        }
-
-        hasActiveSessions = false;
-        SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
-    });
+    SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
 }
 
 void MainWindow::_initComponents() {
+    /*
     if(config->bellVolume != 50) {
         audioManager->SetAppVolume(config->bellVolume);
     }
+    */
+    const auto& mic = audioManager.CaptureDevice();
 
-    micMuted = settings->CurrentlyMuted();
-
-    if(config->micVolume == BYTE(-1)) {
-        config->micVolume = audioManager->GetMicVolume();
+    this->micMuted = mic->IsMuted();
+    const auto volume = mic->GetVolumePercent();
+    if(config.micVolume == BYTE(-1)) {
+        config.micVolume = volume;
     }
-    else if((!config->muteZeroMode || !micMuted) &&
-        config->micVolume != audioManager->GetMicVolume()) {
-        audioManager->SetMicVolume(config->micVolume);
+    else if(config.micVolume != volume) {
+        mic->SetVolumePercent(config.micVolume);
     }
     Reinitialize();
 }

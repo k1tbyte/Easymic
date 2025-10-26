@@ -1,21 +1,19 @@
 #ifndef EASYMIC_MAINWINDOW_HPP
 #define EASYMIC_MAINWINDOW_HPP
 
-#include <windows.h>
 #include <unordered_map>
 #include <cstdio>
-#include "../Resources/Resource.h"
 #include "../config.hpp"
 #include "../Audio/AudioManager.hpp"
-#include "../HotkeyManager.hpp"
+#include "../Lib/HotkeyManager.hpp"
 #include "SettingsWindow.hpp"
 
 #define WND_PADDING 2
 
 class MainWindow final : public AbstractWindow {
     LPCWSTR name;
-    AudioManager* audioManager;
-    Config* config;
+    AudioManager& audioManager;
+    Config& config;
     SettingsWindow* settings;
 
     NOTIFYICONDATAW trayIcon{};
@@ -49,12 +47,11 @@ private:
     void OnHotkeyPressed();
 
     void SwitchMicState();
-    void SetMuteMode(BOOL muted);
     void Reinitialize();
     void _initComponents();
 
 public:
-    MainWindow(LPCWSTR name, HINSTANCE hInstance, Config* config, AudioManager* audioManager);
+    MainWindow(LPCWSTR name, HINSTANCE hInstance, Config& config, AudioManager& audioManager);
     bool InitWindow();
     bool InitTrayIcon();
 
@@ -68,7 +65,7 @@ public:
 
     void UpdateWindowState() {
         using enum IndicatorState;
-        static const auto& state = config->indicator;
+        static const auto& state = config.indicator;
 
         if(!hasActiveSessions || state == Hidden) {
             this->Hide();
@@ -98,7 +95,7 @@ public:
             PlaySound((LPCSTR) sound->buffer,hInst,SND_ASYNC | SND_MEMORY);
         }
 
-        if(config->indicator != IndicatorState::Hidden) {
+        if(config.indicator != IndicatorState::Hidden) {
             UpdateWindowState();
             InvalidateRect(this->hWnd, nullptr, TRUE);
         }
@@ -114,8 +111,8 @@ public:
             return;
         }
 
-        const auto& peak = audioManager->GetMicPeak();
-        if(peak > config->volumeThreshold) {
+        const auto& peak = audioManager.CaptureDevice()->GetPeak();
+        if(peak > config.volumeThreshold) {
             if(!micActive) {
 #ifdef DEBUG_AUDIO
                 printf("The microphone has become active\n");
@@ -134,7 +131,6 @@ public:
                 printf("The microphone has switched to a passive state\n");
 #endif
                 UpdateWindowState();
-                InvalidateRect(hWnd, nullptr, TRUE);
             }
         }
     }
@@ -142,9 +138,39 @@ public:
     void UpdateWindowSize() {
         RECT rect;
         GetWindowRect(hWnd, &rect);
-        windowSize = config->indicatorSize * WND_PADDING;
+        windowSize = config.indicatorSize * WND_PADDING;
         SetWindowPos(hWnd, nullptr, rect.left, rect.top, windowSize, windowSize, SWP_NOZORDER | SWP_NOACTIVATE);
         InvalidateRect(hWnd, nullptr, TRUE);
+    }
+
+
+    void OnSessionUpdate() {
+        const auto count = audioManager.CaptureDevice()->GetActiveSessionsCount();
+
+        // !!! Important !!!
+        // If we directly call this->Hide this->Show, strange things will
+        // happen to the window (as with all the crap in WinApi)
+        // Perhaps this has something to do with the fact that the calls are coming from different threads, idk
+        if(count > 0) {
+
+            if(!peakMeterActive && (config.indicator == IndicatorState::AlwaysAndTalk ||
+                                    config.indicator == IndicatorState::MutedOrTalk)) {
+                SetTimer(hWnd,MIC_PEAK_TIMER,150,nullptr);
+                peakMeterActive = true;
+                                    }
+
+            hasActiveSessions = true;
+            SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
+            return;
+        }
+
+        if(peakMeterActive) {
+            KillTimer(hWnd,MIC_PEAK_TIMER);
+            peakMeterActive = false;
+        }
+
+        hasActiveSessions = false;
+        SendMessage(hWnd,WM_UPDATE_STATE, 0, 0);
     }
 
 private:

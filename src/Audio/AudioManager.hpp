@@ -1,274 +1,189 @@
-#ifndef EASYMIC_AUDIOMANAGER_HPP
-#define EASYMIC_AUDIOMANAGER_HPP
-
-#include <mmdeviceapi.h>
-#include <stdexcept>
-#include <endpointvolume.h>
-#include <audiopolicy.h>
-#include <windows.h>
-#include <functiondiscoverykeys_devpkey.h>
-#include <propvarutil.h>
-#include <cmath>
-#include "SessionNotification.hpp"
-#include "VolumeNotification.hpp"
-
-__CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64)
-MIDL_INTERFACE("C02216F6-8C67-4B5B-9D00-D008E73E0064")
-IAudioMeterInformation : public IUnknown
-{
-public:
-    virtual HRESULT STDMETHODCALLTYPE GetPeakValue(float *pfPeak) = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetMeteringChannelCount(UINT *pnChannelCount) = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetChannelsPeakValues(UINT32 u32ChannelCount,float *afPeakValues) = 0;
-    virtual HRESULT STDMETHODCALLTYPE QueryHardwareSupport(DWORD *pdwHardwareSupportMask) = 0;
-};
-
-
-// WASAPI manager
 //
-class AudioManager final {
+// Created by kitbyte on 24.10.2025.
+//
 
-private:
-    constexpr static const GUID IDeviceFriendlyName =
-            { 0xa45c254e, 0xdf1c, 0x4efd,
-              { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 }
-            };
-    PROPERTYKEY key{};
+#ifndef EASYMICTESTING_AUDIOMANAGER_H
+#define EASYMICTESTING_AUDIOMANAGER_H
 
-    IMMDeviceEnumerator* deviceEnumerator = nullptr;
 
-    IMMDevice* captureDevice = nullptr;
-    IAudioEndpointVolume* micVolumeEndpoint = nullptr;
-    IAudioMeterInformation* micMeter = nullptr;
-    IAudioSessionManager2* micSessionManager = nullptr;
-    SessionNotification* micSessionsNotifier = nullptr;
-    IAudioSessionEnumerator* micSessions = nullptr;
-    std::vector<AudioSession> audioSessionEvents{};
-    PROPVARIANT micProperties{};
+#include <future>
+#include <typeinfo>
+#include "EventHandlers/AudioDeviceEventsHandler.hpp"
+#include "AudioDeviceController.hpp"
 
-    IMMDevice* renderDevice = nullptr;
-    IAudioSessionManager2* pSessionManager = nullptr;
-    IAudioSessionControl* pSessionControl = nullptr;
-    ISimpleAudioVolume* appVolume = nullptr;
+class AudioManager {
 
-    BOOL isMicMuted = false;
-    float micVolumeLevel = .0f;
+    std::shared_ptr<AudioDeviceController> _captureDevice = std::make_shared<AudioDeviceController>();
+    std::shared_ptr<AudioDeviceController> _renderDevice = std::make_shared<AudioDeviceController>();
+
+
+    ComPtr<IMMDeviceEnumerator> deviceEnumerator;
+    ComPtr<AudioDeviceEventsHandler> deviceHandler;
+
+
+    Event<> _defaultCaptureChanged;
+    Event<> _defaultRenderChanged;
+    Event<bool, float> _captureStateChanged;
+    Event<bool, float> _renderStateChanged;
+    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _captureSessionPropertyChanged;
+    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _renderSessionPropertyChanged;
+
+    std::atomic<bool> _captureReinitPending = false;
+    std::atomic<bool> _renderReinitPending = false;
+    std::future<void> _captureReinitTask;
+    std::future<void> _renderReinitTask;
+
+    bool _captureWatching = false;
+    bool _renderWatching  = false;
 
 public:
 
-    std::function<void()> OnMicStateChanged = nullptr;
+     IEvent<>& OnDefaultCaptureChanged = _defaultCaptureChanged;
+     IEvent<>& OnDefaultRenderChanged = _defaultRenderChanged;
+     IEvent<bool, float>& OnCaptureStateChanged = _captureStateChanged;
+     IEvent<bool, float>& OnRenderStateChanged = _renderStateChanged;
+     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnCaptureSessionPropertyChanged = _captureSessionPropertyChanged;
+     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnRenderSessionPropertyChanged = _renderSessionPropertyChanged;
 
 
-    AudioManager()
-    {
-        key.pid = 14;
-        key.fmtid = IDeviceFriendlyName;
-    }
 
-    BOOL Init()
-    {
-        HRESULT result = CoCreateInstance(
-                __uuidof(MMDeviceEnumerator), nullptr,
-                CLSCTX_ALL,__uuidof(IMMDeviceEnumerator),
-                (void**)&deviceEnumerator
-        );
-
-        if(result != S_OK) {
-            throw std::runtime_error("Bad CoCreateInstance result");
-        }
-
-        // Getting IN (capture) device
-        deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eCapture, ERole::eCommunications,
-                                                  &captureDevice);
-
-        // Getting mic properties
-        IPropertyStore* pProperties;
-        captureDevice->OpenPropertyStore(STGM_READ, &pProperties);
-        PropVariantInit(&micProperties);
-        pProperties->GetValue(key,&micProperties);
-
-        // Getting OUT (render) device
-        result = deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eCommunications,
-                                                           &renderDevice);
-        if (result != S_OK) {
-            return FALSE;
-        }
-
-        // Getting mic capture endpoint
-        captureDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
-                                   nullptr, (void**)&micVolumeEndpoint);
-
-        // Getting mic peak volume meter
-        captureDevice->Activate(__uuidof(IAudioMeterInformation),CLSCTX_ALL,
-                                nullptr, (void**)&micMeter);
-
-        // Getting mic session manager
-        captureDevice->Activate(__uuidof(IAudioSessionManager2),CLSCTX_ALL,
-                                nullptr, (void**)&micSessionManager);
-
-        // Getting render endpoint for app volume settings
-        renderDevice->Activate(__uuidof(IAudioSessionManager2),
-                               CLSCTX_ALL,
-                               nullptr, (void**)&pSessionManager);
-
-        pSessionManager->GetAudioSessionControl(nullptr, FALSE, &pSessionControl);
-        pSessionControl->QueryInterface(IID_PPV_ARGS(&appVolume));
-
-        micVolumeEndpoint->GetMute(&isMicMuted);
-        micVolumeEndpoint->GetMasterVolumeLevelScalar(&micVolumeLevel);
-        micVolumeEndpoint->RegisterControlChangeNotify(new VolumeNotification([this] (BOOL isMuted, float volume) {
-            this->isMicMuted = isMuted;
-            this->micVolumeLevel = volume;
-            if(this->OnMicStateChanged) {
-                this->OnMicStateChanged();
-            }
-        }));
-
-        deviceEnumerator->Release();
-        captureDevice->Release();
-        renderDevice->Release();
-        pSessionControl->Release();
-        pSessionManager->Release();
-        pProperties->Release();
-
-        return TRUE;
-    }
-
-    /// From 0.0 to 1.0
-    void SetAppVolume(float volume)
-    {
-        appVolume->SetMasterVolume(volume, nullptr);
-    }
-
-    /// From 0 to 100
-    void SetAppVolume(BYTE volume)
-    {
-        this->SetAppVolume((float)volume/100);
-    }
-
-    [[nodiscard]] BOOL IsMicMuted() const
-    {
-        return isMicMuted;
-    }
-
-    void SetMicState(BOOL muted)
-    {
-        micVolumeEndpoint->SetMute(muted, nullptr);
-    }
-
-    [[nodiscard]] LPWSTR GetDefaultMicName() const
-    {
-        return micProperties.pwszVal;
-    }
-
-    [[nodiscard]] BYTE GetMicVolume() const
-    {
-        return std::ceil(micVolumeLevel * 100) ;
-    }
-
-    [[nodiscard]] float GetMicPeak() const
-    {
-        float peak;
-        micMeter->GetPeakValue(&peak);
-        return peak;
-    }
-
-    void SetMicVolume(BYTE level) const
-    {
-        micVolumeEndpoint->SetMasterVolumeLevelScalar((float)level/100, nullptr);
-    }
-
-    void StartMicSessionsWatcher(const std::function<void(int)>& onActiveCountChanged) {
-        if(micSessionsNotifier) {
+    void Init() {
+        if (deviceEnumerator) {
             return;
         }
 
-        static const auto& disconnectedEvent = [this](int id){
-            this->audioSessionEvents[id].audioControl = nullptr;
-        };
+        auto result = CoCreateInstance(
+           __uuidof(MMDeviceEnumerator), nullptr,
+           CLSCTX_ALL,__uuidof(IMMDeviceEnumerator),
+            &deviceEnumerator
+        );
+        CHECK_HR(result, "Failed to create IMMDeviceEnumerator instance");
 
-        static const auto& stateChangedEvent = [this, onActiveCountChanged](int id, AudioSessionState state) {
-            int activeSessions = this->GetActiveMicSessionsCount();
-#ifdef DEBUG_AUDIO
-            printf("Active sessions count: %i\n", activeSessions);
-#endif
-            onActiveCountChanged(activeSessions);
-        };
+        // ReSharper disable once CppDFAMemoryLeak (COM is self-destructing if Release Ref Count == 0)
+        deviceHandler = new AudioDeviceEventsHandler();
+        deviceHandler->DefaultDeviceChanged = _handleDeviceChanged;
+        result = deviceEnumerator->RegisterEndpointNotificationCallback(deviceHandler.Get());
+        CHECK_HR(result, "Failed to register endpoint notification callback");
 
-        int sessionsCount{};
-        micSessionsNotifier = new SessionNotification([this](IAudioSessionControl* control){
-            const auto& eventHandler = new SessionEvents((int)audioSessionEvents.size(),disconnectedEvent, stateChangedEvent);
-            control->RegisterAudioSessionNotification(eventHandler);
-            this->audioSessionEvents.push_back(AudioSession { eventHandler, control });
-        });
+        _initCaptureDeviceController();
+        _initRenderDeviceController();
+    }
 
-        micSessionManager->RegisterSessionNotification(micSessionsNotifier);
-        micSessionManager->GetSessionEnumerator(&micSessions);
-        micSessions->GetCount(&sessionsCount);
-
-        for(int i = 0; i < sessionsCount; i++) {
-            IAudioSessionControl* control;
-            micSessions->GetSession(i, &control);
-            const auto& eventHandler = new SessionEvents(i,disconnectedEvent, stateChangedEvent);
-            control->RegisterAudioSessionNotification(eventHandler);
-            audioSessionEvents.push_back(AudioSession { eventHandler, control });
+    void Cleanup() {
+        if (deviceEnumerator && deviceHandler) {
+            deviceEnumerator->UnregisterEndpointNotificationCallback(deviceHandler.Get());
         }
 
-        int activeSessions = GetActiveMicSessionsCount();
-        if(activeSessions > 0) {
-            onActiveCountChanged(activeSessions);
+        deviceHandler.Reset();
+        deviceEnumerator.Reset();
+    }
+
+    void WatchForCaptureSessions()  {
+        if (_captureDevice) {
+            _captureDevice->WatchForSessions();
+        }
+        _captureWatching = true;
+    }
+
+    void WatchForRenderSessions()  {
+        if (_renderDevice) {
+            _renderDevice->WatchForSessions();
+        }
+        _renderWatching = true;
+    }
+
+    void StopWatchingForCaptureSessions()  {
+        if (_captureDevice) {
+            _captureDevice->StopWatchingForSessions();
+        }
+        _captureWatching = false;
+    }
+
+    void StopWatchingForRenderSessions()  {
+        if (_renderDevice) {
+            _renderDevice->StopWatchingForSessions();
+        }
+        _renderWatching = false;
+    }
+
+    bool IsInitialized() const {
+        return deviceEnumerator != nullptr;
+    }
+
+    std::shared_ptr<AudioDeviceController> CaptureDevice() const {
+        return _captureDevice;
+    }
+
+    std::shared_ptr<AudioDeviceController> RenderDevice() const {
+        return _renderDevice;
+    }
+
+
+    ~AudioManager() {
+        if (_captureReinitTask.valid()) {
+            _captureReinitTask.wait();
+        }
+        if (_renderReinitTask.valid()) {
+            _renderReinitTask.wait();
+        }
+        Cleanup();
+    }
+
+private:
+
+    void _initCaptureDeviceController() {
+        _captureDevice                           = std::make_shared<AudioDeviceController>();
+        _captureDevice->OnDeviceStateChanged     = &this->_captureStateChanged;
+        _captureDevice->OnSessionPropertyChanged = &this->_captureSessionPropertyChanged;
+        _captureDevice->Init(deviceEnumerator, EDataFlow::eCapture, ERole::eCommunications);
+
+        if (_captureWatching) {
+            _captureDevice->WatchForSessions();
         }
     }
 
-    int GetActiveMicSessionsCount() {
-        if(micSessions == nullptr){
-            return -1;
+    void _initRenderDeviceController() {
+        _renderDevice                           = std::make_shared<AudioDeviceController>();
+        _renderDevice->OnDeviceStateChanged     = &this->_renderStateChanged;
+        _renderDevice->OnSessionPropertyChanged = &this->_renderSessionPropertyChanged;
+
+        _renderDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
+
+        if (_renderWatching) {
+            _renderDevice->WatchForSessions();
+        }
+    }
+
+    const std::function<void(EDataFlow, ERole, LPCWSTR)> _handleDeviceChanged = [this](EDataFlow flow, ERole role, LPCWSTR) {
+        if (role != ERole::eCommunications) {
+            return;
         }
 
-        int sessionsCount{};
-        int activeSessions{};
-        micSessions->Release();
-        micSessionManager->GetSessionEnumerator(&micSessions);
-        micSessions->GetCount(&sessionsCount);
-        for(int i = 0; i < sessionsCount; i++) {
-            IAudioSessionControl* control;
-            AudioSessionState state;
-            micSessions->GetSession(i, &control);
-            control->GetState(&state);
-            if(state == AudioSessionState::AudioSessionStateActive) {
-                activeSessions++;
+        if (flow == EDataFlow::eCapture) {
+            if (_captureReinitPending.exchange(true)) {
+                return;
             }
-        }
-        return activeSessions;
-    }
 
-    void DisposeMicSessionsWatcher() {
-        if(micSessionsNotifier) {
-            micSessionManager->UnregisterSessionNotification(micSessionsNotifier);
-            micSessionsNotifier = nullptr;
-        }
-
-        if(micSessions) {
-            micSessions->Release();
-            micSessions = nullptr;
-        }
-
-        for(const auto& session : audioSessionEvents) {
-            if(session.audioControl) {
-                session.audioControl->UnregisterAudioSessionNotification(session.eventHandler);
+            _captureReinitTask = std::async(std::launch::async, [this]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                _initCaptureDeviceController();
+                _defaultCaptureChanged();
+                _captureReinitPending = false;
+            });
+        } else if (flow == EDataFlow::eRender) {
+            if (_renderReinitPending.exchange(true)) {
+                return;
             }
+
+            _renderReinitTask = std::async(std::launch::async, [this]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                _initRenderDeviceController();
+                _defaultRenderChanged();
+                _renderReinitPending = false;
+            });
         }
+    };
 
-        audioSessionEvents.clear();
-    }
-
-    ~AudioManager(){
-        appVolume->Release();
-        micVolumeEndpoint->Release();
-        micMeter->Release();
-        DisposeMicSessionsWatcher();
-    }
 };
 
-
-#endif //EASYMIC_AUDIOMANAGER_HPP
+#endif //EASYMICTESTING_AUDIOMANAGER_H

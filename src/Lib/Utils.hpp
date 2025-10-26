@@ -1,7 +1,6 @@
 #ifndef EASYMIC_UTILS_HPP
 #define EASYMIC_UTILS_HPP
 
-#include <windows.h>
 #include <commctrl.h>
 
 struct Resource {
