@@ -1,0 +1,15 @@
+// SettingsWindow resources
+#include "Resource.h"
+
+/////////////////////////////////////////////////////////////////////////////
+// Settings Window Dialog - Empty
+/////////////////////////////////////////////////////////////////////////////
+
+IDD_SETTINGS DIALOGEX 0, 0, 224, 214
+STYLE WS_POPUPWINDOW | WS_MINIMIZEBOX | WS_CAPTION | DS_SHELLFONT | DS_MODALFRAME | NOT WS_VISIBLE
+CAPTION "Easymic Settings"
+FONT 8, "Ms Shell Dlg"
+BEGIN
+    // Empty - add your controls here
+END
+

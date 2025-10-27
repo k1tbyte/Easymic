@@ -1,7 +1,10 @@
+#include <iostream>
+
 #include "definitions.h"
 #include "config.hpp"
-#include "MainWindow.hpp"
 #include "AudioManager.hpp"
+#include "Resources/Resource.h"
+#include "SettingsWindow/SettingsWindow.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -23,10 +26,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     manager.Init();
 
    // InitWindow(hInstance);
-    auto* mw = new MainWindow(AppName,hInstance, config, manager);
-    mw->InitWindow();
-    mw->InitTrayIcon();
+    auto settingsWindow = std::make_unique<SettingsWindow>(hInstance);
 
+    // Configure settings window
+    SettingsWindow::Config windowConfig;
+    windowConfig.dialogResourceId = IDD_SETTINGS;
+
+    // Initialize
+    if (!settingsWindow->Initialize(windowConfig)) {
+        return 1;
+    }
+
+    settingsWindow->Show();
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);

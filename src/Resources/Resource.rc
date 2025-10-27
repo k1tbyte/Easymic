@@ -1,3 +1,7 @@
+#include <windows.h>
+#include <commctrl.h>
+#include <richedit.h>
+
 #include "resource.h"
 #include "winres.h"
 
@@ -28,41 +32,43 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Dialog
+// Dialog - include separate .rc file for each window
 //
 
-IDD_SETTINGS DIALOGEX 0, 0, 179, 230
-STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Easymic settings"
-FONT 8, "MS Shell Dlg", 400, 0, 0x1
-BEGIN
-    DEFPUSHBUTTON   "Save",IDOK,65,210,50,14
-    PUSHBUTTON      "Cancel",IDCANCEL,122,210,50,14
+/////////////////////////////////////////////////////////////////////////////
+// Settings Window Dialog - Empty
+/////////////////////////////////////////////////////////////////////////////
 
-    // Hotkeys group
-    GROUPBOX        "Hotkeys",IDC_STATIC,7,7,165,42
-    GROUPBOX        "On/off microphone",IDC_STATIC,11,16,157,28
-    PUSHBUTTON      "",MUTE_HOTKEY,14,25,151,14
+IDD_SETTINGS DIALOGEX 0, 0, 224, 214
+STYLE WS_POPUPWINDOW | WS_MINIMIZEBOX | WS_CAPTION | DS_SHELLFONT | DS_MODALFRAME | NOT WS_VISIBLE
+CAPTION "Easymic Settings"
+FONT 8, "Ms Shell Dlg"
+{
+	CONTROL			"", IDC_SETTINGS_LISTVIEW, WC_LISTVIEW, NOT WS_BORDER | LVS_SHOWSELALWAYS | LVS_REPORT | LVS_NOCOLUMNHEADER, 8, 8, 208, 174
 
-    // System group
-    GROUPBOX        "System",IDC_STATIC,7,52,165,93
-    CONTROL         "Exclude from capture",ID_EXCLUDE_CAPTURE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,64,140,10
-    CONTROL         "Start with Windows",ID_AUTOSTARTUP,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,14,77,140,10
-    LTEXT           "Microphone indicator",IDC_STATIC,14,93,74,8
-    COMBOBOX        INDICATOR_COMBO,90,91,78,70,CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
-    LTEXT           "Size of indicator",IDC_STATIC,14,108,74,8
-    CONTROL         "",INDICATOR_SIZE_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,106,100,15
-    LTEXT           "Volume threshold",IDC_STATIC,14,123,74,8
-    CONTROL         "",THRESHOLD_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,122,100,15
+	PUSHBUTTON		"", IDC_SETTINGS_APPLY, 8, 192, 208, 14, BS_SPLITBUTTON | BS_CENTER | BS_VCENTER
+}
 
-    // Sounds group
-    GROUPBOX        "",SOUNDS_GROUPBOX,7,148,165,58
-    LTEXT           "Bell volume (%)",IDC_STATIC,20,162,50,8
-    CONTROL         "",BELL_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,160,100,15
-    LTEXT           "Mic volume (%)",IDC_STATIC,20,178,50,8
-    CONTROL         "",MIC_VOLUME_TRACKBAR,"msctls_trackbar32",TBS_NOTICKS | TBS_TOOLTIPS | WS_TABSTOP,70,176,100,15
-    CONTROL         "Mute the mic by setting the volume to 0",MUTE_MODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,20,191,150,10
-END
+IDD_SETTINGS_TAB_GENERAL DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+	GROUPBOX		"Page 1", IDC_TITLE_1, 0, 0, 260, 90
+
+	AUTOCHECKBOX	"", IDC_CHECKUPDATES_CHK, 8, 72, 244, 10
+}
+
+IDD_SETTINGS_TAB_HOTKEYS DIALOGEX 0, 0, 260, 168
+STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 8, "Ms Shell Dlg"
+{
+	GROUPBOX		"Page 2", IDC_TITLE_2, 0, 0, 260, 78
+
+	AUTOCHECKBOX	"", IDC_CHECKUPDATES_CHK_2, 8, 72, 244, 10
+}
+
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -96,3 +102,5 @@ BEGIN
         VALUE "Translation", 0x409, 1200
     END
 END
+
+1 24 "app.manifest"
