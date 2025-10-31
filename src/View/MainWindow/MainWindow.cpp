@@ -1,9 +1,9 @@
 #include "MainWindow.hpp"
 #include "../../Resources/Resource.h"
 
-MainWindow::MainWindow(HINSTANCE hInstance)
+MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance)
-    , trayIcon_(std::make_unique<TrayIcon>())
+    , appConfig_(appConfig), trayIcon_(std::make_unique<TrayIcon>())
 {
 }
 
@@ -13,14 +13,14 @@ MainWindow::~MainWindow() {
     }
 }
 
-bool MainWindow::Initialize(const Config& config) {
+bool MainWindow::Initialize(WindowConfig config) {
     config_ = config;
 
     if (!RegisterWindowClass(config)) {
         return false;
     }
 
-    const int windowSize = config.size * 2;
+    const int windowSize = appConfig_.indicatorSize * 2;
     currentSize_ = windowSize;
 
     hwnd_ = CreateWindowExW(
@@ -28,8 +28,8 @@ bool MainWindow::Initialize(const Config& config) {
         config.className,
         config.windowTitle,
         WS_POPUP,
-        config.posX,
-        config.posY,
+        appConfig_.windowPosX,
+        appConfig_.windowPosY,
         windowSize,
         windowSize,
         nullptr,
@@ -48,7 +48,7 @@ bool MainWindow::Initialize(const Config& config) {
     return true;
 }
 
-bool MainWindow::RegisterWindowClass(const Config& config) const {
+bool MainWindow::RegisterWindowClass(const WindowConfig& config) const {
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -85,7 +85,7 @@ void MainWindow::SetupMessageHandlers() {
         return OnExitSizeMove(wp, lp);
     });
 
-    // Восстановление tray icon при перезапуске Explorer
+    // Restoring tray icon on Explorer restart
     const UINT taskbarCreatedMsg = RegisterWindowMessageA("TaskbarCreated");
     RegisterMessageHandler(taskbarCreatedMsg, [this](WPARAM wp, LPARAM lp) {
         if (currentIcon_) {
@@ -141,7 +141,7 @@ LRESULT MainWindow::OnTrayIconMessage(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT MainWindow::OnExitSizeMove(WPARAM wParam, LPARAM lParam) {
-    // Можно добавить callback для сохранения позиции
+    // Can add callback for position saving
     return 0;
 }
 

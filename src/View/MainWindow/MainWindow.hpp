@@ -6,27 +6,26 @@
 #include "../Components/GdiRenderer.hpp"
 #include <memory>
 
+#include "AppConfig.hpp"
+
 class MainWindow final : public BaseWindow {
 public:
-    // Callbacks для делегирования логики
+    // Callbacks for logic delegation
     using OnTrayClickCallback = std::function<void()>;
     using OnTrayMenuCallback = std::function<void(UINT commandId)>;
     using OnCloseCallback = std::function<void()>;
 
-    struct Config {
-        int posX = 0;
-        int posY = 0;
-        int size = 32;
+    struct WindowConfig {
         LPCWSTR windowTitle = L"MainWindow";
         LPCWSTR className = L"MainWindowClass";
     };
 
-    explicit MainWindow(HINSTANCE hInstance);
+    explicit MainWindow(HINSTANCE hInstance, AppConfig& appConfig);
     ~MainWindow() override;
 
-    bool Initialize(const Config& config);
+    bool Initialize(WindowConfig config);
 
-    // Tray icon управление
+    // Tray icon management
     bool CreateTrayIcon(HICON icon, const std::wstring& tooltip);
     void UpdateTrayIcon(HICON icon);
 
@@ -51,7 +50,7 @@ public:
     void UpdatePosition(int x, int y);
 
 private:
-    bool RegisterWindowClass(const Config& config) const;
+    bool RegisterWindowClass(const WindowConfig& config) const;
     void SetupMessageHandlers();
 
     // Message handlers
@@ -64,7 +63,8 @@ private:
 
     void ShowTrayContextMenu();
 
-    Config config_;
+    const AppConfig& appConfig_;
+    WindowConfig config_;
     std::unique_ptr<TrayIcon> trayIcon_;
     std::unique_ptr<GdiPlusContext> gdiContext_;
 

@@ -19,6 +19,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         winmm
         gdiplus
         uxtheme
+        comctl32
 )
 
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")

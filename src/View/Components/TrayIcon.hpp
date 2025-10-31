@@ -6,8 +6,8 @@
 #include <string>
 
 /**
- * @brief Управление иконкой в системном трее
- * Single Responsibility: только работа с tray icon
+ * @brief System tray icon management
+ * Single Responsibility: only tray icon operations
  */
 class TrayIcon {
 public:

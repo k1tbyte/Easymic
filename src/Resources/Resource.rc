@@ -1,9 +1,12 @@
-#include <windows.h>
+﻿#include <windows.h>
 #include <commctrl.h>
 #include <richedit.h>
 
 #include "resource.h"
 #include "winres.h"
+
+
+#pragma code_page(65001)
 
 IDI_APP            ICON                    "appicon.ico"
 IDI_MIC            ICON                    "mic-unmuted.ico"
@@ -36,37 +39,40 @@ END
 //
 
 /////////////////////////////////////////////////////////////////////////////
-// Settings Window Dialog - Empty
+// Settings Window Dialog
 /////////////////////////////////////////////////////////////////////////////
 
-IDD_SETTINGS DIALOGEX 0, 0, 224, 214
-STYLE WS_POPUPWINDOW | WS_MINIMIZEBOX | WS_CAPTION | DS_SHELLFONT | DS_MODALFRAME | NOT WS_VISIBLE
-CAPTION "Easymic Settings"
+IDD_SETTINGS DIALOGEX 0, 0, 270, 170
+STYLE DS_MODALFRAME | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Easymic - settings"
 FONT 8, "Ms Shell Dlg"
 {
-	CONTROL			"", IDC_SETTINGS_LISTVIEW, WC_LISTVIEW, NOT WS_BORDER | LVS_SHOWSELALWAYS | LVS_REPORT | LVS_NOCOLUMNHEADER, 8, 8, 208, 174
-
-	PUSHBUTTON		"", IDC_SETTINGS_APPLY, 8, 192, 208, 14, BS_SPLITBUTTON | BS_CENTER | BS_VCENTER
+    DEFPUSHBUTTON   "OK", IDOK, 158, 149, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 213, 149, 50, 14
 }
 
-IDD_SETTINGS_TAB_GENERAL DIALOGEX 0, 0, 260, 168
+IDD_SETTINGS_GENERAL DIALOGEX 0, 0, 260, 168
 STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "Ms Shell Dlg"
 {
-	GROUPBOX		"Page 1", IDC_TITLE_1, 0, 0, 260, 90
-
-	AUTOCHECKBOX	"", IDC_CHECKUPDATES_CHK, 8, 72, 244, 10
+    CONTROL         "Start with Windows", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,0,180,10
+    CONTROL         "Exclude from capture", IDC_SETTINGS_EXCLUDE_CAPTURE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,12,180,10
+    GROUPBOX        "Indicator",IDC_STATIC,0,27,183,62
+    LTEXT           "Show while",IDC_STATIC,6,42,100,15
+    COMBOBOX        IDC_SETTINGS_INDICATOR_COMBO,90,40,90,70,CBS_DROPDOWNLIST  | CBS_HASSTRINGS  | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
+    LTEXT          "Size",IDC_STATIC,6,57,100,15
+    CONTROL        "",IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR,"msctls_trackbar32",TBS_AUTOTICKS | TBS_ENABLESELRANGE | WS_TABSTOP | WS_CHILD | WS_VISIBLE,90,56,90,15
+    LTEXT          "Volume threshold",IDC_STATIC,6,72,100,15
+    CONTROL        "",IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR,"msctls_trackbar32",TBS_AUTOTICKS | TBS_ENABLESELRANGE | WS_TABSTOP | WS_CHILD | WS_VISIBLE,90,70,90,15
 }
 
-IDD_SETTINGS_TAB_HOTKEYS DIALOGEX 0, 0, 260, 168
+IDD_SETTINGS_HOTKEYS DIALOGEX 0, 0, 260, 168
 STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "Ms Shell Dlg"
 {
-	GROUPBOX		"Page 2", IDC_TITLE_2, 0, 0, 260, 78
-
-	AUTOCHECKBOX	"", IDC_CHECKUPDATES_CHK_2, 8, 72, 244, 10
+ CONTROL         "Start with Windows", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,14,63,120,10
 }
 
 
@@ -86,7 +92,7 @@ FONT 8, "Ms Shell Dlg"
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
-        BLOCK "040904b0"
+        BLOCK "041904b0"
         BEGIN
             VALUE "CompanyName", "kitbyte"
             VALUE "FileDescription", "Easymic"
@@ -99,7 +105,7 @@ BEGIN
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x409, 1200
+        VALUE "Translation", 0x419, 1200
     END
 END
 

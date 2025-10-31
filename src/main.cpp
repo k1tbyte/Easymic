@@ -1,16 +1,19 @@
 #include <iostream>
 
 #include "definitions.h"
-#include "config.hpp"
+#include "AppConfig.hpp"
 #include "AudioManager.hpp"
+#include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "SettingsWindow/SettingsWindow.hpp"
+#include "ViewModel/MainWindowViewModel.hpp"
+#include "ViewModel/SettingsWindowViewModel.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     MSG callbackMsg;
 
-    const auto mutex =  CreateMutex(nullptr, FALSE, MutexName);
+    auto *const mutex =  CreateMutexW(nullptr, FALSE, MutexName);
 
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
@@ -19,18 +22,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     CoInitialize(nullptr); // Initialize COM
 
-    Config config;
-    Config::Load(&config,Config::GetConfigPath());
+    AppConfig config;
+    AppConfig::Load(&config,AppConfig::GetConfigPath());
 
     auto manager = AudioManager();
     manager.Init();
 
-   // InitWindow(hInstance);
-    auto settingsWindow = std::make_unique<SettingsWindow>(hInstance);
+    auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
+    mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
+
+    if (!mainWindow->Initialize({})) {
+        return 1;
+    }
+    mainWindow->Show();
+
+    auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
+    settingsWindow->AttachViewModel<SettingsWindowViewModel>(manager);
 
     // Configure settings window
     SettingsWindow::Config windowConfig;
-    windowConfig.dialogResourceId = IDD_SETTINGS;
+    windowConfig.parentHwnd = mainWindow->GetHandle();
 
     // Initialize
     if (!settingsWindow->Initialize(windowConfig)) {

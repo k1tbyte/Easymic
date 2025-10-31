@@ -8,7 +8,7 @@
 #pragma comment(lib, "gdiplus.lib")
 
 /**
- * @brief RAII-обертка для GDI+ инициализации
+ * @brief RAII wrapper for GDI+ initialization
  */
 class GdiPlusContext {
 public:
@@ -29,8 +29,8 @@ private:
 };
 
 /**
- * @brief Помощник для рендеринга с GDI+
- * Инкапсулирует сложную логику работы с layered windows
+ * @brief GDI+ rendering helper
+ * Encapsulates complex layered windows rendering logic
  */
 class LayeredWindowRenderer {
 public:
@@ -43,11 +43,11 @@ public:
     using RenderCallback = std::function<void(RenderContext&)>;
 
     /**
-     * @brief Рендеринг в layered окно
-     * @param hwnd Handle окна
-     * @param width Ширина
-     * @param height Высота
-     * @param renderFunc Callback для рисования
+     * @brief Rendering to layered window
+     * @param hwnd Window handle
+     * @param width Width
+     * @param height Height
+     * @param renderFunc Drawing callback
      */
     static void Render(HWND hwnd, int width, int height, const RenderCallback& renderFunc) {
         if (!hwnd || !renderFunc) {
@@ -114,7 +114,7 @@ public:
     }
 
     /**
-     * @brief Создание rounded rectangle path
+     * @brief Create rounded rectangle path
      */
     static void CreateRoundedRectPath(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& rect, float radius) {
         float diameter = radius * 2.0f;

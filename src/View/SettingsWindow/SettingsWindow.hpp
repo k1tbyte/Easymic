@@ -3,21 +3,35 @@
 
 #include "../Core/BaseWindow.hpp"
 #include "Resources/Resource.h"
+#include <commctrl.h>
+#include <functional>
 
 /**
- * @brief Settings window - empty template
+ * @brief Settings window with TreeView sidebar navigation
  */
 class SettingsWindow : public BaseWindow {
 
-    constexpr static int _tabs[] = {
-        IDD_SETTINGS_TAB_GENERAL,
-        IDD_SETTINGS_TAB_HOTKEYS
-    };
-
 public:
+    // Layout constants
+    static constexpr int SIDE_MENU_WIDTH = 90;
+    static constexpr int MARGIN = 8;
+    static constexpr int BUTTON_AREA_HEIGHT = 30;
+    static constexpr int GROUPBOX_PADDING = 8;
+
+    // Control IDs
+    static constexpr int ID_TREEVIEW = 1001;
+    static constexpr int ID_GROUPBOX = 1002;
+
+    using CategoryChangeCallback = std::function<void(int categoryId, const wchar_t* categoryName)>;
+
     struct Config {
         HWND parentHwnd = nullptr;
-        int dialogResourceId = 0;
+        CategoryChangeCallback onCategoryChange = nullptr;
+    };
+
+    struct CategoryItem {
+        int resourceId;
+        const wchar_t* name;
     };
 
     explicit SettingsWindow(HINSTANCE hInstance);
@@ -28,14 +42,35 @@ public:
     void Show() override;
     void Hide() override;
 
+    void SetActiveCategory(int categoryId);
+
 private:
     void SetupMessageHandlers();
+    void CreateTreeView();
+    void PopulateTreeView();
+    void CreateGroupBox();
+    void LoadCategoryContent(int resourceId);
+    void UpdateGroupBoxLayout();
+
+    HTREEITEM AddTreeViewItem(HTREEITEM hParent, const CategoryItem& item);
+    void OnTreeViewSelectionChanged(HTREEITEM hItem);
+
+    static LRESULT CALLBACK TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
     LRESULT OnInitDialog(WPARAM wParam, LPARAM lParam);
     LRESULT OnCommand(WPARAM wParam, LPARAM lParam);
+    LRESULT OnNotify(WPARAM wParam, LPARAM lParam);
+    LRESULT OnSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
 
     Config config_;
+    HWND hwndTreeView_ = nullptr;
+    HWND hwndGroupBox_ = nullptr;
+    HWND hwndContentDialog_ = nullptr;
+    int currentCategoryId_ = -1;
+
+    static const CategoryItem categories_[];
+    static const size_t categoriesCount_;
 };
 
 #endif //EASYMIC_SETTINGSWINDOW_V2_HPP

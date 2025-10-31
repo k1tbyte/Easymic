@@ -9,8 +9,8 @@
 class BaseWindow;
 
 /**
- * @brief Singleton registry для маппинга HWND -> BaseWindow*
- * Решает проблему глобальных статических указателей
+ * @brief Singleton registry for HWND -> BaseWindow* mapping
+ * Solves the problem of global static pointers
  */
 class WindowRegistry {
 public:
