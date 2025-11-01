@@ -5,6 +5,9 @@
 #ifndef EASYMICTESTING_EVENT_H
 #define EASYMICTESTING_EVENT_H
 
+#include <functional>
+#include <unordered_map>
+
 template<typename... Args>
 class IEvent {
 public:
@@ -21,14 +24,14 @@ private:
     int nextId_ = 0;
 
 public:
-    // Подписка - возвращает ID
+    // Subscribe - returns ID
     int operator+=(Handler handler) override {
         int id = nextId_++;
         handlers_[id] = std::move(handler);
         return id;
     }
 
-    // Отписка по ID
+    // Unsubscribe by ID
     void operator-=(int id) override {
         handlers_.erase(id);
     }

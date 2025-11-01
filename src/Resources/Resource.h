@@ -8,11 +8,12 @@
 #define IDI_APP             4
 #define IDI_MIC	            5
 #define IDI_MIC_MUTED		6
-#define IDI_MIC_ACTIVE		7
+#define IDI_MIC_UNMUTED		7
+#define IDI_MIC_ACTIVE		8
 
 // Sounds
-#define IDR_MUTE            8
-#define IDR_UNMUTE		    9
+#define IDR_MUTE            18
+#define IDR_UNMUTE		    19
 
 // Menus
 #define IDR_TRAY_MENU	    100

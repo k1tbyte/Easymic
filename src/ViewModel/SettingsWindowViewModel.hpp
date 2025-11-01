@@ -5,7 +5,7 @@
 #ifndef EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
 #define EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
 #include "AudioManager.hpp"
-#include "BaseViewModel.hpp"
+#include "ViewModel.hpp"
 #include "SettingsWindow/SettingsWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
 
@@ -17,7 +17,10 @@ public:
     SettingsWindowViewModel(const std::shared_ptr<BaseWindow>& baseView, const AudioManager& audioManager) :
         BaseViewModel(baseView),
         _audioManager(audioManager) {
+    }
 
+    void Init() override {
+        // Initialize ViewModel logic here
     }
 };
 #endif //EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP

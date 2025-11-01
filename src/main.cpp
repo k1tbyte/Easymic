@@ -20,7 +20,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 0;
     }
 
-    CoInitialize(nullptr); // Initialize COM
+    CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+    ULONG_PTR token_ = 0;
+    GdiplusStartupInput input;
+    GdiplusStartup(&token_, &input, nullptr);
 
     AppConfig config;
     AppConfig::Load(&config,AppConfig::GetConfigPath());

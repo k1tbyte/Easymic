@@ -23,6 +23,7 @@ SettingsWindow::SettingsWindow(HINSTANCE hInstance)
 bool SettingsWindow::Initialize(const Config& config) {
     config_ = config;
     SetupMessageHandlers();
+    _viewModel->Init();
     return true;
 }
 

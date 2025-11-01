@@ -10,14 +10,15 @@
 class BaseWindow;
 
 // Interface for polymorphic storage in BaseWindow
-class IBaseViewModel {
+class IViewModel {
 public:
-    virtual ~IBaseViewModel() = default;
+    virtual ~IViewModel() = default;
+    virtual void Init() = 0; // Must be implemented by concrete ViewModels
 };
 
 // Template base class for typed view access
 template <typename T>
-class BaseViewModel : public IBaseViewModel {
+class BaseViewModel : public IViewModel {
 protected:
     std::shared_ptr<T> _view;
 

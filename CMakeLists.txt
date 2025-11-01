@@ -9,7 +9,8 @@ set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 
-add_executable(${PROJECT_NAME})
+add_executable(${PROJECT_NAME} WIN32)
+
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         ole32
@@ -18,9 +19,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         ws2_32
         winmm
         gdiplus
-        uxtheme
         comctl32
 )
+
 
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")
 
@@ -49,9 +50,17 @@ if(MINGW)
         target_link_options(${PROJECT_NAME} PRIVATE
                 -Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive
         )
-
-        target_compile_options(${PROJECT_NAME} PRIVATE -O3)
     endif()
+elseif(MSVC)
+    # MSVC specific settings for Windows application
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+
+    # Disable automatic manifest generation to avoid conflicts with Resource.rc
+    target_link_options(${PROJECT_NAME} PRIVATE
+        /MANIFEST:NO
+    )
 endif()
 
 

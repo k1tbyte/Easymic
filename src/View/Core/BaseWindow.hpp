@@ -6,9 +6,15 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <type_traits>
 #include "WindowRegistry.hpp"
+#include "ViewModel/ViewModel.hpp"
 
-class IBaseViewModel;
+class IViewModel;
+
+template<typename T>
+concept IViewModelType = std::is_base_of_v<IViewModel, T> || std::is_same_v<IViewModel, T>;
+
 /**
  * @brief Base class for all application windows
  * Uses callback-based approach for message handling
@@ -27,11 +33,20 @@ public:
     HINSTANCE GetInstance() const { return hInstance_; }
     bool IsVisible() const { return isVisible_; }
 
+    virtual void Invalidate() {
+        if (!hwnd_) {
+            return;
+        }
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+
     virtual void Show() {
         if (!hwnd_ || isVisible_) {
             return;
         }
+
         ShowWindow(hwnd_, SW_SHOW);
+        Invalidate();
         UpdateWindow(hwnd_);
         isVisible_ = true;
     }
@@ -51,12 +66,16 @@ public:
         DestroyWindow(hwnd_);
     }
 
-    virtual std::shared_ptr<IBaseViewModel> GetViewModel() const {
+    HINSTANCE GetHInstance() const {
+        return hInstance_;
+    }
+
+    virtual std::shared_ptr<IViewModel> GetViewModel() const {
         return _viewModel;
     }
 
 
-    template <typename T, typename... Args>
+    template <IViewModelType T, typename... Args>
     std::shared_ptr<T> AttachViewModel(Args &&... args) {
         auto vm = std::make_shared<T>(shared_from_this(), std::forward<Args>(args)...);
         _viewModel = vm;
@@ -120,7 +139,7 @@ protected:
     }
 
     HWND hwnd_ = nullptr;
-    std::shared_ptr<IBaseViewModel> _viewModel;
+    std::shared_ptr<IViewModel> _viewModel;
     HINSTANCE hInstance_ = nullptr;
     bool isVisible_ = false;
     std::unordered_map<UINT, MessageHandler> messageHandlers_;

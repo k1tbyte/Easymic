@@ -45,6 +45,8 @@ bool MainWindow::Initialize(WindowConfig config) {
     RegisterWindow(hwnd_);
     SetupMessageHandlers();
 
+    _viewModel->Init();
+
     return true;
 }
 
@@ -52,7 +54,7 @@ bool MainWindow::RegisterWindowClass(const WindowConfig& config) const {
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = BaseWindow::StaticWindowProc;
+    wc.lpfnWndProc = StaticWindowProc;
     wc.hInstance = hInstance_;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = config.className;
@@ -81,6 +83,11 @@ void MainWindow::SetupMessageHandlers() {
         return OnTrayIconMessage(wp, lp);
     });
 
+    RegisterMessageHandler(WM_COMMAND, [this](WPARAM wp, LPARAM lp) {
+        _onTrayMenu(wp);
+        return 0;
+    });
+
     RegisterMessageHandler(WM_EXITSIZEMOVE, [this](WPARAM wp, LPARAM lp) {
         return OnExitSizeMove(wp, lp);
     });
@@ -89,37 +96,36 @@ void MainWindow::SetupMessageHandlers() {
     const UINT taskbarCreatedMsg = RegisterWindowMessageA("TaskbarCreated");
     RegisterMessageHandler(taskbarCreatedMsg, [this](WPARAM wp, LPARAM lp) {
         if (currentIcon_) {
-            CreateTrayIcon(currentIcon_, L"");
+            CreateTrayIcon(currentIcon_, _currentTooltip);
         }
         return 0;
     });
 }
 
 LRESULT MainWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
-    gdiContext_ = std::make_unique<GdiPlusContext>();
     return 0;
 }
 
 LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     trayIcon_->Remove();
-    gdiContext_.reset();
     PostQuitMessage(0);
     return 0;
 }
 
 LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
-    if (!renderCallback_) {
+    if (!_onRender) {
         return 0;
     }
 
-    LayeredWindowRenderer::Render(hwnd_, currentSize_, currentSize_, renderCallback_);
+    GDIRenderer::RenderLayeredWindow(hwnd_, currentSize_, currentSize_, _onRender);
+
     ValidateRect(hwnd_, nullptr);
     return 0;
 }
 
 LRESULT MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
-    if (onClose_) {
-        onClose_();
+    if (_onClose) {
+        _onClose();
     }
     return 0;
 }
@@ -127,14 +133,8 @@ LRESULT MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
 LRESULT MainWindow::OnTrayIconMessage(WPARAM wParam, LPARAM lParam) {
     const UINT message = LOWORD(lParam);
 
-    if (message == WM_LBUTTONDBLCLK && onTrayClick_) {
-        onTrayClick_();
-        return 0;
-    }
-
-    if (message == WM_RBUTTONUP) {
+    if (message == WM_LBUTTONDBLCLK || message == WM_RBUTTONUP) {
         ShowTrayContextMenu();
-        return 0;
     }
 
     return 0;
@@ -157,6 +157,11 @@ bool MainWindow::CreateTrayIcon(HICON icon, const std::wstring& tooltip) {
 void MainWindow::UpdateTrayIcon(HICON icon) {
     currentIcon_ = icon;
     trayIcon_->UpdateIcon(icon);
+}
+
+void MainWindow::UpdateTrayTooltip(const std::wstring &tooltip) {
+    _currentTooltip = tooltip;
+    trayIcon_->UpdateTooltip(tooltip);
 }
 
 void MainWindow::UpdateSize(int newSize) {
@@ -215,19 +220,15 @@ void MainWindow::ShowTrayContextMenu() {
 
     SetForegroundWindow(hwnd_);
 
-    const UINT command = TrackPopupMenu(
+    TrackPopupMenu(
         subMenu,
-        TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+        TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN,
         cursor.x,
         cursor.y,
         0,
         hwnd_,
         nullptr
     );
-
-    if (command != 0 && onTrayMenu_) {
-        onTrayMenu_(command);
-    }
 
     DestroyMenu(menu);
 }

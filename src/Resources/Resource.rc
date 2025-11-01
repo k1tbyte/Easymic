@@ -9,8 +9,8 @@
 #pragma code_page(65001)
 
 IDI_APP            ICON                    "appicon.ico"
-IDI_MIC            ICON                    "mic-unmuted.ico"
-IDI_MIC_MUTED      ICON                    "mic-muted-2.ico"
+IDI_MIC_MUTED      ICON                    "mic-muted.ico"
+IDI_MIC_UNMUTED    ICON                    "mic-unmuted.ico"
 IDI_MIC_ACTIVE     ICON                    "mic-active.ico"
 
 IDR_MUTE           WAVE                    "mute.wav"

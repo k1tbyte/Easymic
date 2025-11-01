@@ -16,7 +16,7 @@ public:
         Remove();
     }
 
-    // Запрет копирования
+    // Disable copying
     TrayIcon(const TrayIcon&) = delete;
     TrayIcon& operator=(const TrayIcon&) = delete;
 
