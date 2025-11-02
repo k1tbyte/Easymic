@@ -31,7 +31,7 @@ public:
 
     BaseWindow* Get(HWND hwnd) {
         std::lock_guard lock(mutex_);
-        auto it = registry_.find(hwnd);
+        const auto it = registry_.find(hwnd);
         return it != registry_.end() ? it->second : nullptr;
     }
 

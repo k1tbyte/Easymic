@@ -9,7 +9,7 @@ set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 
-add_executable(${PROJECT_NAME} WIN32)
+add_executable(${PROJECT_NAME} #[[WIN32]])
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -38,10 +38,21 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 if(MINGW)
+#[[    target_compile_options(${PROJECT_NAME} PRIVATE
+            -ffunction-sections
+            -fdata-sections
+            -fno-rtti
+            -fno-unwind-tables
+    )]]
+
     target_link_options(${PROJECT_NAME} PRIVATE
             -static-libgcc
             -static-libstdc++
             -Wl,--allow-multiple-definition
+#[[            -Wl,--gc-sections         # remove unused sections
+            -Wl,--strip-all          # remove debugging symbols
+            -Wl,--strip-debug
+            -s                       # additional stripping]]
     )
 
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -52,6 +63,12 @@ if(MINGW)
         )
     endif()
 elseif(MSVC)
+
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            /GS-                     # отключить проверки переполнения буфера
+            /GR-                     # отключить RTTI если не нужен
+    )
+
     # MSVC specific settings for Windows application
     set_target_properties(${PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE TRUE
@@ -62,6 +79,8 @@ elseif(MSVC)
         /MANIFEST:NO
     )
 endif()
+
+
 
 
 

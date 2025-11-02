@@ -20,8 +20,6 @@ enum class IndicatorState {
     Hidden,
     Muted,
     MutedOrTalk,
-    Always,
-    AlwaysAndTalk
 };
 
 struct AppConfig {

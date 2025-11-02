@@ -51,6 +51,7 @@ public:
         isVisible_ = true;
     }
 
+
     virtual void Hide() {
         if (!hwnd_ || !isVisible_) {
             return;
@@ -68,6 +69,10 @@ public:
 
     HINSTANCE GetHInstance() const {
         return hInstance_;
+    }
+
+    BaseWindow* GetParent() const {
+        return _parent;
     }
 
     virtual std::shared_ptr<IViewModel> GetViewModel() const {
@@ -125,6 +130,9 @@ protected:
             } else {
                 return DefWindowProc(hwnd, message, wParam, lParam);
             }
+        } else if (message == WM_DESTROY) {
+            window->hwnd_ = nullptr;
+            WindowRegistry::Instance().Unregister(hwnd);
         }
 
         return window->HandleMessage(message, wParam, lParam);
@@ -139,6 +147,7 @@ protected:
     }
 
     HWND hwnd_ = nullptr;
+    BaseWindow* _parent = nullptr;
     std::shared_ptr<IViewModel> _viewModel;
     HINSTANCE hInstance_ = nullptr;
     bool isVisible_ = false;

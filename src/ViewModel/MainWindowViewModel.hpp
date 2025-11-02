@@ -4,8 +4,9 @@
 
 #ifndef EASYMIC_MAINWINDOWVIEWMODEL_HPP
 #define EASYMIC_MAINWINDOWVIEWMODEL_HPP
-#include <format>
 
+
+#include "SettingsWindowViewModel.hpp"
 #include "ViewModel.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
@@ -18,6 +19,9 @@ using namespace Gdiplus;
 
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
+
+    std::shared_ptr<SettingsWindow> _settingsWindow;
+
     const AudioManager &_audio;
     const AppConfig& _config;
     HICON mutedIcon = nullptr;
@@ -43,13 +47,40 @@ public:
             _config(config) {
     }
 
+private:
+
+    void SuspendActivity() {
+
+    }
+
+    void ResumeActivity() {
+
+    }
+
     void OnTrayMenuCommand(UINT_PTR commandId) {
         switch (commandId) {
             case ID_APP_EXIT:
                 PostQuitMessage(0);
                 break;
             case ID_APP_SETTINGS:
-                // Show settings window
+
+                if (_settingsWindow) {
+                    return;
+                }
+
+                SuspendActivity();
+                _settingsWindow = std::make_shared<SettingsWindow>(_view->GetHInstance());
+                _settingsWindow->AttachViewModel<SettingsWindowViewModel>(_config, _audio);
+
+                if (!_settingsWindow->Initialize({ .parentHwnd =  _view->GetHandle() })) {
+                    throw std::runtime_error("Failed to initialize settings window");
+                }
+
+                _settingsWindow->OnExit += [this] {
+                    ResumeActivity();
+                    _settingsWindow.reset();
+                };
+                _settingsWindow->Show();
                 break;
         }
     }
@@ -86,7 +117,13 @@ public:
 
         _view->UpdateTrayIcon(iconToDisplay = (renderDeviceMuted ?  mutedIcon : unmutedIcon));
 
-        _view->UpdateTrayTooltip(std::format(L"Easymic - {} [{}%]", mic.GetDeviceName(), mic.GetVolumePercent()));
+        constexpr auto bufferSize = 255;
+
+        wchar_t buffer[bufferSize];
+        swprintf(buffer, bufferSize, L"Easymic - %s [%d%%]",
+                 mic.GetDeviceName(),
+                 mic.GetVolumePercent());
+        _view->UpdateTrayTooltip(std::wstring(buffer));
 
         if (_config.bellVolume > 0 && !silent) {
             PlaySoundA(
@@ -106,6 +143,7 @@ public:
         RenderDeviceStateChanged(true);
     }
 
+public:
     void Init() override {
         auto *hInst = _view->GetHInstance();
 

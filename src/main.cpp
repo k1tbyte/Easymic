@@ -39,19 +39,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     mainWindow->Show();
 
-    auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
-    settingsWindow->AttachViewModel<SettingsWindowViewModel>(manager);
 
-    // Configure settings window
-    SettingsWindow::Config windowConfig;
-    windowConfig.parentHwnd = mainWindow->GetHandle();
-
-    // Initialize
-    if (!settingsWindow->Initialize(windowConfig)) {
-        return 1;
-    }
-
-    settingsWindow->Show();
     while(GetMessage(&callbackMsg, nullptr, 0, 0))
     {
         TranslateMessage(&callbackMsg);

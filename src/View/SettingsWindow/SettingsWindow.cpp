@@ -8,9 +8,9 @@
 
 const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
-    {IDD_SETTINGS_HOTKEYS, L"Sounds"},
-    {0, L"Hotkeys"},
-    {0, L"About"},
+    {IDD_SETTINGS_SOUNDS, L"Sounds"},
+    {IDD_SETTINGS_HOTKEYS, L"Hotkeys"},
+    {IDD_SETTINGS_ABOUT, L"About"},
 };
 
 const size_t SettingsWindow::categoriesCount_ = sizeof(categories_) / sizeof(CategoryItem);
@@ -21,6 +21,12 @@ SettingsWindow::SettingsWindow(HINSTANCE hInstance)
 }
 
 bool SettingsWindow::Initialize(const Config& config) {
+    this->_parent = WindowRegistry::Instance().Get(config.parentHwnd);
+
+    if (!this->_parent) {
+        return false;
+    }
+
     config_ = config;
     SetupMessageHandlers();
     _viewModel->Init();
@@ -86,6 +92,12 @@ void SettingsWindow::Hide() {
 }
 
 LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
+
+    // Allow drag move on parent window by removing WS_EX_TRANSPARENT
+    LONG_PTR dwExStyle = GetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE);
+    dwExStyle &= ~WS_EX_TRANSPARENT; //Deleting WS_EX_TRANSPARENT
+    SetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE, dwExStyle);
+
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_TREEVIEW_CLASSES;
@@ -165,6 +177,10 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT SettingsWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
+    SetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE,
+        GetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT
+    );
+    _onExit();
     hwnd_ = nullptr;
     hwndTreeView_ = nullptr;
     hwndGroupBox_ = nullptr;
@@ -291,8 +307,8 @@ void SettingsWindow::OnTreeViewSelectionChanged(HTREEITEM hItem) {
 
         LoadCategoryContent(resourceId);
 
-        if (config_.onCategoryChange) {
-            config_.onCategoryChange(currentCategoryId_, buffer);
+        if (OnSectionChange) {
+            OnSectionChange(hwndContentDialog_, currentCategoryId_);
         }
     }
 }
@@ -346,6 +362,44 @@ LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPAR
     return DefSubclassProc(hwnd, uMsg, wParam, lParam);
 }
 
+// Static dialog procedure for child dialogs
+static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    static SettingsWindow* settingsWindow = nullptr;
+
+    switch (message) {
+        case WM_INITDIALOG:
+            settingsWindow = reinterpret_cast<SettingsWindow*>(lParam);
+            break;
+        case WM_COMMAND: {
+            switch (HIWORD(wParam)) {
+                case BN_CLICKED:
+                    if (settingsWindow->OnButtonClick) {
+                        settingsWindow->OnButtonClick(LOWORD(wParam));
+                    }
+                    break;
+                case CBN_SELCHANGE:
+                    if (settingsWindow->OnComboBoxChange) {
+                        settingsWindow->OnComboBoxChange(LOWORD(wParam), SendMessage(hwnd, CB_GETCURSEL, 0, 0));
+                    }
+                    break;
+                // Handle child dialog commands if needed
+            }
+            break;
+        }
+        case WM_HSCROLL:
+            if (LOWORD(wParam) != TB_ENDTRACK) {
+                if (settingsWindow->OnTrackbarChange) {
+                    settingsWindow->OnTrackbarChange(GetDlgCtrlID((HWND)lParam),
+                        SendMessage((HWND)lParam, TBM_GETPOS, 0, 0));
+                }
+            }
+            break;
+    }
+
+
+    return DefWindowProc(hwnd, message, wParam, lParam);
+}
+
 void SettingsWindow::LoadCategoryContent(int resourceId) {
     if (hwndContentDialog_) {
         DestroyWindow(hwndContentDialog_);
@@ -360,8 +414,8 @@ void SettingsWindow::LoadCategoryContent(int resourceId) {
         hInstance_,
         MAKEINTRESOURCEW(resourceId),
         hwndGroupBox_,
-        nullptr,
-        0
+        ChildDialogProc,
+        reinterpret_cast<LPARAM>(this)
     );
 
     if (hwndContentDialog_) {

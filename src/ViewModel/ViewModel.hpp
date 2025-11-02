@@ -24,7 +24,7 @@ protected:
 
 public:
     explicit BaseViewModel(const std::shared_ptr<BaseWindow>& view)
-        : _view(std::dynamic_pointer_cast<T>(view)) {
+        : _view(std::static_pointer_cast<T>(view)) {
     }
 
     std::shared_ptr<T> GetView() const { return _view; }

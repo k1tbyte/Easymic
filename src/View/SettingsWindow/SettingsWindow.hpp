@@ -6,6 +6,8 @@
 #include <commctrl.h>
 #include <functional>
 
+#include "Event.hpp"
+
 /**
  * @brief Settings window with TreeView sidebar navigation
  */
@@ -22,11 +24,13 @@ public:
     static constexpr int ID_TREEVIEW = 1001;
     static constexpr int ID_GROUPBOX = 1002;
 
-    using CategoryChangeCallback = std::function<void(int categoryId, const wchar_t* categoryName)>;
+    using OnButtonClickCallback = std::function<void(int buttonId)>;
+    using OnComboBoxChangeCallback = std::function<void(int comboBoxId, int value)>;
+    using OnTrackbarChangeCallback = std::function<void(int trackbarId, int value)>;
+    using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
 
     struct Config {
         HWND parentHwnd = nullptr;
-        CategoryChangeCallback onCategoryChange = nullptr;
     };
 
     struct CategoryItem {
@@ -43,6 +47,12 @@ public:
     void Hide() override;
 
     void SetActiveCategory(int categoryId);
+
+    Event<>& OnExit = _onExit;
+    OnButtonClickCallback OnButtonClick = nullptr;
+    OnComboBoxChangeCallback OnComboBoxChange = nullptr;
+    OnTrackbarChangeCallback OnTrackbarChange = nullptr;
+    OnSectionChangeCallback OnSectionChange = nullptr;
 
 private:
     void SetupMessageHandlers();
@@ -63,11 +73,14 @@ private:
     LRESULT OnSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
 
+    Event<> _onExit;
+
     Config config_;
     HWND hwndTreeView_ = nullptr;
     HWND hwndGroupBox_ = nullptr;
     HWND hwndContentDialog_ = nullptr;
     int currentCategoryId_ = -1;
+
 
     static const CategoryItem categories_[];
     static const size_t categoriesCount_;
