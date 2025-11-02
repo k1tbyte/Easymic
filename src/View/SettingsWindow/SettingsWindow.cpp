@@ -8,6 +8,7 @@
 
 const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
+    {IDD_SETTINGS_INDICATOR, L"Indicator"},
     {IDD_SETTINGS_SOUNDS, L"Sounds"},
     {IDD_SETTINGS_HOTKEYS, L"Hotkeys"},
     {IDD_SETTINGS_ABOUT, L"About"},
@@ -88,7 +89,7 @@ void SettingsWindow::Hide() {
         return;
     }
 
-    DestroyWindow(hwnd_);
+    _close(hwnd_);
 }
 
 LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
@@ -127,7 +128,10 @@ LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
 LRESULT SettingsWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     const UINT commandId = LOWORD(wParam);
 
-    if (commandId == IDOK || commandId == IDCANCEL) {
+    if (commandId == IDOK) {
+        OnApply();
+        Close();
+    } else if (commandId == IDCANCEL) {
         Close();
     }
 
@@ -374,12 +378,12 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
             switch (HIWORD(wParam)) {
                 case BN_CLICKED:
                     if (settingsWindow->OnButtonClick) {
-                        settingsWindow->OnButtonClick(LOWORD(wParam));
+                        settingsWindow->OnButtonClick(hwnd, LOWORD(wParam));
                     }
                     break;
                 case CBN_SELCHANGE:
                     if (settingsWindow->OnComboBoxChange) {
-                        settingsWindow->OnComboBoxChange(LOWORD(wParam), SendMessage(hwnd, CB_GETCURSEL, 0, 0));
+                        settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam), SendMessage(hwnd, CB_GETCURSEL, 0, 0));
                     }
                     break;
                 // Handle child dialog commands if needed
@@ -389,7 +393,7 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
         case WM_HSCROLL:
             if (LOWORD(wParam) != TB_ENDTRACK) {
                 if (settingsWindow->OnTrackbarChange) {
-                    settingsWindow->OnTrackbarChange(GetDlgCtrlID((HWND)lParam),
+                    settingsWindow->OnTrackbarChange(hwnd, GetDlgCtrlID((HWND)lParam),
                         SendMessage((HWND)lParam, TBM_GETPOS, 0, 0));
                 }
             }

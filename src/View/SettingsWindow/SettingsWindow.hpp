@@ -24,9 +24,9 @@ public:
     static constexpr int ID_TREEVIEW = 1001;
     static constexpr int ID_GROUPBOX = 1002;
 
-    using OnButtonClickCallback = std::function<void(int buttonId)>;
-    using OnComboBoxChangeCallback = std::function<void(int comboBoxId, int value)>;
-    using OnTrackbarChangeCallback = std::function<void(int trackbarId, int value)>;
+    using OnButtonClickCallback = std::function<void(HWND hWnd, int buttonId)>;
+    using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId, int value)>;
+    using OnTrackbarChangeCallback = std::function<void(HWND hWnd, int trackbarId, int value)>;
     using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
 
     struct Config {
@@ -49,6 +49,7 @@ public:
     void SetActiveCategory(int categoryId);
 
     Event<>& OnExit = _onExit;
+    Event<>& OnApply = _onApply;
     OnButtonClickCallback OnButtonClick = nullptr;
     OnComboBoxChangeCallback OnComboBoxChange = nullptr;
     OnTrackbarChangeCallback OnTrackbarChange = nullptr;
@@ -74,6 +75,7 @@ private:
     LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
 
     Event<> _onExit;
+    Event<> _onApply;
 
     Config config_;
     HWND hwndTreeView_ = nullptr;

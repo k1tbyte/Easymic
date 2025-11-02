@@ -33,6 +33,7 @@ struct AppConfig {
     BYTE indicatorSize       = 16;
     float volumeThreshold    = .01f;
     bool excludeFromCapture  = false;
+    bool onTopExclusive      = false;
 
     bool operator==(const AppConfig&) const = default;
 

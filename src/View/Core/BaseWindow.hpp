@@ -34,37 +34,20 @@ public:
     bool IsVisible() const { return isVisible_; }
 
     virtual void Invalidate() {
-        if (!hwnd_) {
-            return;
-        }
-        InvalidateRect(hwnd_, nullptr, TRUE);
+        _invalidate(hwnd_);
     }
 
     virtual void Show() {
-        if (!hwnd_ || isVisible_) {
-            return;
-        }
-
-        ShowWindow(hwnd_, SW_SHOW);
-        Invalidate();
-        UpdateWindow(hwnd_);
-        isVisible_ = true;
+        _show(hwnd_);
     }
 
 
     virtual void Hide() {
-        if (!hwnd_ || !isVisible_) {
-            return;
-        }
-        ShowWindow(hwnd_, SW_HIDE);
-        isVisible_ = false;
+        _hide(hwnd_);
     }
 
     virtual void Close() {
-        if (!hwnd_) {
-            return;
-        }
-        DestroyWindow(hwnd_);
+        _close(hwnd_);
     }
 
     HINSTANCE GetHInstance() const {
@@ -79,6 +62,46 @@ public:
         return _viewModel;
     }
 
+    virtual std::shared_ptr<BaseWindow> SetPositionX(LONG x) {
+        this->_pos.x = x;
+        return shared_from_this();
+    }
+
+    virtual std::shared_ptr<BaseWindow> SetPositionY(LONG y) {
+        this->_pos.y = y;
+        return shared_from_this();
+    }
+
+    virtual std::shared_ptr<BaseWindow> SetWidth(LONG width) {
+        this->_size.x = width;
+        return shared_from_this();
+    }
+
+    virtual std::shared_ptr<BaseWindow> SetHeight(LONG height) {
+        this->_size.y = height;
+        return shared_from_this();
+    }
+
+    virtual std::shared_ptr<BaseWindow> UpdateRect() {
+        return _updateRect(hwnd_);
+    }
+
+    virtual std::shared_ptr<BaseWindow> RefreshPos(HWND insertAfter) {
+        return _refreshPos(hwnd_, insertAfter);
+    }
+
+    LONG GetPositionX() const {
+        return _pos.x;
+    }
+    LONG GetPositionY() const {
+        return _pos.y;
+    }
+    LONG GetWidth() const {
+        return _size.x;
+    }
+    LONG GetHeight() const {
+        return _size.y;
+    }
 
     template <IViewModelType T, typename... Args>
     std::shared_ptr<T> AttachViewModel(Args &&... args) {
@@ -127,6 +150,13 @@ protected:
             if (message == WM_INITDIALOG && lParam != 0) {
                 window = reinterpret_cast<BaseWindow*>(lParam);
                 window->RegisterWindow(hwnd);
+                RECT rect;
+                GetWindowRect(hwnd, &rect);
+                window->SetHeight(rect.bottom - rect.top)
+                    ->SetWidth(rect.right - rect.left)
+                    ->SetPositionX(rect.left)
+                    ->SetPositionY(rect.top);
+
             } else {
                 return DefWindowProc(hwnd, message, wParam, lParam);
             }
@@ -146,6 +176,73 @@ protected:
         WindowRegistry::Instance().Register(hwnd, this);
     }
 
+    std::shared_ptr<BaseWindow> _updateRect(HWND hWnd) {
+        if (!hWnd) {
+            return shared_from_this();
+        }
+
+        RECT rect;
+        GetWindowRect(hWnd, &rect);
+        _size.x = rect.right - rect.left;
+        _size.y = rect.bottom - rect.top;
+        _pos.x = rect.left;
+        _pos.y = rect.top;
+        return shared_from_this();
+    }
+
+    std::shared_ptr<BaseWindow> _refreshPos(HWND hWnd, HWND insertAfter) {
+        if (!hWnd) {
+            return shared_from_this();
+        }
+
+        SetWindowPos(
+            hWnd,
+            insertAfter,
+            _pos.x,
+            _pos.y,
+            _size.x,
+            _size.y,
+            SWP_FRAMECHANGED
+        );
+
+        return shared_from_this();
+    }
+
+    void _close(HWND hWnd) {
+        if (!hWnd) {
+            return;
+        }
+        DestroyWindow(hWnd);
+    }
+
+    void _hide(HWND hWnd) {
+        if (!hWnd || !isVisible_) {
+            return;
+        }
+        ShowWindow(hWnd, SW_HIDE);
+        isVisible_ = false;
+    }
+
+    void _show(HWND hWnd) {
+        if (!hWnd || isVisible_) {
+            return;
+        }
+
+        ShowWindow(hWnd, SW_SHOW);
+        _invalidate(hWnd);
+        UpdateWindow(hWnd);
+        isVisible_ = true;
+    }
+
+    void _invalidate(HWND hWnd) {
+        if (!hWnd) {
+            return;
+        }
+        InvalidateRect(hWnd, nullptr, TRUE);
+    }
+
+    POINT _size{};
+    POINT _pos{};
     HWND hwnd_ = nullptr;
     BaseWindow* _parent = nullptr;
     std::shared_ptr<IViewModel> _viewModel;

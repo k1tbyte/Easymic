@@ -23,7 +23,7 @@ private:
     std::shared_ptr<SettingsWindow> _settingsWindow;
 
     const AudioManager &_audio;
-    const AppConfig& _config;
+    AppConfig& _cfg;
     HICON mutedIcon = nullptr;
     HICON unmutedIcon = nullptr;
     HICON activeIcon = nullptr;
@@ -40,11 +40,11 @@ private:
 public:
     MainWindowViewModel(
         const std::shared_ptr<BaseWindow>& baseView,
-        const AppConfig& config,
+        AppConfig& config,
         const AudioManager& audioManager) :
             BaseViewModel(baseView),
             _audio(audioManager),
-            _config(config) {
+            _cfg(config) {
     }
 
 private:
@@ -53,9 +53,22 @@ private:
 
     }
 
-    void ResumeActivity() {
+    void RestoreConfig() {
 
+        if (_cfg.onTopExclusive && !_view->IsOvershadowed()) {
+            /*_view->Hide();*/
+            auto shadowHwnd = Utils::GetUiAccessWindow();
+            SetWindowLongPtr(shadowHwnd, GWL_STYLE, MainWindow::Style);
+            SetWindowLongPtr(shadowHwnd, GWL_EXSTYLE, MainWindow::StyleEx);
+            _view->SetShadowHwnd(shadowHwnd);
+            _view->RefreshPos(HWND_TOPMOST);
+            _view->Show();
+        }
+
+        /*SetWindowDisplayAffinity(_view->GetHandle(),
+                         _cfg.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);*/
     }
+
 
     void OnTrayMenuCommand(UINT_PTR commandId) {
         switch (commandId) {
@@ -70,14 +83,14 @@ private:
 
                 SuspendActivity();
                 _settingsWindow = std::make_shared<SettingsWindow>(_view->GetHInstance());
-                _settingsWindow->AttachViewModel<SettingsWindowViewModel>(_config, _audio);
+                _settingsWindow->AttachViewModel<SettingsWindowViewModel>(_cfg, _audio);
 
                 if (!_settingsWindow->Initialize({ .parentHwnd =  _view->GetHandle() })) {
                     throw std::runtime_error("Failed to initialize settings window");
                 }
 
                 _settingsWindow->OnExit += [this] {
-                    ResumeActivity();
+                    RestoreConfig();
                     _settingsWindow.reset();
                 };
                 _settingsWindow->Show();
@@ -95,7 +108,7 @@ private:
         ctx.graphics->FillPath(&brush, &path);
 
         Bitmap iconBitmap(iconToDisplay);
-        const auto iconSize = _config.indicatorSize;
+        const auto iconSize = _cfg.indicatorSize;
 
         ctx.graphics->DrawImage(&iconBitmap,
             ctx.width / 2 - iconSize / 2,
@@ -125,7 +138,7 @@ private:
                  mic.GetVolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
-        if (_config.bellVolume > 0 && !silent) {
+        if (_cfg.bellVolume > 0 && !silent) {
             PlaySoundA(
                 renderDeviceMuted ? (LPCSTR)muteSound.buffer : (LPCSTR)unmuteSound.buffer,
                 nullptr,
@@ -178,6 +191,7 @@ public:
         });
 
         UpdateDevice();
+        RestoreConfig();
     }
 
     ~MainWindowViewModel() {

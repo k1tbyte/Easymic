@@ -29,11 +29,15 @@
 
 
 #define IDD_SETTINGS_GENERAL                        201
+#define IDD_SETTINGS_GENERAL                        201
 #define IDC_SETTINGS_AUTOSTART                      202
-#define IDC_SETTINGS_EXCLUDE_CAPTURE                203
-#define IDC_SETTINGS_INDICATOR_COMBO                204
-#define IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR        205
-#define IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR   206
+
+#define IDD_SETTINGS_INDICATOR                      251
+#define IDC_SETTINGS_INDICATOR_COMBO                252
+#define IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR        253
+#define IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR   254
+#define IDC_SETTINGS_INDICATOR_CAPTURE              255
+#define IDC_SETTINGS_INDICATOR_ON_TOP               256
 
 #define IDD_SETTINGS_SOUNDS                         301
 #define IDD_SETTINGS_HOTKEYS                        401

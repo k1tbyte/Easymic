@@ -1,5 +1,9 @@
 #include "MainWindow.hpp"
+
+#include "Utils.hpp"
 #include "../../Resources/Resource.h"
+
+#define PADDING 2
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance)
@@ -13,6 +17,14 @@ MainWindow::~MainWindow() {
     }
 }
 
+std::shared_ptr<BaseWindow> MainWindow::SetWidth(LONG width) {
+    return BaseWindow::SetWidth(width * PADDING);
+}
+
+std::shared_ptr<BaseWindow> MainWindow::SetHeight(LONG height) {
+    return BaseWindow::SetHeight(height * PADDING);
+}
+
 bool MainWindow::Initialize(WindowConfig config) {
     config_ = config;
 
@@ -20,14 +32,17 @@ bool MainWindow::Initialize(WindowConfig config) {
         return false;
     }
 
-    const int windowSize = appConfig_.indicatorSize * 2;
-    currentSize_ = windowSize;
+    const int windowSize = appConfig_.indicatorSize;
+    SetWidth(windowSize);
+    SetHeight(windowSize);
+    SetPositionX(appConfig_.windowPosX);
+    SetPositionY(appConfig_.windowPosY);
 
     hwnd_ = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
+        StyleEx,
         config.className,
         config.windowTitle,
-        WS_POPUP,
+        Style,
         appConfig_.windowPosX,
         appConfig_.windowPosY,
         windowSize,
@@ -117,7 +132,7 @@ LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    GDIRenderer::RenderLayeredWindow(hwnd_, currentSize_, currentSize_, _onRender);
+    GDIRenderer::RenderLayeredWindow(hwnd_, _size.x, _size.y, _onRender);
 
     ValidateRect(hwnd_, nullptr);
     return 0;
@@ -164,44 +179,6 @@ void MainWindow::UpdateTrayTooltip(const std::wstring &tooltip) {
     trayIcon_->UpdateTooltip(tooltip);
 }
 
-void MainWindow::UpdateSize(int newSize) {
-    if (!hwnd_) {
-        return;
-    }
-
-    currentSize_ = newSize;
-
-    RECT rect;
-    GetWindowRect(hwnd_, &rect);
-
-    SetWindowPos(
-        hwnd_,
-        nullptr,
-        rect.left,
-        rect.top,
-        newSize,
-        newSize,
-        SWP_NOZORDER | SWP_NOACTIVATE
-    );
-
-    Invalidate();
-}
-
-void MainWindow::UpdatePosition(int x, int y) {
-    if (!hwnd_) {
-        return;
-    }
-
-    SetWindowPos(
-        hwnd_,
-        nullptr,
-        x,
-        y,
-        0,
-        0,
-        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
-    );
-}
 
 void MainWindow::ShowTrayContextMenu() {
     HMENU menu = LoadMenu(hInstance_, MAKEINTRESOURCE(IDR_TRAY_MENU));
