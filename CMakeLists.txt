@@ -3,13 +3,19 @@ cmake_minimum_required(VERSION 3.27)
 set(CMAKE_CXX_STANDARD 23)
 project(Easymic)
 
+enable_language(CXX ASM_MASM)
+# This fixes a bug in linking cmake with .asm. (LNK1181: cannot open input file 'cr').
+# Cmake inserts cr between <CMAKE_AR> and <TARGET>.
+# This is a flag for Unix-like systems that is used with the ar utility (Unix archiver), but it is not compatible with Microsoft.
+set(CMAKE_ASM_MASM_CREATE_STATIC_LIBRARY "<CMAKE_AR> /OUT:<TARGET> <LINK_FLAGS> <OBJECTS>")
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
+file(GLOB_RECURSE ASM_FILES "${SRC_DIR}/*.asm")
 
-add_executable(${PROJECT_NAME} #[[WIN32]])
+add_executable(${PROJECT_NAME} WIN32)
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -23,11 +29,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 
-set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")
 
-target_sources(${PROJECT_NAME} PRIVATE ${RESOURCE}
+target_sources(${PROJECT_NAME} PRIVATE
         ${CPP_FILES}
         ${HPP_FILES}
+        ${ASM_FILES}
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -65,8 +71,8 @@ if(MINGW)
 elseif(MSVC)
 
     target_compile_options(${PROJECT_NAME} PRIVATE
-            /GS-                     # отключить проверки переполнения буфера
-            /GR-                     # отключить RTTI если не нужен
+            /GS-                     # disable buffer security checks
+            /GR-                     # disable RTTI
     )
 
     # MSVC specific settings for Windows application

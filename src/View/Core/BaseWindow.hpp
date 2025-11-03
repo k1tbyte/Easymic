@@ -34,20 +34,25 @@ public:
     bool IsVisible() const { return isVisible_; }
 
     virtual void Invalidate() {
-        _invalidate(hwnd_);
+        if (_shadowHwnd) {
+            SendMessage(hwnd_, WM_PAINT, 0, 0);
+            return;
+        }
+
+        InvalidateRect(hwnd_, nullptr, TRUE);
     }
 
     virtual void Show() {
-        _show(hwnd_);
+        _show(GetEffectiveHandle());
     }
 
 
     virtual void Hide() {
-        _hide(hwnd_);
+        _hide(GetEffectiveHandle());
     }
 
     virtual void Close() {
-        _close(hwnd_);
+        _close(GetEffectiveHandle());
     }
 
     HINSTANCE GetHInstance() const {
@@ -83,11 +88,11 @@ public:
     }
 
     virtual std::shared_ptr<BaseWindow> UpdateRect() {
-        return _updateRect(hwnd_);
+        return _updateRect(GetEffectiveHandle());
     }
 
     virtual std::shared_ptr<BaseWindow> RefreshPos(HWND insertAfter) {
-        return _refreshPos(hwnd_, insertAfter);
+        return _refreshPos(GetEffectiveHandle(), insertAfter);
     }
 
     LONG GetPositionX() const {
@@ -108,6 +113,18 @@ public:
         auto vm = std::make_shared<T>(shared_from_this(), std::forward<Args>(args)...);
         _viewModel = vm;
         return vm;
+    }
+
+    HWND GetEffectiveHandle() const {
+        return _shadowHwnd ? _shadowHwnd : hwnd_;
+    }
+
+    bool IsOvershadowed() const {
+        return _shadowHwnd != nullptr;
+    }
+
+    void SetShadowHwnd(HWND hwnd) {
+        _shadowHwnd = hwnd;
     }
 
 protected:
@@ -202,7 +219,7 @@ protected:
             _pos.y,
             _size.x,
             _size.y,
-            SWP_FRAMECHANGED
+            SWP_FRAMECHANGED | SWP_NOACTIVATE
         );
 
         return shared_from_this();
@@ -229,21 +246,15 @@ protected:
         }
 
         ShowWindow(hWnd, SW_SHOW);
-        _invalidate(hWnd);
+        Invalidate();
         UpdateWindow(hWnd);
         isVisible_ = true;
-    }
-
-    void _invalidate(HWND hWnd) {
-        if (!hWnd) {
-            return;
-        }
-        InvalidateRect(hWnd, nullptr, TRUE);
     }
 
     POINT _size{};
     POINT _pos{};
     HWND hwnd_ = nullptr;
+    HWND _shadowHwnd = nullptr;
     BaseWindow* _parent = nullptr;
     std::shared_ptr<IViewModel> _viewModel;
     HINSTANCE hInstance_ = nullptr;

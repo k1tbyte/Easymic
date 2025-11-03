@@ -25,7 +25,7 @@ public:
     static constexpr int ID_GROUPBOX = 1002;
 
     using OnButtonClickCallback = std::function<void(HWND hWnd, int buttonId)>;
-    using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId, int value)>;
+    using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId)>;
     using OnTrackbarChangeCallback = std::function<void(HWND hWnd, int trackbarId, int value)>;
     using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
 
