@@ -47,38 +47,6 @@ public:
         _onRender = std::move(callback);
     }
 
-    HWND GetEffectiveHandle() const {
-        return _shadowHwnd ? _shadowHwnd : hwnd_;
-    }
-
-    bool IsOvershadowed() const {
-        return _shadowHwnd != nullptr;
-    }
-
-    void SetShadowHwnd(HWND hwnd) {
-        _shadowHwnd = hwnd;
-    }
-
-    void Invalidate() override {
-        if (_shadowHwnd) {
-            OnPaint(0,0);
-            return;
-        }
-        BaseWindow::Invalidate();
-    }
-
-    void Show() override {
-        _show(GetEffectiveHandle());
-    }
-
-
-    void Hide() override {
-        _hide(GetEffectiveHandle());
-    }
-
-    void Close() override {
-        _close(GetEffectiveHandle());
-    }
 
 private:
     bool RegisterWindowClass(const WindowConfig& config) const;
@@ -107,8 +75,6 @@ private:
     // Resources
     HICON currentIcon_ = nullptr;
     std::wstring _currentTooltip;
-
-    HWND _shadowHwnd = nullptr;
 
     static constexpr UINT WM_TRAYICON = WM_USER + 1;
 };

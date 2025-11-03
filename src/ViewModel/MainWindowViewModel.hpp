@@ -7,6 +7,7 @@
 
 
 #include "SettingsWindowViewModel.hpp"
+#include "../Lib/UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
@@ -19,6 +20,7 @@ using namespace Gdiplus;
 
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
+    constexpr static const char* SHADOW_WINDOW_KEY = "EasymicTopLevel";
 
     std::shared_ptr<SettingsWindow> _settingsWindow;
 
@@ -50,23 +52,31 @@ public:
 private:
 
     void SuspendActivity() {
-
+        _view->Hide();
+        _view->SetShadowHwnd(nullptr);
     }
 
     void RestoreConfig() {
 
-        if (_cfg.onTopExclusive && !_view->IsOvershadowed()) {
-            /*_view->Hide();*/
-            auto shadowHwnd = Utils::GetUiAccessWindow();
-            SetWindowLongPtr(shadowHwnd, GWL_STYLE, MainWindow::Style);
-            SetWindowLongPtr(shadowHwnd, GWL_EXSTYLE, MainWindow::StyleEx);
+        if (!_cfg.onTopExclusive && !_view->IsOvershadowed()) {
+            _view->Hide();
+            auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY,MainWindow::StyleEx,
+                                                                   MainWindow::Style);
             _view->SetShadowHwnd(shadowHwnd);
             _view->RefreshPos(HWND_TOPMOST);
-            _view->Show();
+            //Hide shadow window
+            _view->Hide();
         }
 
         /*SetWindowDisplayAffinity(_view->GetHandle(),
                          _cfg.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);*/
+
+        if (_cfg.indicator == IndicatorState::Hidden) {
+            _view->Hide();
+            return;
+        }
+
+        _view->Show();
     }
 
 

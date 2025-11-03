@@ -43,7 +43,7 @@ public:
 
             case IDD_SETTINGS_INDICATOR: {
                 DWORD affinity;
-                GetWindowDisplayAffinity(MainWindow->GetHandle(), &affinity);
+                GetWindowDisplayAffinity(MainWindow->GetEffectiveHandle(), &affinity);
                 Set(IDC_SETTINGS_INDICATOR_CAPTURE, BM_SETCHECK, affinity == WDA_EXCLUDEFROMCAPTURE, 0);
                 Set(IDC_SETTINGS_INDICATOR_ON_TOP, BM_SETCHECK, _cfg.onTopExclusive, 0);
                 Set(IDC_SETTINGS_INDICATOR_COMBO, CB_RESETCONTENT, 0, 0);
@@ -102,10 +102,10 @@ public:
         }
     }
 
-    void HandleComboBoxChange(HWND hWnd, int comboBoxId, int value) {
+    void HandleComboBoxChange(HWND hWnd, int comboBoxId) {
         switch (comboBoxId) {
             case IDC_SETTINGS_INDICATOR_COMBO:
-                _cfg.indicator = static_cast<IndicatorState>(value);
+                _cfg.indicator = static_cast<IndicatorState>(SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
                 break;
         }
     }
@@ -114,7 +114,11 @@ public:
         switch (trackbarId) {
             case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
                 _cfg.indicatorSize = static_cast<BYTE>(value);
-                MainWindow->UpdateRect()->SetWidth(value)->SetHeight(value)->RefreshPos(nullptr);
+                MainWindow->UpdateRect()
+                    ->SetWidth(value)
+                    ->SetHeight(value)
+                    ->RefreshPos(nullptr)
+                    ->Invalidate();
                 break;
             case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
                 _cfg.volumeThreshold = static_cast<float>(value) / 100.0f;
@@ -126,11 +130,17 @@ public:
         _cfgPrev = _cfg;
         MainWindow = _view->GetParent();
 
+        MainWindow->Show();
+        // Allow drag move on parent window by removing WS_EX_TRANSPARENT
+        LONG_PTR dwExStyle = GetWindowLongPtr(MainWindow->GetEffectiveHandle(), GWL_EXSTYLE);
+        dwExStyle &= ~WS_EX_TRANSPARENT; //Deleting WS_EX_TRANSPARENT
+        SetWindowLongPtr(MainWindow->GetEffectiveHandle(), GWL_EXSTYLE, dwExStyle);
+
         _view->OnButtonClick = [this](HWND hWnd, int buttonId) {
             HandleButtonClick(hWnd, buttonId);
         };
-        _view->OnComboBoxChange = [this](HWND hWnd, int comboBoxId, int value) {
-            HandleComboBoxChange(hWnd, comboBoxId, value);
+        _view->OnComboBoxChange = [this](HWND hWnd, int comboBoxId) {
+            HandleComboBoxChange(hWnd, comboBoxId);
         };
         _view->OnTrackbarChange = [this](HWND hWnd, int trackbarId, int value) {
             HandleTrackbarChange(hWnd, trackbarId, value);
@@ -149,6 +159,10 @@ public:
             }
         };
         _view->OnExit += [this]() {
+            auto handle = MainWindow->GetEffectiveHandle();
+            SetWindowLongPtr(handle, GWL_EXSTYLE,
+            GetWindowLongPtr(handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+
             // Revert changes if needed
             _cfg = _cfgPrev;
         };
