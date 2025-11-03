@@ -2,7 +2,6 @@
 #define EASYMIC_UTILS_HPP
 
 #include <commctrl.h>
-#include <tlhelp32.h>
 
 struct Resource {
     BYTE* buffer;
@@ -54,86 +53,6 @@ namespace Utils {
         HANDLE hRes = LoadResource(hInst, hResInfo);
         *buffer = (BYTE*)LockResource(hRes);
         *size = SizeofResource(hInst, hResInfo);
-    }
-
-    static bool IsUiAccessProcess(HANDLE hProcess) {
-        HANDLE hToken;
-        DWORD length;
-        BOOL uiAccess = FALSE;
-
-        if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
-            if (GetTokenInformation(hToken, TokenUIAccess, &uiAccess, sizeof(uiAccess), &length)) {
-                CloseHandle(hToken);
-                return uiAccess == TRUE;
-            }
-            CloseHandle(hToken);
-        }
-        return false;
-    }
-
-    static std::vector<DWORD> FindUiAccessProcesses() {
-        std::vector<DWORD> processIds;
-        PROCESSENTRY32W entry;
-        entry.dwSize = sizeof(PROCESSENTRY32W);
-
-        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if (snapshot == INVALID_HANDLE_VALUE) {
-            return processIds;
-        }
-
-        if (Process32FirstW(snapshot, &entry)) {
-            do {
-                auto processHandle = OpenProcess(
-                    PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                    FALSE,
-                    entry.th32ProcessID
-                );
-
-                if (!processHandle) {
-                    continue;
-                }
-                if (IsUiAccessProcess(processHandle)) {
-                    processIds.push_back(entry.th32ProcessID);
-                }
-                CloseHandle(processHandle);
-
-            } while (Process32NextW(snapshot, &entry));
-        }
-
-        CloseHandle(snapshot);
-        return processIds;
-    }
-
-    static HWND GetUiAccessWindow() {
-
-        struct CallbackData {
-            HWND* outHwnd;
-            DWORD targetPid;
-        };
-
-        auto processIds = FindUiAccessProcesses();
-        HWND hWnd = nullptr;
-        CallbackData data = { &hWnd, 0 };
-        for (const auto& processId : processIds) {
-            data.targetPid = processId;
-            EnumWindows([](HWND hWnd, LPARAM lParam) {
-                auto* pData = reinterpret_cast<CallbackData*>(lParam);
-                DWORD windowPid;
-                GetWindowThreadProcessId(hWnd, &windowPid);
-                if (pData->targetPid != windowPid) {
-                    return TRUE;
-                }
-
-                *pData->outHwnd = hWnd;
-                return FALSE;
-            }, reinterpret_cast<LPARAM>(&data));
-
-            if (hWnd) {
-                break;
-            }
-        }
-
-        return hWnd;
     }
 
     //#region <== Registry ==>

@@ -94,11 +94,6 @@ void SettingsWindow::Hide() {
 
 LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
 
-    // Allow drag move on parent window by removing WS_EX_TRANSPARENT
-    LONG_PTR dwExStyle = GetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE);
-    dwExStyle &= ~WS_EX_TRANSPARENT; //Deleting WS_EX_TRANSPARENT
-    SetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE, dwExStyle);
-
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_TREEVIEW_CLASSES;
@@ -181,9 +176,6 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT SettingsWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
-    SetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE,
-        GetWindowLongPtr(config_.parentHwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT
-    );
     _onExit();
     hwnd_ = nullptr;
     hwndTreeView_ = nullptr;
@@ -383,7 +375,7 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
                     break;
                 case CBN_SELCHANGE:
                     if (settingsWindow->OnComboBoxChange) {
-                        settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam), SendMessage(hwnd, CB_GETCURSEL, 0, 0));
+                        settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam));
                     }
                     break;
                 // Handle child dialog commands if needed

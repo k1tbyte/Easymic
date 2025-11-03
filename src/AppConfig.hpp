@@ -1,11 +1,10 @@
 #ifndef EASYMIC_CONFIG_HPP
 #define EASYMIC_CONFIG_HPP
 
-#include <cstdio>
+
 #include <sys/stat.h>
 #include <string>
 #include <windows.h>
-#include <io.h>
 
 #define MutexName L"Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B2"
 #define AppName L"Easymic"

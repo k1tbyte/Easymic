@@ -132,9 +132,10 @@ LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    GDIRenderer::RenderLayeredWindow(hwnd_, _size.x, _size.y, _onRender);
+    auto hwnd = GetEffectiveHandle();
+    GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, _onRender);
 
-    ValidateRect(hwnd_, nullptr);
+    ValidateRect(hwnd, nullptr);
     return 0;
 }
 
