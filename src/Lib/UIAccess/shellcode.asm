@@ -1,9 +1,9 @@
 .code
 
-PUBLIC RemoteThreadFuncAsm
-PUBLIC RemoteThreadFuncAsmSize
+PUBLIC RemoteThreadFunc
+PUBLIC RemoteThreadFuncSize
 
-RemoteThreadFuncAsm PROC
+RemoteThreadFunc PROC
     ; Save registers
     push rbp
     mov rbp, rsp
@@ -75,10 +75,10 @@ exit_func:
     pop rbp
     ret
 
-RemoteThreadFuncAsm ENDP
+RemoteThreadFunc ENDP
 
-RemoteThreadFuncAsmEnd LABEL BYTE
+RemoteThreadFuncEnd LABEL BYTE
 
-RemoteThreadFuncAsmSize DQ RemoteThreadFuncAsmEnd - RemoteThreadFuncAsm
+RemoteThreadFuncSize DQ RemoteThreadFuncEnd - RemoteThreadFunc
 
 END

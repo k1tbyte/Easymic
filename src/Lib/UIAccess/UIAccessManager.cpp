@@ -7,8 +7,8 @@
 
 #include <tlhelp32.h>
 
-extern "C" VOID WINAPI RemoteThreadFuncAsm(LPVOID lpParam);
-extern "C" SIZE_T RemoteThreadFuncAsmSize;
+
+
 
 struct ShellcodeParams {
     FARPROC pfCreateWindowExA;
@@ -22,9 +22,12 @@ struct ShellcodeParams {
     char windowTitle[64];
 };
 
-#pragma region Shit working with MinGW but no with MSVC
-//
-/*VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
+
+/*extern "C" VOID WINAPI RemoteThreadFunc(LPVOID lpParam);
+extern "C" SIZE_T RemoteThreadFuncSize;*/
+
+
+VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
     const ShellcodeParams *params = (ShellcodeParams *) lpParam;
 
     typedef HWND (WINAPI *CreateWindowExA_t)(DWORD, LPCSTR, LPCSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE,
@@ -60,10 +63,12 @@ struct ShellcodeParams {
 
 }
 
+
+#ifdef __MINGW32__ // Shit working with MinGW but no with MSVC
 DWORD WINAPI RemoteThreadFuncEnd() {
     return 0;
-}*/
-#pragma endregion
+}
+#endif
 
 BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
     HANDLE hProcess = OpenProcess(
@@ -85,14 +90,18 @@ BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
     strcpy_s(params.className, "Static");
     strcpy_s(params.windowTitle, title);
 
-    SIZE_T codeSize = RemoteThreadFuncAsmSize;
+#if _MSC_VER
+    SIZE_T codeSize = 2048;
+#else
+    SIZE_T codeSize = (SIZE_T)RemoteThreadFuncEnd - (SIZE_T)RemoteThreadFunc;
+#endif
     LPVOID pRemoteCode = VirtualAllocEx(hProcess, NULL, codeSize,
         MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 
     LPVOID pRemoteParams = VirtualAllocEx(hProcess, NULL,
         sizeof(ShellcodeParams), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-    WriteProcessMemory(hProcess, pRemoteCode, (LPVOID)RemoteThreadFuncAsm, codeSize, NULL);
+    WriteProcessMemory(hProcess, pRemoteCode, (LPVOID)RemoteThreadFunc, codeSize, NULL);
     WriteProcessMemory(hProcess, pRemoteParams, &params, sizeof(params), NULL);
 
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0,
