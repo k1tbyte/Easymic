@@ -3,6 +3,7 @@
 #include "definitions.h"
 #include "AppConfig.hpp"
 #include "AudioManager.hpp"
+#include "HotkeyManager.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "SettingsWindow/SettingsWindow.hpp"
@@ -25,18 +26,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GdiplusStartupInput input;
     GdiplusStartup(&token_, &input, nullptr);
 
-    AppConfig config;
-    AppConfig::Load(&config,AppConfig::GetConfigPath());
+    AppConfig config = AppConfig::Load();
 
     auto manager = AudioManager();
     manager.Init();
 
-    auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
+    /*HotkeyManager::Initialize();*/
+
+    static auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
     mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
 
     if (!mainWindow->Initialize({})) {
         return 1;
     }
+
+    atexit([]() {
+        mainWindow->Hide();
+    });
 
     /*auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
     settingsWindow->AttachViewModel<SettingsWindowViewModel>(config, manager);

@@ -164,6 +164,10 @@ public:
         return _isMuted;
     }
 
+    void ToggleMute() const {
+        SetMute(!_isMuted);
+    }
+
     int GetActiveSessionsCount() const {
         return _activeSessionsCount.load();
     }

@@ -8,6 +8,16 @@
 
 #include "Event.hpp"
 
+
+#pragma pack(push, 1)
+static inline struct  {
+    const char* ToggleMute = "Toggle mute";
+    const char* PushToTalk = "Push to talk";
+    const char* MicVolumeUp = "Mic volume up";
+    const char* MicVolumeDown = "Mic volume down";
+} HotkeyTitles;
+#pragma pack(pop)
+
 /**
  * @brief Settings window with TreeView sidebar navigation
  */
@@ -28,6 +38,7 @@ public:
     using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId)>;
     using OnTrackbarChangeCallback = std::function<void(HWND hWnd, int trackbarId, int value)>;
     using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
+    using OnHotkeyListChangeCallback = std::function<void(HWND hWnd, int listId, LPCSTR itemText)>;
 
     struct Config {
         HWND parentHwnd = nullptr;
@@ -47,6 +58,9 @@ public:
     void Hide() override;
 
     void SetActiveCategory(int categoryId);
+    void SetHotkeyCellValue(int index, LPCSTR value);
+    void SetHotkeySectionTitle(const wchar_t* title);
+    void ResetHotkeyCellValue(LPCSTR actionTitle);
 
     Event<>& OnExit = _onExit;
     Event<>& OnApply = _onApply;
@@ -54,6 +68,7 @@ public:
     OnComboBoxChangeCallback OnComboBoxChange = nullptr;
     OnTrackbarChangeCallback OnTrackbarChange = nullptr;
     OnSectionChangeCallback OnSectionChange = nullptr;
+    OnHotkeyListChangeCallback OnHotkeyListChange = nullptr;
 
 private:
     void SetupMessageHandlers();

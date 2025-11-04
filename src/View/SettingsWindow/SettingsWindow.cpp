@@ -6,6 +6,9 @@
 
 #include "../../Resources/Resource.h"
 
+// Forward declaration
+static void InitializeHotkeysList(HWND hwndList);
+
 const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
     {IDD_SETTINGS_INDICATOR, L"Indicator"},
@@ -96,7 +99,7 @@ LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
 
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_TREEVIEW_CLASSES;
+    icex.dwICC = ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
 
     CreateTreeView();
@@ -331,6 +334,40 @@ void SettingsWindow::SetActiveCategory(int categoryId) {
     }
 }
 
+void SettingsWindow::SetHotkeyCellValue(int index, LPCSTR value) {
+    HWND hwndList = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_LIST);
+    if (!hwndList) {
+        return;
+    }
+
+    LVITEMA lvi = {0};
+    lvi.iItem = index;
+    lvi.iSubItem = 1; // Assuming hotkey is in the second column
+    lvi.mask = LVIF_TEXT;
+    lvi.pszText = const_cast<LPSTR>(value);
+
+    SendMessageA(hwndList, LVM_SETITEMA, 0, (LPARAM)&lvi);
+}
+
+void SettingsWindow::SetHotkeySectionTitle(const wchar_t *title) {
+    HWND hwndTitle = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_TITLE);
+    if (!hwndTitle) {
+        return;
+    }
+    SetWindowTextW(hwndTitle, title == nullptr ? L"Double-click to set up a hotkey:" : title);
+}
+
+void SettingsWindow::ResetHotkeyCellValue(LPCSTR actionTitle) {
+    const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
+
+    for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
+        if (strcmp(hotkeyPtr[i], actionTitle) == 0) {
+            SetHotkeyCellValue(i, "");
+            return;
+        }
+    }
+}
+
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     switch (uMsg) {
     case WM_SETCURSOR:
@@ -365,6 +402,10 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
     switch (message) {
         case WM_INITDIALOG:
             settingsWindow = reinterpret_cast<SettingsWindow*>(lParam);
+            // Initialize ListView for hotkeys dialog
+            if (GetDlgItem(hwnd, IDC_HOTKEYS_LIST)) {
+                ::InitializeHotkeysList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST));
+            }
             break;
         case WM_COMMAND: {
             switch (HIWORD(wParam)) {
@@ -390,6 +431,22 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
             }
             break;
+        case WM_NOTIFY: {
+            LPNMHDR pnmh = (LPNMHDR)lParam;
+            if (pnmh->idFrom == IDC_HOTKEYS_LIST) {
+                switch (pnmh->code) {
+                    case NM_DBLCLK: {
+                        // Handle double click on hotkey item
+                        LPNMITEMACTIVATE pnmia = (LPNMITEMACTIVATE)lParam;
+                        if (pnmia->iItem != -1 && settingsWindow->OnHotkeyListChange) {
+                            settingsWindow->OnHotkeyListChange(hwnd, pnmia->iItem, reinterpret_cast<char**>(&HotkeyTitles)[pnmia->iItem]);
+                        }
+                        break;
+                    }
+                }
+            }
+            break;
+        }
     }
 
 
@@ -436,3 +493,50 @@ void SettingsWindow::UpdateGroupBoxLayout() {
                groupBoxRect.bottom - titleHeight - (GROUPBOX_PADDING * 2),
                SWP_NOZORDER | SWP_NOACTIVATE);
 }
+
+static void InitializeHotkeysList(HWND hwndList) {
+    if (!hwndList) {
+        return;
+    }
+
+    // Enable full row selection and grid lines
+    DWORD dwExStyle = LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES;
+    SendMessage(hwndList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, dwExStyle);
+
+    // Add columns
+    LVCOLUMNW lvc = {};
+    lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+
+    // First column - Action name
+    lvc.iSubItem = 0;
+    lvc.cxMin = 100;
+    lvc.pszText = const_cast<wchar_t*>(L"Action");
+    lvc.cx = 120;
+    SendMessage(hwndList, LVM_INSERTCOLUMNW, 0, (LPARAM)&lvc);
+
+    // Second column - Key combination
+    lvc.iSubItem = 1;
+    lvc.pszText = const_cast<wchar_t*>(L"Key Combination");
+    lvc.cx = 130;
+    SendMessage(hwndList, LVM_INSERTCOLUMNW, 1, (LPARAM)&lvc);
+
+    // Add sample data for UI demonstration
+    LVITEMA lvi = {};
+    lvi.mask = LVIF_TEXT;
+
+    const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
+
+    for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
+        lvi.iItem = i;
+        lvi.iSubItem = 0;
+        lvi.pszText = hotkeyPtr[i];
+        int itemIndex = SendMessageA(hwndList, LVM_INSERTITEMA, 0, (LPARAM)&lvi);
+
+        lvi.iItem = itemIndex;
+        lvi.iSubItem = 1;
+        lvi.pszText = (char*)"";
+        SendMessageA(hwndList, LVM_SETITEMTEXTA, itemIndex, (LPARAM)&lvi);
+        /*printf("Hotkey title: %s\n", title);*/
+    }
+}
+

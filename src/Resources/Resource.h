@@ -41,4 +41,6 @@
 
 #define IDD_SETTINGS_SOUNDS                         301
 #define IDD_SETTINGS_HOTKEYS                        401
+#define IDC_HOTKEYS_LIST                            402
+#define IDC_HOTKEYS_TITLE                           403
 #define IDD_SETTINGS_ABOUT                          501
