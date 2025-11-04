@@ -14,6 +14,7 @@ MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
 MainWindow::~MainWindow() {
     if (currentIcon_) {
         DestroyIcon(currentIcon_);
+        MessageBoxA(nullptr, "Destroyed icon", "Debug", MB_OK);
     }
 }
 
@@ -123,6 +124,10 @@ LRESULT MainWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
 LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     trayIcon_->Remove();
+    if (IsOvershadowed()) {
+        // Dont destroy shadow window, we can reuse it later
+        Hide();
+    }
     PostQuitMessage(0);
     return 0;
 }

@@ -31,12 +31,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     auto manager = AudioManager();
     manager.Init();
 
-    auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
+    static auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
     mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
 
     if (!mainWindow->Initialize({})) {
         return 1;
     }
+
+    atexit([]() {
+        mainWindow->Hide();
+    });
 
     /*auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
     settingsWindow->AttachViewModel<SettingsWindowViewModel>(config, manager);

@@ -15,7 +15,7 @@ private:
     const AudioManager &_audioManager;
     AppConfig& _cfg;
     AppConfig _cfgPrev;
-    BaseWindow* MainWindow = nullptr;
+    MainWindow* MainWnd = nullptr;
 
     constexpr static const char* IndicatorStates[] = {
         "Hidden", "Muted", "Muted or talking"
@@ -43,7 +43,7 @@ public:
 
             case IDD_SETTINGS_INDICATOR: {
                 DWORD affinity;
-                GetWindowDisplayAffinity(MainWindow->GetEffectiveHandle(), &affinity);
+                GetWindowDisplayAffinity(MainWnd->GetEffectiveHandle(), &affinity);
                 Set(IDC_SETTINGS_INDICATOR_CAPTURE, BM_SETCHECK, affinity == WDA_EXCLUDEFROMCAPTURE, 0);
                 Set(IDC_SETTINGS_INDICATOR_ON_TOP, BM_SETCHECK, _cfg.onTopExclusive, 0);
                 Set(IDC_SETTINGS_INDICATOR_COMBO, CB_RESETCONTENT, 0, 0);
@@ -114,7 +114,7 @@ public:
         switch (trackbarId) {
             case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
                 _cfg.indicatorSize = static_cast<BYTE>(value);
-                MainWindow->UpdateRect()
+                MainWnd->UpdateRect()
                     ->SetWidth(value)
                     ->SetHeight(value)
                     ->RefreshPos(nullptr)
@@ -128,13 +128,12 @@ public:
 
     void Init() override {
         _cfgPrev = _cfg;
-        MainWindow = _view->GetParent();
+        MainWnd = reinterpret_cast<MainWindow *>(_view->GetParent());
 
-        MainWindow->Show();
+
+        MainWnd->Show();
+        MainWnd->ToggleInteractivity(true);
         // Allow drag move on parent window by removing WS_EX_TRANSPARENT
-        LONG_PTR dwExStyle = GetWindowLongPtr(MainWindow->GetEffectiveHandle(), GWL_EXSTYLE);
-        dwExStyle &= ~WS_EX_TRANSPARENT; //Deleting WS_EX_TRANSPARENT
-        SetWindowLongPtr(MainWindow->GetEffectiveHandle(), GWL_EXSTYLE, dwExStyle);
 
         _view->OnButtonClick = [this](HWND hWnd, int buttonId) {
             HandleButtonClick(hWnd, buttonId);
@@ -149,9 +148,9 @@ public:
             HandleSectionChange(hWnd, sectionId);
         };
         _view->OnApply += [this]() {
-            MainWindow->UpdateRect();
-            _cfg.windowPosX = static_cast<USHORT>(MainWindow->GetPositionX());
-            _cfg.windowPosY = static_cast<USHORT>(MainWindow->GetPositionY());
+            MainWnd->UpdateRect();
+            _cfg.windowPosX = static_cast<USHORT>(MainWnd->GetPositionX());
+            _cfg.windowPosY = static_cast<USHORT>(MainWnd->GetPositionY());
 
             if (_cfg != _cfgPrev) {
                 AppConfig::Save(&_cfg, AppConfig::GetConfigPath());
@@ -159,9 +158,7 @@ public:
             }
         };
         _view->OnExit += [this]() {
-            auto handle = MainWindow->GetEffectiveHandle();
-            SetWindowLongPtr(handle, GWL_EXSTYLE,
-            GetWindowLongPtr(handle, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+            MainWnd->ToggleInteractivity(false);
 
             // Revert changes if needed
             _cfg = _cfgPrev;

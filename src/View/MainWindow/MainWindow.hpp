@@ -17,7 +17,7 @@ public:
     using OnCloseCallback = std::function<void()>;
 
     static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
-    static constexpr auto Style = WS_POPUP;
+    static constexpr auto Style = WS_POPUP | WS_DISABLED;
 
     struct WindowConfig {
         LPCWSTR windowTitle = L"MainWindow";
@@ -45,6 +45,24 @@ public:
     // Rendering
     void SetRenderCallback(GDIRenderer::RenderCallback callback) {
         _onRender = std::move(callback);
+    }
+
+    void ToggleInteractivity(bool interactive) const {
+
+        auto *hwnd = GetEffectiveHandle();
+
+        LONG_PTR dwExStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+        if (interactive) {
+            dwExStyle &= ~WS_EX_TRANSPARENT; // Remove transparent
+            style &= ~WS_DISABLED;
+        } else {
+            dwExStyle |= WS_EX_TRANSPARENT;
+            style |= WS_DISABLED;
+        }
+
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, dwExStyle);
+        SetWindowLongPtr(hwnd, GWL_STYLE, style);
     }
 
 

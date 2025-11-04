@@ -58,10 +58,9 @@ private:
 
     void RestoreConfig() {
 
-        if (!_cfg.onTopExclusive && !_view->IsOvershadowed()) {
+        if (_cfg.onTopExclusive && !_view->IsOvershadowed()) {
             _view->Hide();
-            auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY,MainWindow::StyleEx,
-                                                                   MainWindow::Style);
+            auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY, MainWindow::StyleEx, MainWindow::Style);
             _view->SetShadowHwnd(shadowHwnd);
             _view->RefreshPos(HWND_TOPMOST);
             //Hide shadow window
@@ -143,7 +142,7 @@ private:
         constexpr auto bufferSize = 255;
 
         wchar_t buffer[bufferSize];
-        swprintf(buffer, bufferSize, L"Easymic - %s [%d%%]",
+        swprintf(buffer, bufferSize, L"Easymic - %ls [%d%%]",
                  mic.GetDeviceName(),
                  mic.GetVolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
