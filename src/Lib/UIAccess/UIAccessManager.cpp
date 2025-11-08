@@ -22,12 +22,10 @@ struct ShellcodeParams {
     char windowTitle[64];
 };
 
-#ifdef _MSC_VER
-extern "C" VOID WINAPI RemoteThreadFunc(LPVOID lpParam);
-extern "C" SIZE_T RemoteThreadFuncSize;
-#else
 
-#pragma region Shit working with MinGW but no with MSVC
+/*extern "C" VOID WINAPI RemoteThreadFunc(LPVOID lpParam);
+extern "C" SIZE_T RemoteThreadFuncSize;*/
+
 
 VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
     const ShellcodeParams *params = (ShellcodeParams *) lpParam;
@@ -65,11 +63,11 @@ VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
 
 }
 
+
+#ifdef __MINGW32__ // Shit working with MinGW but no with MSVC
 DWORD WINAPI RemoteThreadFuncEnd() {
     return 0;
 }
-#pragma endregion
-
 #endif
 
 BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
@@ -93,7 +91,7 @@ BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
     strcpy_s(params.windowTitle, title);
 
 #if _MSC_VER
-    SIZE_T codeSize = RemoteThreadFuncSize;
+    SIZE_T codeSize = 2048;
 #else
     SIZE_T codeSize = (SIZE_T)RemoteThreadFuncEnd - (SIZE_T)RemoteThreadFunc;
 #endif

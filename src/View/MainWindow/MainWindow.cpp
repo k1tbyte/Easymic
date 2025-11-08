@@ -33,19 +33,19 @@ bool MainWindow::Initialize(WindowConfig config) {
         return false;
     }
 
-    const int windowSize = appConfig_.indicatorSize;
+    const int windowSize = appConfig_.IndicatorSize;
     SetWidth(windowSize);
     SetHeight(windowSize);
-    SetPositionX(appConfig_.windowPosX);
-    SetPositionY(appConfig_.windowPosY);
+    SetPositionX(appConfig_.WindowPosX);
+    SetPositionY(appConfig_.WindowPosY);
 
     hwnd_ = CreateWindowExW(
         StyleEx,
         config.className,
         config.windowTitle,
         Style,
-        appConfig_.windowPosX,
-        appConfig_.windowPosY,
+        appConfig_.WindowPosX,
+        appConfig_.WindowPosY,
         windowSize,
         windowSize,
         nullptr,

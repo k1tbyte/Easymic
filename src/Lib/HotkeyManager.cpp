@@ -2,9 +2,13 @@
 // Created by kitbyte on 04.11.2025.
 //
 #include "HotkeyManager.hpp"
+
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include "Win32Hook.hpp"
+
+//#define KEYLOG
 
 #pragma region [PRIVATE] Hotkeys name table
 
@@ -276,19 +280,30 @@ namespace  HotkeyManager {
 
 
     void _onKeyRelease(const uint8_t vkCode) {
-        if (const auto modifierBit = _getModifierBit(vkCode)) {
-            _sequenceMask &= ~modifierBit;
-            return;
+
+        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end() && it->second.onRelease) {
+#ifdef KEYLOG
+            printf("Raising hotkey keyrelease | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
+#endif
+            it->second.onRelease();
         }
 
-        const uint8_t modifiers = _sequenceMask & 0xFF;
-        const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
+        if (const auto modifierBit = _getModifierBit(vkCode)) {
+            _sequenceMask &= ~modifierBit;
+#ifdef KEYLOG
+            printf("Modifier released | mask: 0x%.16llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
+#endif
+        } else {
+            const uint8_t modifiers = _sequenceMask & 0xFF;
+            const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
 
-        // If the last pressed key is released, delete it and move the other keys to the right.\
-        // 1. Delete the second byte by shifting all bytes above it by one byte to the right.
-        // Shift bytes 2-7 in place of bytes 1-6
-        // 2. Save modifier byte
-        _sequenceMask = lastKeyPressed == vkCode ? (((_sequenceMask >> 16) << 8) | modifiers) : modifiers;
+            // If the last pressed key is released, delete it and move the other keys to the right.\
+            // 1. Delete the second byte by shifting all bytes above it by one byte to the right.
+            // Shift bytes 2-7 in place of bytes 1-6
+            // 2. Save modifier byte
+            _sequenceMask = lastKeyPressed == vkCode ? (((_sequenceMask >> 16) << 8) | modifiers) : modifiers;
+        }
+
 
         if (_onBindingCallback) {
             _onBindingCallback(vkCode, RELEASED, _sequenceMask, GetHotkeyName(_sequenceMask));
@@ -296,27 +311,27 @@ namespace  HotkeyManager {
             return;
         }
 
-        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end() && it->second.onRelease) {
-            it->second.onRelease();
-        }
-
-        //printf("Key released | mask: 0x%.16llX\n, vkCode hex: 0x%02X\n", hotkeyMask, vkCode);
+#ifdef KEYLOG
+        printf("Key released | mask: 0x%.16llX, vkCode hex: 0x%02X\n", _sequenceMask, vkCode);
+#endif
     }
 
     void _onKeyPress(const uint8_t vkCode) {
         if (const auto modifierBit = _getModifierBit(vkCode)) {
             _sequenceMask |= modifierBit;
-            return;
+#ifdef KEYLOG
+            printf("Modifier pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
+#endif
+        } else {
+            // 1. Save the current (first) byte of modifiers
+            const uint8_t modifiers = _sequenceMask & 0xFF;
+            // 2 Shift the existing sequence 1 byte to the left. Excluding the first byte
+            uint64_t sequence = (_sequenceMask & ~0xFF) << 8;
+            // 3. Add a new key to the second byte
+            sequence |= (static_cast<uint64_t>(vkCode) << 8);
+            // 4. Restore modifier byte
+            _sequenceMask = sequence | modifiers;
         }
-
-        // 1. Save the current (first) byte of modifiers
-        const uint8_t modifiers = _sequenceMask & 0xFF;
-        // 2 Shift the existing sequence 1 byte to the left. Excluding the first byte
-        uint64_t sequence = (_sequenceMask & ~0xFF) << 8;
-        // 3. Add a new key to the second byte
-        sequence |= (static_cast<uint64_t>(vkCode) << 8);
-        // 4. Restore modifier byte
-        _sequenceMask = sequence | modifiers;
 
         if (_onBindingCallback) {
             _onBindingCallback(vkCode, PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
@@ -324,14 +339,17 @@ namespace  HotkeyManager {
             return;
         }
 
+#ifdef KEYLOG
+        printf("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
+#endif
+
         if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end() && it->second.onPress) {
+#ifdef KEYLOG
+            printf("Raising hotkey keypress | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
+#endif
             it->second.onPress();
         }
 
-         /*
-         printf("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X\n", _sequenceMask, vkCode);
-        const auto hotkey = GetHotkeyName(_sequenceMask);
-        printf("Hotkey: %s\n", hotkey.c_str());*/
     }
 
     LRESULT CALLBACK _lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -341,7 +359,7 @@ namespace  HotkeyManager {
 
         const auto *const pKbdStruct = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
         const auto code = pKbdStruct->vkCode;
-        if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) && _keys[code] != Keys::KEY_PRESSED) {
+        if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) && !_keys[code]) {
             _keys[code] = Keys::KEY_PRESSED;
             _onKeyPress(pKbdStruct->vkCode);
         } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
@@ -349,7 +367,7 @@ namespace  HotkeyManager {
             _onKeyRelease(pKbdStruct->vkCode);
         }
 
-        return 1;
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
     }
 
 
@@ -401,7 +419,7 @@ namespace  HotkeyManager {
             }
         }
 
-        return 1;
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
     }
 
     std::string GetHotkeyName(const uint64_t keysMask) {
@@ -489,9 +507,16 @@ namespace  HotkeyManager {
         _mouseHook = Win32Hook::Create(WH_MOUSE_LL, _lowLevelMouseProc, nullptr, 0);
     }
 
+
+    void ClearHotkeys() {
+        _hotkeys.clear();
+    }
+
     void Dispose() {
         _keyboardHook = nullptr;
         _mouseHook = nullptr;
+        _sequenceMask = 0;
+        memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));
     }
 }
 

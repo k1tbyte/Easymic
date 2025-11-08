@@ -2,13 +2,16 @@
 #define EASYMIC_CONFIG_HPP
 
 
+#include <cstdint>
 #include <sys/stat.h>
 #include <string>
+#include <unordered_map>
 #include <windows.h>
+#include <glaze/glaze.hpp>
 
 #define MutexName L"Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B2"
 #define AppName L"Easymic"
-#define ConfigName L"conf.bin"
+#define ConfigName L"conf.b"
 
 #define WM_SHELLICON (WM_USER + 1)
 #define WM_UPDATE_MIC (WM_USER + 2)
@@ -23,56 +26,51 @@ enum class IndicatorState {
 
 struct AppConfig {
 
-    USHORT windowPosX        = 0;
-    USHORT windowPosY        = 0;
-    DWORD muteHotkey         = 0;
-    BYTE bellVolume          = 50;
-    BYTE micVolume           = -1;
-    IndicatorState indicator = IndicatorState::Hidden;
-    BYTE indicatorSize       = 16;
-    float volumeThreshold    = .01f;
-    bool excludeFromCapture  = false;
-    bool onTopExclusive      = false;
+    static inline std::string DefaultPath{};
+
+    uint16_t WindowPosX            = 0;
+    uint16_t WindowPosY            = 0;
+    uint8_t BellVolume             = 50;
+    uint8_t MicVolume              = -1;
+    uint8_t IndicatorSize          = 16;
+    IndicatorState IndicatorState  = IndicatorState::Hidden;
+    float IndicatorVolumeThreshold = .01f;
+    bool ExcludeFromCapture        = false;
+    bool OnTopExclusive            = false;
+    std::unordered_map<std::string , uint64_t> Hotkeys;
+    std::vector<std::string> RecentSoundSources;
+    std::vector<std::string> RecentIconSources;
 
     bool operator==(const AppConfig&) const = default;
 
-    static void Save(AppConfig* config, const wchar_t* path)
+    static void Save(const AppConfig& config)
     {
-        FILE* file = _wfopen(path, L"wb");
-        if (file) {
-            fwrite(config, sizeof(AppConfig), 1, file);
-            fclose(file);
-        }
+        glz::write_file_beve(config, GetConfigPath(), std::string{});
     }
 
-    static void Load(AppConfig* config, const wchar_t* path)
-    {
-        struct _stat buffer{};
-
-        if(_wstat(path, &buffer) == 0) {
-            FILE* file = _wfopen(path, L"rb");
-            if (file) {
-                fread(config, sizeof(AppConfig), 1, file);
-                fclose(file);
-            }
-            return;
-        }
-
-        *config = AppConfig();
+    void Save() const {
+        Save(*this);
     }
 
-    static const wchar_t* GetConfigPath()
+    static AppConfig Load()
     {
-        static wchar_t configPath[MAX_PATH];
+        AppConfig config{};
+        glz::read_file_beve(config, GetConfigPath(), std::string{});
+        return config;
+    }
 
-        GetModuleFileNameW(nullptr, configPath, MAX_PATH);
+private:
+    static std::string GetConfigPath()
+    {
 
-        const auto pos = std::wstring(configPath).find_last_of(L"\\/");
-        const auto path = std::wstring(configPath).substr(0, pos).append(L"\\").append(ConfigName);
+        if (DefaultPath.empty()) {
+            wchar_t modulePath[MAX_PATH];
+            GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
 
-        wcscpy(configPath, path.c_str());
-
-        return configPath;
+            const std::filesystem::path path{modulePath};
+            DefaultPath = (path.parent_path() / ConfigName).string();
+        }
+        return DefaultPath;
     }
 };
 

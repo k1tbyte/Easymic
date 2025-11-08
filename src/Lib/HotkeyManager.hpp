@@ -43,19 +43,13 @@ namespace Keys {
         MOD_LR_ALT_SHIFT      = MOD_LR_ALT | MOD_LR_SHIFT
     } Modifier;
 
-    constexpr uint64_t make(const uint8_t k1) {
-        return static_cast<uint64_t>(k1) << 8;
+    constexpr uint64_t make(const uint8_t mod, const uint8_t k1) {
+        return static_cast<uint64_t>(mod) | (static_cast<uint64_t>(k1) << 8);
     }
 
     template<typename... vk_codes>
     constexpr uint64_t make(uint8_t mod, uint8_t k1, vk_codes... codes) {
-        // First add the first key to the lowest position (reverse order!)
         return make(mod, codes...) | (static_cast<uint64_t>(k1) << (8 * (1 + sizeof...(codes))));
-    }
-
-    // Specialized version for one key
-    constexpr uint64_t make(const uint8_t mod, const uint8_t k1) {
-        return static_cast<uint64_t>(mod) | (static_cast<uint64_t>(k1) << 8);
     }
 }
 
@@ -72,7 +66,7 @@ namespace HotkeyManager {
         RELEASED = 2
     };
 
-    using BindingCallback = std::function<void(uint8_t lastCode, InputState lastState, uint64_t sequenceMask, std::string hotkeyName)>;
+    using BindingCallback = std::function<void(uint8_t lastCode, InputState lastState, uint64_t sequenceMask, const std::string& hotkeyName)>;
 
 
 
@@ -88,6 +82,7 @@ namespace HotkeyManager {
     void BindStart(const BindingCallback& callback);
     void BindStop();
     void Initialize();
+    void ClearHotkeys();
     void Dispose();
 
 }

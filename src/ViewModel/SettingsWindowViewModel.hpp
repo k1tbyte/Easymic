@@ -21,6 +21,11 @@ private:
         "Hidden", "Muted", "Muted or talking"
     };
 
+    /*std::unordered_map<const char*, void(SettingsWindowViewModel::*)()> hotkeyHandlers = {
+        { HotkeyTitles.ToggleMute, &SettingsWindowViewModel::HotkeyToggleMute }
+    };*/
+
+
 public:
     SettingsWindowViewModel(const std::shared_ptr<BaseWindow>& baseView,  AppConfig& config, const AudioManager& audioManager) :
         BaseViewModel(baseView),
@@ -45,22 +50,22 @@ public:
                 DWORD affinity;
                 GetWindowDisplayAffinity(MainWnd->GetEffectiveHandle(), &affinity);
                 Set(IDC_SETTINGS_INDICATOR_CAPTURE, BM_SETCHECK, affinity == WDA_EXCLUDEFROMCAPTURE, 0);
-                Set(IDC_SETTINGS_INDICATOR_ON_TOP, BM_SETCHECK, _cfg.onTopExclusive, 0);
+                Set(IDC_SETTINGS_INDICATOR_ON_TOP, BM_SETCHECK, _cfg.OnTopExclusive, 0);
                 Set(IDC_SETTINGS_INDICATOR_COMBO, CB_RESETCONTENT, 0, 0);
 
                 // Add strings to combobox
                 for (const auto& state : IndicatorStates) {
                     Set(IDC_SETTINGS_INDICATOR_COMBO, CB_ADDSTRING, 0, (LPARAM)state);
                 }
-                Set(IDC_SETTINGS_INDICATOR_COMBO, CB_SETCURSEL, (WPARAM)_cfg.indicator, 0);
+                Set(IDC_SETTINGS_INDICATOR_COMBO, CB_SETCURSEL, (WPARAM)_cfg.IndicatorState, 0);
 
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR),
-                    1, MAKELONG(10, 32), _cfg.indicatorSize
+                    1, MAKELONG(10, 32), _cfg.IndicatorSize
                 );
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
-                    1, MAKELONG(0, 100), _cfg.volumeThreshold * 100
+                    1, MAKELONG(0, 100), _cfg.IndicatorVolumeThreshold * 100
                 );
                 break;
             }
@@ -71,11 +76,17 @@ public:
                 printf("Sounds section activated\n");
                 break;
 
-            case IDD_SETTINGS_HOTKEYS:
-                // Handle Hotkeys section activation
-                printf("Hotkeys section activated\n");
+            case IDD_SETTINGS_HOTKEYS: {
+                const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
+                for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
+                    const auto& title = hotkeyPtr[i];
+                    auto it = _cfg.Hotkeys.find(std::string(title));
+                    if (it != _cfg.Hotkeys.end()) {
+                        _view->SetHotkeyCellValue(i, HotkeyManager::GetHotkeyName(it->second).c_str());
+                    }
+                }
                 break;
-
+            }
             case IDD_SETTINGS_ABOUT:
                 // Handle About section activation
                 printf("About section activated\n");
@@ -94,10 +105,10 @@ public:
                     Utils::AddToAutoStartup(AppName);
                 break;
             case IDC_SETTINGS_INDICATOR_CAPTURE:
-                _cfg.excludeFromCapture = Utils::IsCheckboxCheck(hWnd, buttonId);
+                _cfg.ExcludeFromCapture = Utils::IsCheckboxCheck(hWnd, buttonId);
                 break;
             case IDC_SETTINGS_INDICATOR_ON_TOP:
-                _cfg.onTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
+                _cfg.OnTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
                 break;
         }
     }
@@ -105,7 +116,7 @@ public:
     void HandleComboBoxChange(HWND hWnd, int comboBoxId) {
         switch (comboBoxId) {
             case IDC_SETTINGS_INDICATOR_COMBO:
-                _cfg.indicator = static_cast<IndicatorState>(SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
+                _cfg.IndicatorState = static_cast<IndicatorState>(SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
                 break;
         }
     }
@@ -113,7 +124,7 @@ public:
     void HandleTrackbarChange(HWND hWnd, int trackbarId, int value) {
         switch (trackbarId) {
             case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
-                _cfg.indicatorSize = static_cast<BYTE>(value);
+                _cfg.IndicatorSize = static_cast<BYTE>(value);
                 MainWnd->UpdateRect()
                     ->SetWidth(value)
                     ->SetHeight(value)
@@ -121,9 +132,58 @@ public:
                     ->Invalidate();
                 break;
             case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
-                _cfg.volumeThreshold = static_cast<float>(value) / 100.0f;
+                _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;
                 break;
         }
+    }
+
+    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) {
+        static uint64_t _prevSequenceMask = 0;
+
+        if (_prevSequenceMask > 0) {
+            // Already in binding mode
+            return;
+        }
+        HotkeyManager::Initialize();
+
+        _view->SetHotkeySectionTitle(L"Press desired key combination or ESC to clear...");
+
+        HotkeyManager::BindStart([this, index, itemText](
+            uint8_t vkCode,
+            HotkeyManager::InputState state,
+            uint64_t sequenceMask,
+            const std::string& hotkeyName) {
+
+            if (state == HotkeyManager::InputState::RELEASED) {
+
+
+                if (vkCode == VK_ESCAPE && sequenceMask == 0) {
+                    _prevSequenceMask = 0;
+                    _cfg.Hotkeys.erase(std::string(itemText));
+                }
+                else if (_prevSequenceMask > 0) {
+                    for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
+                        if (mask == _prevSequenceMask) {
+                            _view->ResetHotkeyCellValue(actionTitle.c_str());
+                            _cfg.Hotkeys.erase(actionTitle);
+                            break;
+                        }
+                    }
+
+                    _cfg.Hotkeys[std::string(itemText)] = _prevSequenceMask;
+                }
+
+                HotkeyManager::BindStop();
+                HotkeyManager::Dispose();
+               // this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
+               // this->_view->SetHotkeySectionTitle(nullptr);
+                _prevSequenceMask = 0;
+                return;
+            }
+
+            _prevSequenceMask = sequenceMask;
+            this->_view->SetHotkeyCellValue(index, hotkeyName.c_str());
+        });
     }
 
     void Init() override {
@@ -138,22 +198,31 @@ public:
         _view->OnButtonClick = [this](HWND hWnd, int buttonId) {
             HandleButtonClick(hWnd, buttonId);
         };
+
         _view->OnComboBoxChange = [this](HWND hWnd, int comboBoxId) {
             HandleComboBoxChange(hWnd, comboBoxId);
         };
+
         _view->OnTrackbarChange = [this](HWND hWnd, int trackbarId, int value) {
             HandleTrackbarChange(hWnd, trackbarId, value);
         };
+
         _view->OnSectionChange = [this](HWND hWnd, int sectionId) {
             HandleSectionChange(hWnd, sectionId);
         };
+
+        _view->OnHotkeyListChange = [this](HWND hWnd, int index, LPCSTR itemText) {
+            HandleHotkeyBinding(hWnd, index, itemText);
+        };
+
+
         _view->OnApply += [this]() {
             MainWnd->UpdateRect();
-            _cfg.windowPosX = static_cast<USHORT>(MainWnd->GetPositionX());
-            _cfg.windowPosY = static_cast<USHORT>(MainWnd->GetPositionY());
+            _cfg.WindowPosX = static_cast<USHORT>(MainWnd->GetPositionX());
+            _cfg.WindowPosY = static_cast<USHORT>(MainWnd->GetPositionY());
 
             if (_cfg != _cfgPrev) {
-                AppConfig::Save(&_cfg, AppConfig::GetConfigPath());
+                _cfg.Save();
                 _cfgPrev = _cfg;
             }
         };

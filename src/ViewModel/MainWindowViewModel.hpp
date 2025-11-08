@@ -20,7 +20,7 @@ using namespace Gdiplus;
 
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
-    constexpr static const char* SHADOW_WINDOW_KEY = "EasymicTopLevel";
+    constexpr static const char* SHADOW_WINDOW_KEY = "EasymicIndicator";
 
     std::shared_ptr<SettingsWindow> _settingsWindow;
 
@@ -39,6 +39,46 @@ private:
     bool renderDeviceMuted = false;
     float volumeLevel = 0;
 
+
+    const std::function<void()> HotkeyToggleMute = [this] {
+        _audio.CaptureDevice()->ToggleMute();
+    };
+
+    const std::function<void()> HotkeyMutePushToTalk = [this] {
+        _audio.CaptureDevice()->SetMute(true);
+    };
+
+    const std::function<void()> HotkeyUnmutePushToTalk = [this] {
+        _audio.CaptureDevice()->SetMute(false);
+    };
+
+    const std::function<void()> HotkeyVolumeUp = [this] {
+        const auto& mic = *_audio.CaptureDevice();
+        BYTE currentVolume = mic.GetVolumePercent();
+        mic.SetVolumePercent(std::min<BYTE>(currentVolume + 10, 100));
+    };
+
+    const std::function<void()> HotkeyVolumeDown = [this] {
+        const auto& mic = *_audio.CaptureDevice();
+        BYTE currentVolume = mic.GetVolumePercent();
+        mic.SetVolumePercent(std::max<BYTE>(currentVolume - 10, 0));
+    };
+
+    std::unordered_map<std::string, HotkeyManager::HotkeyBinding> hotkeyHandlers = {
+    {
+        HotkeyTitles.ToggleMute,{HotkeyToggleMute}
+    },{
+        HotkeyTitles.PushToTalk, {
+                .onPress = HotkeyUnmutePushToTalk,
+                .onRelease = HotkeyMutePushToTalk
+            }
+        },
+        { HotkeyTitles.MicVolumeUp, {HotkeyVolumeUp} },
+        { HotkeyTitles.MicVolumeDown, {HotkeyVolumeDown} }
+    };
+
+    std::unordered_map<uint64_t, HotkeyManager::HotkeyBinding> activeHotkeys;
+
 public:
     MainWindowViewModel(
         const std::shared_ptr<BaseWindow>& baseView,
@@ -54,11 +94,27 @@ private:
     void SuspendActivity() {
         _view->Hide();
         _view->SetShadowHwnd(nullptr);
+        HotkeyManager::Dispose();
+        HotkeyManager::ClearHotkeys();
     }
 
     void RestoreConfig() {
+        HotkeyManager::ClearHotkeys();
 
-        if (_cfg.onTopExclusive && !_view->IsOvershadowed()) {
+        if (_cfg.Hotkeys.size() > 0) {
+            for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
+                const auto handlerIt = hotkeyHandlers.find(actionTitle);
+                if (handlerIt != hotkeyHandlers.end()) {
+                    HotkeyManager::RegisterHotkey(
+                        mask,
+                        handlerIt->second
+                    );
+                }
+            }
+            HotkeyManager::Initialize();
+        }
+
+        if (_cfg.OnTopExclusive && !_view->IsOvershadowed()) {
             _view->Hide();
             auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY, MainWindow::StyleEx, MainWindow::Style);
             _view->SetShadowHwnd(shadowHwnd);
@@ -70,7 +126,7 @@ private:
         /*SetWindowDisplayAffinity(_view->GetHandle(),
                          _cfg.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);*/
 
-        if (_cfg.indicator == IndicatorState::Hidden) {
+        if (_cfg.IndicatorState == IndicatorState::Hidden) {
             _view->Hide();
             return;
         }
@@ -117,7 +173,7 @@ private:
         ctx.graphics->FillPath(&brush, &path);
 
         Bitmap iconBitmap(iconToDisplay);
-        const auto iconSize = _cfg.indicatorSize;
+        const auto iconSize = _cfg.IndicatorSize;
 
         ctx.graphics->DrawImage(&iconBitmap,
             ctx.width / 2 - iconSize / 2,
@@ -147,7 +203,7 @@ private:
                  mic.GetVolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
-        if (_cfg.bellVolume > 0 && !silent) {
+        if (_cfg.BellVolume > 0 && !silent) {
             PlaySoundA(
                 renderDeviceMuted ? (LPCSTR)muteSound.buffer : (LPCSTR)unmuteSound.buffer,
                 nullptr,
