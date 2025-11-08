@@ -6,8 +6,9 @@
 #include <sys/stat.h>
 #include <string>
 #include <unordered_map>
+#include <set>
 #include <windows.h>
-#include <glaze/glaze.hpp>
+/*#include <glaze/glaze.hpp>*/
 
 #define MutexName L"Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B2"
 #define AppName L"Easymic"
@@ -30,22 +31,29 @@ struct AppConfig {
 
     uint16_t WindowPosX            = 0;
     uint16_t WindowPosY            = 0;
-    uint8_t BellVolume             = 50;
-    uint8_t MicVolume              = -1;
+    int8_t BellVolume              = 25;
+    int8_t MicVolume               = -1;
     uint8_t IndicatorSize          = 16;
-    IndicatorState IndicatorState  = IndicatorState::Hidden;
-    float IndicatorVolumeThreshold = .01f;
+    IndicatorState IndicatorState  = IndicatorState::Muted;
+    float IndicatorVolumeThreshold = .001f;
     bool ExcludeFromCapture        = false;
     bool OnTopExclusive            = false;
+    bool IsMicKeepVolume           = true;
     std::unordered_map<std::string , uint64_t> Hotkeys;
-    std::vector<std::string> RecentSoundSources;
-    std::vector<std::string> RecentIconSources;
+    std::set<std::string> UnmuteSoundRecentSources;
+    std::set<std::string> MuteSoundRecentSources;
+    std::set<std::string> UnmuteIconRecentSources;
+    std::set<std::string> MuteIconRecentSources;
+    std::string MuteSoundSource;
+    std::string UnmuteSoundSource;
+    std::string MutedIconSource;
+    std::string UnmutedIconSource;
 
     bool operator==(const AppConfig&) const = default;
 
     static void Save(const AppConfig& config)
     {
-        glz::write_file_beve(config, GetConfigPath(), std::string{});
+       // glz::write_file_beve(config, GetConfigPath(), std::string{});
     }
 
     void Save() const {
@@ -55,7 +63,7 @@ struct AppConfig {
     static AppConfig Load()
     {
         AppConfig config{};
-        glz::read_file_beve(config, GetConfigPath(), std::string{});
+      //  glz::read_file_beve(config, GetConfigPath(), std::string{});
         return config;
     }
 
@@ -63,13 +71,13 @@ private:
     static std::string GetConfigPath()
     {
 
-        if (DefaultPath.empty()) {
+        /*if (DefaultPath.empty()) {
             wchar_t modulePath[MAX_PATH];
             GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
 
             const std::filesystem::path path{modulePath};
             DefaultPath = (path.parent_path() / ConfigName).string();
-        }
+        }*/
         return DefaultPath;
     }
 };

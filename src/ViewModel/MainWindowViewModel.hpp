@@ -6,6 +6,8 @@
 #define EASYMIC_MAINWINDOWVIEWMODEL_HPP
 
 
+#include <filesystem>
+
 #include "SettingsWindowViewModel.hpp"
 #include "../Lib/UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
@@ -13,6 +15,10 @@
 #include "View/Core/BaseWindow.hpp"
 
 #include "Utils.hpp"
+
+#define ID_PEAK_TIMER               WM_USER + 100
+#define PEAK_TIMER_INTERVAL_MS      150 // ms
+#define PEAK_METER_DEBOUNCE_PHASES  2
 
 class AudioManager;
 
@@ -22,9 +28,13 @@ class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
     constexpr static const char* SHADOW_WINDOW_KEY = "EasymicIndicator";
 
+    int OnCaptureStateChangedId = -1;
+    int OnCaptureSessionPropertyChangedId = -1;
+    int OnDefaultCaptureChangedId = -1;
+
     std::shared_ptr<SettingsWindow> _settingsWindow;
 
-    const AudioManager &_audio;
+    AudioManager &_audio;
     AppConfig& _cfg;
     HICON mutedIcon = nullptr;
     HICON unmutedIcon = nullptr;
@@ -35,9 +45,12 @@ private:
     Resource muteSound;
     Resource unmuteSound;
 
-    bool hasRenderDevice = false;
-    bool renderDeviceMuted = false;
-    float volumeLevel = 0;
+    bool hasCaptureDevice = false;
+    bool captureDeviceMuted = false;
+    float captureDeviceVolume = -1.0f;
+
+    bool isPeakMeterActive = false;
+    int peakMeterPhase = 0;
 
 
     const std::function<void()> HotkeyToggleMute = [this] {
@@ -83,7 +96,7 @@ public:
     MainWindowViewModel(
         const std::shared_ptr<BaseWindow>& baseView,
         AppConfig& config,
-        const AudioManager& audioManager) :
+        AudioManager& audioManager) :
             BaseViewModel(baseView),
             _audio(audioManager),
             _cfg(config) {
@@ -92,16 +105,36 @@ public:
 private:
 
     void SuspendActivity() {
-        _view->Hide();
+        KillPeakMeter();
         _view->SetShadowHwnd(nullptr);
-        HotkeyManager::Dispose();
+        _audio.StopWatchingForCaptureSessions();
+        HotkeyManager::Dispose();   
         HotkeyManager::ClearHotkeys();
     }
 
+    void KillPeakMeter() {
+        if (isPeakMeterActive) {
+            KillTimer(_view->GetHandle(), ID_PEAK_TIMER);
+            isPeakMeterActive = false;
+            peakMeterPhase = 0;
+        }
+    }
+
+    void AdjustMicVolume() const {
+        if (_cfg.IsMicKeepVolume && _cfg.MicVolume != -1) {
+            _audio.CaptureDevice()->SetVolumePercent(_cfg.MicVolume);
+        }
+    }
+
+    void AdjustAppVolume() const {
+        _audio.PlaybackDevice()->SetSimpleVolumePercent(_cfg.BellVolume);
+    }
+
     void RestoreConfig() {
+        _audio.WatchForCaptureSessions();
         HotkeyManager::ClearHotkeys();
 
-        if (_cfg.Hotkeys.size() > 0) {
+        /*if (!_cfg.Hotkeys.empty()) {
             for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
                 const auto handlerIt = hotkeyHandlers.find(actionTitle);
                 if (handlerIt != hotkeyHandlers.end()) {
@@ -112,7 +145,17 @@ private:
                 }
             }
             HotkeyManager::Initialize();
-        }
+        }*/
+
+        auto *hInst = _view->GetHInstance();
+
+        unmuteSound = !_cfg.UnmuteSoundSource.empty() && std::filesystem::exists(_cfg.UnmuteSoundSource) ?
+            Utils::LoadFileAsResource(_cfg.UnmuteSoundSource) :
+            Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE");
+
+        muteSound = !_cfg.MuteSoundSource.empty() && std::filesystem::exists(_cfg.MuteSoundSource) ?
+            Utils::LoadFileAsResource(_cfg.MuteSoundSource) :
+            Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE");
 
         if (_cfg.OnTopExclusive && !_view->IsOvershadowed()) {
             _view->Hide();
@@ -126,12 +169,7 @@ private:
         /*SetWindowDisplayAffinity(_view->GetHandle(),
                          _cfg.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);*/
 
-        if (_cfg.IndicatorState == IndicatorState::Hidden) {
-            _view->Hide();
-            return;
-        }
-
-        _view->Show();
+        UpdateDevice();
     }
 
 
@@ -142,11 +180,14 @@ private:
                 break;
             case ID_APP_SETTINGS:
 
-                if (_settingsWindow) {
-                    return;
-                }
-
+            if (_settingsWindow) {
+                return;
+            }
+                DetachListeners();
                 SuspendActivity();
+                iconToDisplay = unmutedIcon;
+                _view->Invalidate();
+                _view->Show();
                 _settingsWindow = std::make_shared<SettingsWindow>(_view->GetHInstance());
                 _settingsWindow->AttachViewModel<SettingsWindowViewModel>(_cfg, _audio);
 
@@ -157,6 +198,7 @@ private:
                 _settingsWindow->OnExit += [this] {
                     RestoreConfig();
                     _settingsWindow.reset();
+                    AttachListeners();
                 };
                 _settingsWindow->Show();
                 break;
@@ -164,6 +206,12 @@ private:
     }
 
     void OnRender(const RenderContext& ctx) {
+
+        if (!iconToDisplay) {
+            return;
+        }
+        
+        
 #define WND_BACKGROUND RGB(24,27,40)
         GraphicsPath path;
         RectF rect(0, 0, static_cast<float>(ctx.width), static_cast<float>(ctx.height));
@@ -183,17 +231,20 @@ private:
         );
     }
 
-    void RenderDeviceStateChanged(bool silent) {
+    void CaptureDeviceStateChanged(bool silent) {
         const auto& mic = *_audio.CaptureDevice();
 
-        if (!hasRenderDevice) {
+        if (!hasCaptureDevice) {
             _view->UpdateTrayTooltip(L"Easymic - No device");
             iconToDisplay = nullptr;
             _view->UpdateTrayIcon(mutedIcon);
+            _view->Hide();
             return;
         }
 
-        _view->UpdateTrayIcon(iconToDisplay = (renderDeviceMuted ?  mutedIcon : unmutedIcon));
+        iconToDisplay = captureDeviceMuted ? mutedIcon : nullptr;
+        _view->UpdateTrayIcon(captureDeviceMuted ?  mutedIcon : unmutedIcon);
+        _view->Invalidate();
 
         constexpr auto bufferSize = 255;
 
@@ -203,24 +254,74 @@ private:
                  mic.GetVolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
-        if (_cfg.BellVolume > 0 && !silent) {
-            PlaySoundA(
-                renderDeviceMuted ? (LPCSTR)muteSound.buffer : (LPCSTR)unmuteSound.buffer,
-                nullptr,
-                SND_ASYNC | SND_MEMORY
-            );
-            _view->Invalidate();
+        if (!silent && _cfg.BellVolume > 0) {
+            const auto& soundResource = captureDeviceMuted ? muteSound : unmuteSound;
+            if (!soundResource.empty()) {
+                PlaySoundA(
+                    (LPCSTR)soundResource.buffer(),
+                    nullptr,
+                    SND_ASYNC | SND_MEMORY
+                );
+            }
         }
     }
 
     void UpdateDevice() {
         const auto& mic = *_audio.CaptureDevice();
-        hasRenderDevice = mic.IsInitialized();
-        renderDeviceMuted = mic.IsMuted();
+        hasCaptureDevice = mic.IsInitialized();
+        captureDeviceMuted = mic.IsMuted();
+        captureDeviceVolume = mic.GetVolumeLevel();
 
-        RenderDeviceStateChanged(true);
+        AdjustMicVolume();
+        AdjustAppVolume();
+
+        CaptureDeviceStateChanged(true);
+        const auto activeSessions = _audio.CaptureDevice()->GetActiveSessionsCount();
+
+        if (!hasCaptureDevice || activeSessions == 0 || _cfg.IndicatorState == IndicatorState::Hidden) {
+            KillPeakMeter();
+
+            _view->Hide();
+            return;
+        }
+
+        if (_cfg.IndicatorState == IndicatorState::MutedOrTalk && !isPeakMeterActive) {
+            isPeakMeterActive = true;
+            SetTimer(_view->GetHandle(), ID_PEAK_TIMER, PEAK_TIMER_INTERVAL_MS, nullptr);
+        }
+        _view->Show();
     }
 
+    void AttachListeners() {
+        OnCaptureStateChangedId = _audio.OnCaptureStateChanged += [this](bool muted, float level) {
+            bool silent = captureDeviceMuted == muted;
+            captureDeviceMuted = muted;
+            this->CaptureDeviceStateChanged(silent);
+
+            if (level != captureDeviceVolume) {
+                captureDeviceVolume = level;
+                this->AdjustMicVolume();
+            }
+        };
+
+        OnCaptureSessionPropertyChangedId =
+            _audio.OnCaptureSessionPropertyChanged += [this](const ComPtr<IAudioSessionControl>& control, EAudioSessionProperty property) {
+            if (property == Disconnected || property == Connected || property == State) {
+                this->UpdateDevice();
+            }
+        };
+
+        OnDefaultCaptureChangedId = _audio.OnDefaultCaptureChanged += [this] {
+            this->UpdateDevice();
+        };
+    }
+
+    void DetachListeners() const {
+        _audio.OnCaptureStateChanged -= OnCaptureStateChangedId;
+        _audio.OnCaptureSessionPropertyChanged -= OnCaptureSessionPropertyChangedId;
+        _audio.OnDefaultCaptureChanged -= OnDefaultCaptureChangedId;
+    }
+    
 public:
     void Init() override {
         auto *hInst = _view->GetHInstance();
@@ -229,22 +330,8 @@ public:
         unmutedIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_UNMUTED));
         activeIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_ACTIVE));
 
-        Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE",
-                 &unmuteSound.buffer, &unmuteSound.fileSize);
 
-        Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE",
-                 &muteSound.buffer, &muteSound.fileSize);
-
-        _audio.OnCaptureStateChanged += [this](bool muted, float level) {
-            bool silent = renderDeviceMuted == muted;
-            renderDeviceMuted = muted;
-            this->RenderDeviceStateChanged(silent);
-        };
-
-        _audio.OnDefaultCaptureChanged += [this]() {
-            this->UpdateDevice();
-        };
-
+        AttachListeners();
         _view->CreateTrayIcon(nullptr, L"");
 
         _view->SetOnTrayMenu([this](UINT_PTR commandId) {
@@ -255,7 +342,22 @@ public:
             this->OnRender(context);
         });
 
-        UpdateDevice();
+        _view->SetTimerCallback([this](UINT_PTR timerId) {
+            const auto peak = _audio.CaptureDevice()->GetPeak();
+            if (peak > _cfg.IndicatorVolumeThreshold) {
+                if (!peakMeterPhase) {
+                    OutputDebugStringA("The microphone has become active\n");
+                    iconToDisplay  = activeIcon;
+                    peakMeterPhase = PEAK_METER_DEBOUNCE_PHASES;
+                    _view->Invalidate();
+                }
+            } else if (peakMeterPhase && (--peakMeterPhase) == 0) {
+                OutputDebugStringA("The microphone has become inactive\n");
+                iconToDisplay = captureDeviceMuted ? mutedIcon : nullptr;
+                _view->Invalidate();
+            }
+        });
+
         RestoreConfig();
     }
 
