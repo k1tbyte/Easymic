@@ -2,11 +2,10 @@
 #define EASYMIC_UTILS_HPP
 
 #include <commctrl.h>
+#include <filesystem>
+#include <fstream>
+#include "Resource.hpp"
 
-struct Resource {
-    BYTE* buffer;
-    DWORD fileSize;
-};
 
 namespace Utils {
 
@@ -34,25 +33,53 @@ namespace Utils {
     static void InitTrackbar(HWND hWnd, LPARAM pageSize, LPARAM minMax, LPARAM value)
     {
         SendMessage(hWnd, TBM_SETRANGE,
-                    (WPARAM) TRUE,  // redraw flag
+                    TRUE,  // redraw flag
                     minMax);
 
         SendMessage(hWnd, TBM_SETPAGESIZE,
                     0, pageSize);                  // new page size
 
-        SendMessage(hWnd, TBM_SETPOS, (WPARAM) TRUE, value);
+        SendMessage(hWnd, TBM_SETPOS, TRUE, value);
     }
 
     static bool IsCheckboxCheck(HWND hwndCheckbox, int id) {
         return SendMessage(GetDlgItem(hwndCheckbox, id), BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
 
-    static void LoadResource(HINSTANCE hInst,LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
+    static Resource LoadResource(HINSTANCE hInst, LPCSTR resourceName, LPCSTR resourceType)
     {
-        HRSRC hResInfo = FindResource(hInst,resourceName, resourceType);
-        HANDLE hRes = LoadResource(hInst, hResInfo);
-        *buffer = (BYTE*)LockResource(hRes);
-        *size = SizeofResource(hInst, hResInfo);
+        HRSRC hResInfo = FindResource(hInst, resourceName, resourceType);
+        if (!hResInfo) return {};
+
+        HANDLE hRes = ::LoadResource(hInst, hResInfo);
+        if (!hRes) return {};
+
+        BYTE* buffer = (BYTE*)LockResource(hRes);
+        DWORD size = SizeofResource(hInst, hResInfo);
+
+        return {buffer, size};  // Embedded resource, doesn't own memory
+    }
+
+    static Resource LoadFileAsResource(const std::string& filePath)
+    {
+        std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            return {};
+        }
+
+        auto fileSize = file.tellg();
+        if (fileSize <= 0) {
+            return {};
+        }
+
+        file.seekg(0, std::ios::beg);
+
+        auto buffer = std::make_unique<BYTE[]>(fileSize);
+        if (!file.read(reinterpret_cast<char*>(buffer.get()), fileSize)) {
+            return {};
+        }
+
+        return {std::move(buffer), static_cast<DWORD>(fileSize)};
     }
 
     //#region <== Registry ==>
@@ -86,6 +113,76 @@ namespace Utils {
     }
 
 //#endregion
+
+    static bool DoesFileExist(const std::string& filePath) {
+        DWORD attributes = GetFileAttributesA(filePath.c_str());
+        return (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY));
+    }
+
+// Sound ComboBox management functions
+    static void PopulateSourceComboBox(HWND comboBox, const std::set<std::string>& recentSources, const std::string& currentSource = "") {
+        // Clear existing items
+        SendMessage(comboBox, CB_RESETCONTENT, 0, 0);
+
+        // Always add "Default" as first item
+        SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)"Default");
+
+        int selectedIndex = 0;
+        int itemIndex = 1;
+
+        // Add recent sources that still exist
+        for (const auto& source : recentSources) {
+            if (DoesFileExist(source)) {
+                const auto fileName = std::filesystem::path(source).filename().string();
+                SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)fileName.c_str());
+                if (source == currentSource) {
+                    selectedIndex = itemIndex;
+                }
+                itemIndex++;
+            }
+        }
+
+        // Set selection
+        SendMessage(comboBox, CB_SETCURSEL, selectedIndex, 0);
+    }
+
+    static void CleanupInvalidSources(std::set<std::string>& recentSources) {
+        auto it = recentSources.begin();
+        while (it != recentSources.end()) {
+            if (!DoesFileExist(*it)) {
+                it = recentSources.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    static std::string GetSelectedSoundSource(HWND comboBox) {
+        int selectedIndex = SendMessage(comboBox, CB_GETCURSEL, 0, 0);
+        if (selectedIndex == 0 || selectedIndex == CB_ERR) {
+            return "";  // Default selected or error
+        }
+
+        char buffer[MAX_PATH];
+        int length = SendMessage(comboBox, CB_GETLBTEXT, selectedIndex, (LPARAM)buffer);
+        if (length == CB_ERR) {
+            return "";
+        }
+
+        return std::string(buffer, length);
+    }
+
+    static void AddToRecentSources(std::set<std::string>& recentSources, const std::string& source, size_t maxItems = 10) {
+        if (!source.empty() && DoesFileExist(source)) {
+            recentSources.insert(source);
+
+            // Keep only recent N items (optional: implement LRU if needed)
+            if (recentSources.size() > maxItems) {
+                // For now, just keep all valid items
+                // Could implement LRU policy later if needed
+            }
+        }
+    }
 }
 
 #endif //EASYMIC_UTILS_HPP

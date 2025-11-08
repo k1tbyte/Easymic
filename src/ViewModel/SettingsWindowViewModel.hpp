@@ -5,6 +5,7 @@
 #ifndef EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
 #define EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
 #include "AudioManager.hpp"
+#include "Audio/AudioFileValidator.hpp"
 #include "Utils.hpp"
 #include "ViewModel.hpp"
 #include "SettingsWindow/SettingsWindow.hpp"
@@ -20,6 +21,47 @@ private:
     constexpr static const char* IndicatorStates[] = {
         "Hidden", "Muted", "Muted or talking"
     };
+
+    // Helper function to handle sound source selection from combobox
+    void HandleSoundSourceSelection(HWND hWnd, int comboBoxId, std::string& configSource, std::set<std::string>& recentSources) {
+        int selectedIndex = SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0);
+
+        if (selectedIndex == 0 || selectedIndex == CB_ERR) {
+            configSource.clear();
+            return;
+        }
+
+        // Convert index to iterator (index 1 = first element in set)
+        auto it = recentSources.begin();
+        std::advance(it, selectedIndex - 1);
+
+        if (it != recentSources.end() && Utils::DoesFileExist(*it)) {
+            configSource = *it;
+            return;
+        }
+
+        // File doesn't exist, clean up and refresh
+        configSource.clear();
+        Utils::CleanupInvalidSources(recentSources);
+        RefreshSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
+    }
+
+    // Helper function to refresh sound combobox
+    void RefreshSoundComboBox(HWND hWnd, int comboBoxId, const std::set<std::string>& recentSources, const std::string& currentSource) {
+        Utils::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), recentSources, currentSource);
+    }
+
+    // Helper function for sound file browsing and updating combobox
+    bool HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource, std::set<std::string>& recentSources) {
+        std::string selectedFile;
+        if (HandleSoundFileSelection(this->_view->GetHandle(), title, selectedFile)) {
+            configSource = selectedFile;
+            Utils::AddToRecentSources(recentSources, selectedFile);
+            RefreshSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
+            return true;
+        }
+        return false;
+    }
 
     /*std::unordered_map<const char*, void(SettingsWindowViewModel::*)()> hotkeyHandlers = {
         { HotkeyTitles.ToggleMute, &SettingsWindowViewModel::HotkeyToggleMute }
@@ -65,23 +107,40 @@ public:
                 );
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
-                    1, MAKELONG(0, 100), _cfg.IndicatorVolumeThreshold * 100
+                    1, MAKELONG(0, 100), static_cast<int>(_cfg.IndicatorVolumeThreshold * 100)
                 );
                 break;
             }
 
 
-            case IDD_SETTINGS_SOUNDS:
-                // Handle Sounds section activation
-                printf("Sounds section activated\n");
+            case IDD_SETTINGS_SOUNDS: {
+                // Initialize microphone volume trackbar
+                Utils::InitTrackbar(
+                    GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
+                    1, MAKELONG(0, 100), _cfg.MicVolume == -1 ?
+                        _audioManager.CaptureDevice()->GetVolumePercent() : _cfg.MicVolume
+                );
+
+                // Initialize bell volume trackbar
+                Utils::InitTrackbar(
+                    GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
+                    1, MAKELONG(0, 100), _cfg.BellVolume == -1 ?
+                        _audioManager.PlaybackDevice()->GetSimpleVolumePercent() : _cfg.BellVolume
+                );
+
+                Set(IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME, BM_SETCHECK, _cfg.IsMicKeepVolume, 0);
+
+                RefreshSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, _cfg.MuteSoundRecentSources, _cfg.MuteSoundSource);
+                RefreshSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, _cfg.UnmuteSoundRecentSources, _cfg.UnmuteSoundSource);
+
                 break;
+            }
 
             case IDD_SETTINGS_HOTKEYS: {
                 const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
                 for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
                     const auto& title = hotkeyPtr[i];
-                    auto it = _cfg.Hotkeys.find(std::string(title));
-                    if (it != _cfg.Hotkeys.end()) {
+                    if (auto it = _cfg.Hotkeys.find(std::string(title)); it != _cfg.Hotkeys.end()) {
                         _view->SetHotkeyCellValue(i, HotkeyManager::GetHotkeyName(it->second).c_str());
                     }
                 }
@@ -110,13 +169,34 @@ public:
             case IDC_SETTINGS_INDICATOR_ON_TOP:
                 _cfg.OnTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
                 break;
+            case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
+                _cfg.IsMicKeepVolume = Utils::IsCheckboxCheck(hWnd, buttonId);
+                break;
+            case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
+                HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file",
+                    _cfg.MuteSoundSource, _cfg.MuteSoundRecentSources);
+                break;
+            case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
+                HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file",
+                    _cfg.UnmuteSoundSource, _cfg.UnmuteSoundRecentSources);
+                break;
         }
     }
 
     void HandleComboBoxChange(HWND hWnd, int comboBoxId) {
+        int indexSelected = SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0);
         switch (comboBoxId) {
             case IDC_SETTINGS_INDICATOR_COMBO:
-                _cfg.IndicatorState = static_cast<IndicatorState>(SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
+                _cfg.IndicatorState = static_cast<IndicatorState>(indexSelected);
+                break;
+            case IDC_SETTINGS_SOUNDS_MUTE_COMBO:
+                HandleSoundSourceSelection(hWnd, comboBoxId, _cfg.MuteSoundSource, _cfg.MuteSoundRecentSources);
+                break;
+            case IDC_SETTINGS_SOUNDS_UNMUTE_COMBO:
+                HandleSoundSourceSelection(hWnd, comboBoxId, _cfg.UnmuteSoundSource, _cfg.UnmuteSoundRecentSources);
+                break;
+            default:
+                // Handle unknown combobox
                 break;
         }
     }
@@ -134,10 +214,41 @@ public:
             case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
                 _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;
                 break;
+            case IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR:
+                _cfg.MicVolume = static_cast<BYTE>(value);
+                break;
+            case IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR:
+                _cfg.BellVolume = static_cast<BYTE>(value);
+                break;
+            default:
+                // Handle unknown trackbar
+                break;
         }
     }
 
-    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) {
+    static bool HandleSoundFileSelection(HWND hWnd, const char* title, std::string& result) {
+        std::string selectedFile = AudioFileValidator::ShowWavFileDialog(hWnd, title);
+
+        if (selectedFile.empty()) {
+            return false;
+        }
+
+        // Validate the WAV file
+        WavValidationResult validation = AudioFileValidator::ValidateWavFile(selectedFile, 3.0f);
+
+        if (!validation.isValid) {
+            std::string errorMsg = "Invalid WAV file: " + validation.errorMessage;
+            MessageBoxA(hWnd, errorMsg.c_str(), "File Validation Error", MB_OK | MB_ICONERROR);
+            return false;
+        }
+
+        result = selectedFile;
+        return true;
+    }
+
+
+
+    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) const {
         static uint64_t _prevSequenceMask = 0;
 
         if (_prevSequenceMask > 0) {
@@ -175,8 +286,8 @@ public:
 
                 HotkeyManager::BindStop();
                 HotkeyManager::Dispose();
-               // this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
-               // this->_view->SetHotkeySectionTitle(nullptr);
+                this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
+                this->_view->SetHotkeySectionTitle(nullptr);
                 _prevSequenceMask = 0;
                 return;
             }
@@ -189,11 +300,8 @@ public:
     void Init() override {
         _cfgPrev = _cfg;
         MainWnd = reinterpret_cast<MainWindow *>(_view->GetParent());
-
-
         MainWnd->Show();
         MainWnd->ToggleInteractivity(true);
-        // Allow drag move on parent window by removing WS_EX_TRANSPARENT
 
         _view->OnButtonClick = [this](HWND hWnd, int buttonId) {
             HandleButtonClick(hWnd, buttonId);

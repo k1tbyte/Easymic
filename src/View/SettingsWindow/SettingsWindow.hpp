@@ -70,8 +70,17 @@ public:
     OnSectionChangeCallback OnSectionChange = nullptr;
     OnHotkeyListChangeCallback OnHotkeyListChange = nullptr;
 
+    /*LRESULT HandleMessage (UINT message, WPARAM wParam, LPARAM lParam) override {
+        if (const auto it = messageHandlers_.find(message); it != messageHandlers_.end()) {
+            return it->second(wParam, lParam);
+        }
+        return true;
+    }*/
+
 private:
     void SetupMessageHandlers();
+    void RegisterWindowClass();
+    void CreateMainButtons();
     void CreateTreeView();
     void PopulateTreeView();
     void CreateGroupBox();
@@ -81,9 +90,10 @@ private:
     HTREEITEM AddTreeViewItem(HTREEITEM hParent, const CategoryItem& item);
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
 
+    static LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
-    LRESULT OnInitDialog(WPARAM wParam, LPARAM lParam);
+    LRESULT OnCreate(WPARAM wParam, LPARAM lParam);
     LRESULT OnCommand(WPARAM wParam, LPARAM lParam);
     LRESULT OnNotify(WPARAM wParam, LPARAM lParam);
     LRESULT OnSize(WPARAM wParam, LPARAM lParam);
@@ -96,6 +106,8 @@ private:
     HWND hwndTreeView_ = nullptr;
     HWND hwndGroupBox_ = nullptr;
     HWND hwndContentDialog_ = nullptr;
+    HWND hwndOkButton_ = nullptr;
+    HWND hwndCancelButton_ = nullptr;
     int currentCategoryId_ = -1;
 
 
