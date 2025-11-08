@@ -101,7 +101,7 @@ private:
     void RestoreConfig() {
         HotkeyManager::ClearHotkeys();
 
-        if (_cfg.Hotkeys.size() > 0) {
+        if (!_cfg.Hotkeys.empty()) {
             for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
                 const auto handlerIt = hotkeyHandlers.find(actionTitle);
                 if (handlerIt != hotkeyHandlers.end()) {

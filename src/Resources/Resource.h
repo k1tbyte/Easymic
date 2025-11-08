@@ -40,7 +40,17 @@
 #define IDC_SETTINGS_INDICATOR_ON_TOP               256
 
 #define IDD_SETTINGS_SOUNDS                         301
+#define IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR     302
+#define IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME         303
+#define IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR    304
+#define IDC_SETTINGS_SOUNDS_MUTE_COMBO              305
+#define IDC_SETTINGS_SOUNDS_MUTE_BROWSE             306
+#define IDC_SETTINGS_SOUNDS_UNMUTE_COMBO            307
+#define IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE           308
+
 #define IDD_SETTINGS_HOTKEYS                        401
 #define IDC_HOTKEYS_LIST                            402
 #define IDC_HOTKEYS_TITLE                           403
+
+
 #define IDD_SETTINGS_ABOUT                          501

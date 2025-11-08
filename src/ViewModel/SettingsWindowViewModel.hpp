@@ -4,7 +4,9 @@
 
 #ifndef EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
 #define EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
+#include <algorithm>
 #include "AudioManager.hpp"
+#include "Audio/AudioFileValidator.hpp"
 #include "Utils.hpp"
 #include "ViewModel.hpp"
 #include "SettingsWindow/SettingsWindow.hpp"
@@ -65,16 +67,27 @@ public:
                 );
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
-                    1, MAKELONG(0, 100), _cfg.IndicatorVolumeThreshold * 100
+                    1, MAKELONG(0, 100), static_cast<int>(_cfg.IndicatorVolumeThreshold * 100)
                 );
                 break;
             }
 
 
-            case IDD_SETTINGS_SOUNDS:
-                // Handle Sounds section activation
-                printf("Sounds section activated\n");
+            case IDD_SETTINGS_SOUNDS: {
+                // Initialize microphone volume trackbar
+                Utils::InitTrackbar(
+                    GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
+                    1, MAKELONG(0, 100), _cfg.MicVolume == static_cast<uint8_t>(-1) ? 50 : _cfg.MicVolume
+                );
+
+                // Initialize bell volume trackbar
+                Utils::InitTrackbar(
+                    GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
+                    1, MAKELONG(0, 100), _cfg.BellVolume
+                );
+
                 break;
+            }
 
             case IDD_SETTINGS_HOTKEYS: {
                 const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
@@ -99,6 +112,7 @@ public:
     }
 
     void HandleButtonClick(HWND hWnd, int buttonId) {
+        std::string textTmp{};
         switch (buttonId) {
             case IDC_SETTINGS_AUTOSTART:
                 Utils::IsInAutoStartup(AppName) ? Utils::RemoveFromAutoStartup(AppName) :
@@ -109,6 +123,18 @@ public:
                 break;
             case IDC_SETTINGS_INDICATOR_ON_TOP:
                 _cfg.OnTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
+            case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
+                // Handle microphone volume lock checkbox
+                break;
+            case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
+                if (HandleSoundFileSelection(this->_view->GetHandle(), "Select mute sound file", textTmp)) {
+                    _cfg.MuteSoundSource = textTmp;
+                }
+                break;
+            case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
+                if (HandleSoundFileSelection(this->_view->GetHandle(), "Select unmute sound file", textTmp)) {
+                    _cfg.UnmuteSoundSource = textTmp;
+                }
                 break;
         }
     }
@@ -117,6 +143,15 @@ public:
         switch (comboBoxId) {
             case IDC_SETTINGS_INDICATOR_COMBO:
                 _cfg.IndicatorState = static_cast<IndicatorState>(SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
+                break;
+            case IDC_SETTINGS_SOUNDS_MUTE_COMBO:
+                // Handle mute sound selection change
+                break;
+            case IDC_SETTINGS_SOUNDS_UNMUTE_COMBO:
+                // Handle unmute sound selection change
+                break;
+            default:
+                // Handle unknown combobox
                 break;
         }
     }
@@ -134,10 +169,41 @@ public:
             case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
                 _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;
                 break;
+            case IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR:
+                _cfg.MicVolume = static_cast<BYTE>(value);
+                break;
+            case IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR:
+                _cfg.BellVolume = static_cast<BYTE>(value);
+                break;
+            default:
+                // Handle unknown trackbar
+                break;
         }
     }
 
-    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) {
+    static bool HandleSoundFileSelection(HWND hWnd, const char* title, std::string& result) {
+        std::string selectedFile = AudioFileValidator::ShowWavFileDialog(hWnd, title);
+
+        if (selectedFile.empty()) {
+            return false;
+        }
+
+        // Validate the WAV file
+        WavValidationResult validation = AudioFileValidator::ValidateWavFile(selectedFile, 3.0f);
+
+        if (!validation.isValid) {
+            std::string errorMsg = "Invalid WAV file: " + validation.errorMessage;
+            MessageBoxA(hWnd, errorMsg.c_str(), "File Validation Error", MB_OK | MB_ICONERROR);
+            return false;
+        }
+
+        result = selectedFile;
+        return true;
+    }
+
+
+
+    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) const {
         static uint64_t _prevSequenceMask = 0;
 
         if (_prevSequenceMask > 0) {
@@ -175,8 +241,8 @@ public:
 
                 HotkeyManager::BindStop();
                 HotkeyManager::Dispose();
-               // this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
-               // this->_view->SetHotkeySectionTitle(nullptr);
+                this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
+                this->_view->SetHotkeySectionTitle(nullptr);
                 _prevSequenceMask = 0;
                 return;
             }
