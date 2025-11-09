@@ -38,8 +38,8 @@ bool SettingsWindow::Initialize(const Config& config) {
 }
 
 void SettingsWindow::SetupMessageHandlers() {
-    RegisterMessageHandler(WM_INITDIALOG, [this](WPARAM wParam, LPARAM lParam) {
-        return OnInitDialog(wParam, lParam);
+    RegisterMessageHandler(WM_CREATE, [this](WPARAM wParam, LPARAM lParam) {
+        return OnCreate(wParam, lParam);
     });
 
     RegisterMessageHandler(WM_COMMAND, [this](WPARAM wParam, LPARAM lParam) {
@@ -59,6 +59,90 @@ void SettingsWindow::SetupMessageHandlers() {
     });
 }
 
+void SettingsWindow::RegisterWindowClass() {
+    static bool classRegistered = false;
+    if (classRegistered) {
+        return;
+    }
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = SettingsWindowProc; // Use our own proc instead of StaticWindowProc
+    wc.hInstance = hInstance_;
+    wc.hIcon = LoadIcon(hInstance_, MAKEINTRESOURCE(IDI_APP));
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_3DFACE + 1); // Standard dialog background
+    wc.lpszClassName = L"SettingsWindow";
+    wc.hIconSm = LoadIcon(hInstance_, MAKEINTRESOURCE(IDI_APP));
+
+    if (!RegisterClassExW(&wc)) {
+        auto error = GetLastError();
+        if (error != ERROR_CLASS_ALREADY_EXISTS) {
+            std::wstring msg = L"Failed to register window class. Error code: " + std::to_wstring(error);
+            MessageBoxW(nullptr, msg.c_str(), L"Error", MB_ICONERROR | MB_OK);
+        }
+        return;
+    }
+
+    classRegistered = true;
+}
+
+
+
+void SettingsWindow::CreateMainButtons() {
+    if (!hwnd_) {
+        return;
+    }
+
+    // Get client area
+    RECT clientRect;
+    GetClientRect(hwnd_, &clientRect);
+
+    static constexpr int BUTTON_WIDTH = 75;
+    static constexpr int BUTTON_HEIGHT = 23;
+
+    // Create OK button
+    hwndOkButton_ = CreateWindowW(
+        L"BUTTON",
+        L"OK",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+        clientRect.right - BUTTON_WIDTH * 2 - MARGIN * 2, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
+        BUTTON_WIDTH, BUTTON_HEIGHT,
+        hwnd_,
+        (HMENU)IDOK,
+        hInstance_,
+        nullptr
+    );
+
+    // Create Cancel button
+    hwndCancelButton_ = CreateWindowW(
+        L"BUTTON",
+        L"Cancel",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        clientRect.right - BUTTON_WIDTH - MARGIN, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
+        BUTTON_WIDTH, BUTTON_HEIGHT,
+        hwnd_,
+        (HMENU)IDCANCEL,
+        hInstance_,
+        nullptr
+    );
+
+    // Set default font for buttons (same as dialog font)
+    HFONT hFont = CreateFontW(
+        -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
+    );
+
+    if (hwndOkButton_) {
+        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hFont, TRUE);
+    }
+    if (hwndCancelButton_) {
+        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hFont, TRUE);
+    }
+}
+
 void SettingsWindow::Show() {
     if (hwnd_) {
         SetForegroundWindow(hwnd_);
@@ -66,20 +150,40 @@ void SettingsWindow::Show() {
         return;
     }
 
-    hwnd_ = CreateDialogParamW(
-        hInstance_,
-        MAKEINTRESOURCEW(IDD_SETTINGS),
-        config_.parentHwnd,
-        StaticWindowProc,
-        reinterpret_cast<LPARAM>(this)
+    // Register window class if not already registered
+    RegisterWindowClass();
+
+    // Create window with same dimensions as IDD_SETTINGS (270x170 dialog units)
+    // Convert dialog units to pixels
+    RECT rect = {0, 0, 422, 315};
+
+
+    const int width = rect.right;
+    const int height = rect.bottom;
+
+    // Center window on screen
+    const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    const int posX = (screenWidth - width) / 2;
+    const int posY = (screenHeight - height) / 2;
+
+    hwnd_ = CreateWindowExW(
+        0,                              // Extended window style
+        L"SettingsWindow",              // Window class name
+        L"Easymic - settings",          // Window title (same as CAPTION in resource)
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, // Same style as DS_MODALFRAME but for CreateWindow
+        posX, posY,                     // Position
+        width, height,                  // Size
+        config_.parentHwnd,             // Parent window
+        nullptr,                        // Menu
+        hInstance_,                     // Instance handle
+        this                            // Creation parameter
     );
 
     if (!hwnd_) {
-        //print last error
         auto error = GetLastError();
-        std::wstring msg = L"Failed to create settings dialog. Error code: " + std::to_wstring(error);
+        std::wstring msg = L"Failed to create settings window. Error code: " + std::to_wstring(error);
         MessageBoxW(nullptr, msg.c_str(), L"Error", MB_ICONERROR | MB_OK);
-
         return;
     }
 
@@ -95,32 +199,20 @@ void SettingsWindow::Hide() {
     _close(hwnd_);
 }
 
-LRESULT SettingsWindow::OnInitDialog(WPARAM wParam, LPARAM lParam) {
-
+LRESULT SettingsWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
 
+    // Create OK and Cancel buttons manually with same positions as in resource
+    CreateMainButtons();
+
     CreateTreeView();
     CreateGroupBox();
     PopulateTreeView();
 
-    // Center window on screen
-    RECT rect;
-    GetWindowRect(hwnd_, &rect);
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-
-    const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-    const int posX = (screenWidth - width) / 2;
-    const int posY = (screenHeight - height) / 2;
-
-    SetWindowPos(hwnd_, nullptr, posX, posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-
-    return TRUE;
+    return 0; // Return 0 for WM_CREATE (success)
 }
 
 LRESULT SettingsWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
@@ -140,13 +232,13 @@ LRESULT SettingsWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
     auto *pnmh = (LPNMHDR)lParam;
 
     if (pnmh->idFrom == ID_TREEVIEW) {
-        if (pnmh->code == TVN_SELCHANGED) {
+        if (pnmh->code == TVN_SELCHANGEDW) {
             LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)lParam;
             OnTreeViewSelectionChanged(pnmtv->itemNew.hItem);
         }
     }
 
-    return 0;
+    return FALSE;
 }
 
 LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
@@ -173,6 +265,7 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
                    SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
+
     UpdateGroupBoxLayout();
 
     return 0;
@@ -184,6 +277,8 @@ LRESULT SettingsWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     hwndTreeView_ = nullptr;
     hwndGroupBox_ = nullptr;
     hwndContentDialog_ = nullptr;
+    hwndOkButton_ = nullptr;
+    hwndCancelButton_ = nullptr;
     isVisible_ = false;
     return 0;
 }
@@ -368,7 +463,45 @@ void SettingsWindow::ResetHotkeyCellValue(LPCSTR actionTitle) {
     }
 }
 
+LRESULT CALLBACK SettingsWindow::SettingsWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    SettingsWindow* window = nullptr;
+
+    if (message == WM_CREATE) {
+        // Get the window pointer from CREATESTRUCT
+        CREATESTRUCTW* createStruct = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        window = reinterpret_cast<SettingsWindow*>(createStruct->lpCreateParams);
+
+        if (window) {
+            // Register window manually since we're not using BaseWindow's StaticWindowProc
+            window->RegisterWindow(hwnd);
+
+            // Set window size and position in BaseWindow
+            RECT windowRect;
+            GetWindowRect(hwnd, &windowRect);
+            window->SetHeight(windowRect.bottom - windowRect.top)
+                ->SetWidth(windowRect.right - windowRect.left)
+                ->SetPositionX(windowRect.left)
+                ->SetPositionY(windowRect.top);
+
+            // Call OnCreate
+            window->OnCreate(0, 0);
+        }
+
+        return 0;
+    }
+
+    // Try to get window from registry
+    window = reinterpret_cast<SettingsWindow*>(WindowRegistry::Instance().Get(hwnd));
+
+    if (window) {
+        return window->HandleMessage(message, wParam, lParam);
+    }
+
+    return DefWindowProc(hwnd, message, wParam, lParam);
+}
+
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+
     switch (uMsg) {
     case WM_SETCURSOR:
         {
@@ -411,12 +544,16 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
             switch (HIWORD(wParam)) {
                 case BN_CLICKED:
                     if (settingsWindow->OnButtonClick) {
-                        settingsWindow->OnButtonClick(hwnd, LOWORD(wParam));
+                        MessageBox(NULL, "Button clicked handler is not implemented yet.", "Info", MB_OK | MB_ICONINFORMATION);
+                        return TRUE;
+                        /*settingsWindow->OnButtonClick(hwnd, LOWORD(wParam));*/
                     }
                     break;
                 case CBN_SELCHANGE:
                     if (settingsWindow->OnComboBoxChange) {
-                        settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam));
+                        MessageBoxW(NULL, L"ComboBox change handler is not implemented yet.", L"Info", MB_OK | MB_ICONINFORMATION);
+                        return TRUE;
+                        /*settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam));*/
                     }
                     break;
                 // Handle child dialog commands if needed
@@ -450,7 +587,7 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
     }
 
 
-    return DefWindowProc(hwnd, message, wParam, lParam);
+    return FALSE;
 }
 
 void SettingsWindow::LoadCategoryContent(int resourceId) {
