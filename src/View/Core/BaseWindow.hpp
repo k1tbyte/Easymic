@@ -137,7 +137,7 @@
         virtual LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             // Special handling for drag caption
             if (message == WM_NCHITTEST) {
-                LRESULT result = DefWindowProc(hwnd_, message, wParam, lParam);
+                LRESULT result = DefWindowProcW(hwnd_, message, wParam, lParam);
                 return result == HTCLIENT ? HTCAPTION : result;
             }
 
@@ -146,7 +146,7 @@
                 return it->second(wParam, lParam);
             }
 
-            return DefWindowProc(hwnd_, message, wParam, lParam);
+            return DefWindowProcW(hwnd_, message, wParam, lParam);
         }
 
         /**
@@ -164,8 +164,9 @@
 
             if (!window) {
 
-                if (message == WM_INITDIALOG && lParam != 0) {
-                    window = reinterpret_cast<BaseWindow*>(lParam);
+                if ((message == WM_INITDIALOG || message == WM_CREATE) && lParam != 0) {
+                    window = message == WM_INITDIALOG ?  reinterpret_cast<BaseWindow*>(lParam)
+                                                       : static_cast<BaseWindow*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
                     window->RegisterWindow(hwnd);
                     RECT rect;
                     GetWindowRect(hwnd, &rect);
@@ -175,7 +176,7 @@
                         ->SetPositionY(rect.top);
 
                 } else {
-                    return DefWindowProc(hwnd, message, wParam, lParam);
+                    return DefWindowProcW(hwnd, message, wParam, lParam);
                 }
             } else if (message == WM_DESTROY) {
                 window->hwnd_ = nullptr;
@@ -183,31 +184,6 @@
             }
 
             return window->HandleMessage(message, wParam, lParam);
-        }
-
-        static INT_PTR CALLBACK StaticDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-            BaseWindow* window = WindowRegistry::Instance().Get(hwnd);
-
-            if (!window) {
-                if (message == WM_INITDIALOG) {
-                    window = reinterpret_cast<BaseWindow*>(lParam);
-                    window->RegisterWindow(hwnd);
-                } else {
-                    return FALSE;
-                }
-
-            }
-
-            if (message == WM_DESTROY) {
-                window->hwnd_ = nullptr;
-                WindowRegistry::Instance().Unregister(hwnd);
-            }
-
-            if (const auto it = window->messageHandlers_.find(message); it != window->messageHandlers_.end()) {
-                return it->second(wParam, lParam);
-            }
-
-            return FALSE;
         }
 
         /**

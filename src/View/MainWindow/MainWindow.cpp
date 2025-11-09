@@ -51,7 +51,7 @@ bool MainWindow::Initialize(WindowConfig config) {
         nullptr,
         nullptr,
         hInstance_,
-        nullptr
+        this
     );
 
     if (!hwnd_) {

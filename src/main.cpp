@@ -44,7 +44,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         mainWindow->Hide();
     });
 
-    auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
+    /*auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
     settingsWindow->AttachViewModel<SettingsWindowViewModel>(config, manager);
 
     // Configure settings window
@@ -56,7 +56,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    settingsWindow->Show();
+    settingsWindow->Show();*/
 
 
     while(GetMessage(&callbackMsg, nullptr, 0, 0))

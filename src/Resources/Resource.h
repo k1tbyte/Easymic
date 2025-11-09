@@ -25,8 +25,6 @@
 // Settings Window (IDD_SETTINGS)
 //////////////////////////////////////////////////////////////////////////////
 
-#define IDD_SETTINGS                                200
-
 
 #define IDD_SETTINGS_GENERAL                        201
 #define IDD_SETTINGS_GENERAL                        201

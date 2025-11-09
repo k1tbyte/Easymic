@@ -12,7 +12,7 @@ file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 
 
-add_executable(${PROJECT_NAME} #[[WIN32]])
+add_executable(${PROJECT_NAME} WIN32)
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

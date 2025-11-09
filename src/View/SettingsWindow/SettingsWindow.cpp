@@ -68,7 +68,7 @@ void SettingsWindow::RegisterWindowClass() {
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = SettingsWindowProc; // Use our own proc instead of StaticWindowProc
+    wc.lpfnWndProc = StaticWindowProc; // Use our own proc instead of StaticWindowProc
     wc.hInstance = hInstance_;
     wc.hIcon = LoadIcon(hInstance_, MAKEINTRESOURCE(IDI_APP));
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -463,43 +463,6 @@ void SettingsWindow::ResetHotkeyCellValue(LPCSTR actionTitle) {
     }
 }
 
-LRESULT CALLBACK SettingsWindow::SettingsWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    SettingsWindow* window = nullptr;
-
-    if (message == WM_CREATE) {
-        // Get the window pointer from CREATESTRUCT
-        CREATESTRUCTW* createStruct = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        window = reinterpret_cast<SettingsWindow*>(createStruct->lpCreateParams);
-
-        if (window) {
-            // Register window manually since we're not using BaseWindow's StaticWindowProc
-            window->RegisterWindow(hwnd);
-
-            // Set window size and position in BaseWindow
-            RECT windowRect;
-            GetWindowRect(hwnd, &windowRect);
-            window->SetHeight(windowRect.bottom - windowRect.top)
-                ->SetWidth(windowRect.right - windowRect.left)
-                ->SetPositionX(windowRect.left)
-                ->SetPositionY(windowRect.top);
-
-            // Call OnCreate
-            window->OnCreate(0, 0);
-        }
-
-        return 0;
-    }
-
-    // Try to get window from registry
-    window = reinterpret_cast<SettingsWindow*>(WindowRegistry::Instance().Get(hwnd));
-
-    if (window) {
-        return window->HandleMessage(message, wParam, lParam);
-    }
-
-    return DefWindowProc(hwnd, message, wParam, lParam);
-}
-
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
 
     switch (uMsg) {
@@ -544,16 +507,14 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
             switch (HIWORD(wParam)) {
                 case BN_CLICKED:
                     if (settingsWindow->OnButtonClick) {
-                        MessageBox(NULL, "Button clicked handler is not implemented yet.", "Info", MB_OK | MB_ICONINFORMATION);
+                        settingsWindow->OnButtonClick(hwnd, LOWORD(wParam));
                         return TRUE;
-                        /*settingsWindow->OnButtonClick(hwnd, LOWORD(wParam));*/
                     }
                     break;
                 case CBN_SELCHANGE:
                     if (settingsWindow->OnComboBoxChange) {
-                        MessageBoxW(NULL, L"ComboBox change handler is not implemented yet.", L"Info", MB_OK | MB_ICONINFORMATION);
+                        settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam));
                         return TRUE;
-                        /*settingsWindow->OnComboBoxChange(hwnd, LOWORD(wParam));*/
                     }
                     break;
                 // Handle child dialog commands if needed
