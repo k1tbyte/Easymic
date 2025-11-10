@@ -86,6 +86,13 @@ public:
                     1, MAKELONG(0, 100), _cfg.BellVolume
                 );
 
+                Utils::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
+                    _cfg.MuteSoundRecentSources,
+                    _cfg.MuteSoundSource);
+                Utils::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
+                    _cfg.UnmuteSoundRecentSources,
+                    _cfg.UnmuteSoundSource);
+
                 break;
             }
 
@@ -131,7 +138,7 @@ public:
                     _cfg.MuteSoundSource = textTmp;
                     Utils::AddToRecentSources(_cfg.MuteSoundRecentSources, textTmp);
                     // Refresh combobox to show new selection
-                    Utils::PopulateSoundComboBox(
+                    Utils::PopulateSourceComboBox(
                         GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
                         _cfg.MuteSoundRecentSources,
                         _cfg.MuteSoundSource
@@ -143,7 +150,7 @@ public:
                     _cfg.UnmuteSoundSource = textTmp;
                     Utils::AddToRecentSources(_cfg.UnmuteSoundRecentSources, textTmp);
                     // Refresh combobox to show new selection
-                    Utils::PopulateSoundComboBox(
+                    Utils::PopulateSourceComboBox(
                         GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
                         _cfg.UnmuteSoundRecentSources,
                         _cfg.UnmuteSoundSource

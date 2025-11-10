@@ -2,6 +2,7 @@
 #define EASYMIC_UTILS_HPP
 
 #include <commctrl.h>
+#include <filesystem>
 #include <fstream>
 #include "Resource.hpp"
 
@@ -119,7 +120,7 @@ namespace Utils {
     }
 
 // Sound ComboBox management functions
-    static void PopulateSoundComboBox(HWND comboBox, const std::set<std::string>& recentSources, const std::string& currentSource = "") {
+    static void PopulateSourceComboBox(HWND comboBox, const std::set<std::string>& recentSources, const std::string& currentSource = "") {
         // Clear existing items
         SendMessage(comboBox, CB_RESETCONTENT, 0, 0);
 
@@ -132,7 +133,8 @@ namespace Utils {
         // Add recent sources that still exist
         for (const auto& source : recentSources) {
             if (DoesFileExist(source)) {
-                SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)source.c_str());
+                const auto fileName = std::filesystem::path(source).filename().string();
+                SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)fileName.c_str());
                 if (source == currentSource) {
                     selectedIndex = itemIndex;
                 }
