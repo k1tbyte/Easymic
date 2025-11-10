@@ -103,7 +103,7 @@ private:
     void RestoreConfig() {
         HotkeyManager::ClearHotkeys();
 
-        /*if (!_cfg.Hotkeys.empty()) {
+        if (!_cfg.Hotkeys.empty()) {
             for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
                 const auto handlerIt = hotkeyHandlers.find(actionTitle);
                 if (handlerIt != hotkeyHandlers.end()) {
@@ -114,7 +114,7 @@ private:
                 }
             }
             HotkeyManager::Initialize();
-        }*/
+        }
 
         auto *hInst = _view->GetHInstance();
 
