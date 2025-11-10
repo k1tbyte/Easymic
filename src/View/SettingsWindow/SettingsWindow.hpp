@@ -90,6 +90,7 @@ private:
     HTREEITEM AddTreeViewItem(HTREEITEM hParent, const CategoryItem& item);
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
 
+    static LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
     LRESULT OnCreate(WPARAM wParam, LPARAM lParam);

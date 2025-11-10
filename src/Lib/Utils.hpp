@@ -2,11 +2,9 @@
 #define EASYMIC_UTILS_HPP
 
 #include <commctrl.h>
+#include <fstream>
+#include "Resource.hpp"
 
-struct Resource {
-    BYTE* buffer;
-    DWORD fileSize;
-};
 
 namespace Utils {
 
@@ -34,25 +32,53 @@ namespace Utils {
     static void InitTrackbar(HWND hWnd, LPARAM pageSize, LPARAM minMax, LPARAM value)
     {
         SendMessage(hWnd, TBM_SETRANGE,
-                    (WPARAM) TRUE,  // redraw flag
+                    TRUE,  // redraw flag
                     minMax);
 
         SendMessage(hWnd, TBM_SETPAGESIZE,
                     0, pageSize);                  // new page size
 
-        SendMessage(hWnd, TBM_SETPOS, (WPARAM) TRUE, value);
+        SendMessage(hWnd, TBM_SETPOS, TRUE, value);
     }
 
     static bool IsCheckboxCheck(HWND hwndCheckbox, int id) {
         return SendMessage(GetDlgItem(hwndCheckbox, id), BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
 
-    static void LoadResource(HINSTANCE hInst,LPCSTR resourceName, LPCSTR resourceType, BYTE** buffer, DWORD* size)
+    static Resource LoadResource(HINSTANCE hInst, LPCSTR resourceName, LPCSTR resourceType)
     {
-        HRSRC hResInfo = FindResource(hInst,resourceName, resourceType);
-        HANDLE hRes = LoadResource(hInst, hResInfo);
-        *buffer = (BYTE*)LockResource(hRes);
-        *size = SizeofResource(hInst, hResInfo);
+        HRSRC hResInfo = FindResource(hInst, resourceName, resourceType);
+        if (!hResInfo) return {};
+
+        HANDLE hRes = ::LoadResource(hInst, hResInfo);
+        if (!hRes) return {};
+
+        BYTE* buffer = (BYTE*)LockResource(hRes);
+        DWORD size = SizeofResource(hInst, hResInfo);
+
+        return {buffer, size};  // Embedded resource, doesn't own memory
+    }
+
+    static Resource LoadFileAsResource(const std::string& filePath)
+    {
+        std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            return {};
+        }
+
+        auto fileSize = file.tellg();
+        if (fileSize <= 0) {
+            return {};
+        }
+
+        file.seekg(0, std::ios::beg);
+
+        auto buffer = std::make_unique<BYTE[]>(fileSize);
+        if (!file.read(reinterpret_cast<char*>(buffer.get()), fileSize)) {
+            return {};
+        }
+
+        return {std::move(buffer), static_cast<DWORD>(fileSize)};
     }
 
     //#region <== Registry ==>

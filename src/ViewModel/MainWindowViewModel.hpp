@@ -6,6 +6,8 @@
 #define EASYMIC_MAINWINDOWVIEWMODEL_HPP
 
 
+#include <filesystem>
+
 #include "SettingsWindowViewModel.hpp"
 #include "../Lib/UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
@@ -101,7 +103,7 @@ private:
     void RestoreConfig() {
         HotkeyManager::ClearHotkeys();
 
-        if (!_cfg.Hotkeys.empty()) {
+        /*if (!_cfg.Hotkeys.empty()) {
             for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
                 const auto handlerIt = hotkeyHandlers.find(actionTitle);
                 if (handlerIt != hotkeyHandlers.end()) {
@@ -112,7 +114,18 @@ private:
                 }
             }
             HotkeyManager::Initialize();
-        }
+        }*/
+
+        auto *hInst = _view->GetHInstance();
+
+        unmuteSound = !_cfg.UnmuteSoundSource.empty() && std::filesystem::exists(_cfg.UnmuteSoundSource) ?
+            Utils::LoadFileAsResource(_cfg.UnmuteSoundSource) :
+            Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE");
+
+        muteSound = !_cfg.MuteSoundSource.empty() && std::filesystem::exists(_cfg.MuteSoundSource) ?
+            Utils::LoadFileAsResource(_cfg.MuteSoundSource) :
+            Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE");
+
 
         if (_cfg.OnTopExclusive && !_view->IsOvershadowed()) {
             _view->Hide();
@@ -204,11 +217,14 @@ private:
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
         if (_cfg.BellVolume > 0 && !silent) {
-            PlaySoundA(
-                renderDeviceMuted ? (LPCSTR)muteSound.buffer : (LPCSTR)unmuteSound.buffer,
-                nullptr,
-                SND_ASYNC | SND_MEMORY
-            );
+            const auto& soundResource = renderDeviceMuted ? muteSound : unmuteSound;
+            if (!soundResource.empty()) {
+                PlaySoundA(
+                    (LPCSTR)soundResource.buffer(),
+                    nullptr,
+                    SND_ASYNC | SND_MEMORY
+                );
+            }
             _view->Invalidate();
         }
     }
@@ -228,12 +244,6 @@ public:
         mutedIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_MUTED));
         unmutedIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_UNMUTED));
         activeIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_ACTIVE));
-
-        Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE",
-                 &unmuteSound.buffer, &unmuteSound.fileSize);
-
-        Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE",
-                 &muteSound.buffer, &muteSound.fileSize);
 
         _audio.OnCaptureStateChanged += [this](bool muted, float level) {
             bool silent = renderDeviceMuted == muted;

@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <string>
 #include <unordered_map>
+#include <set>
 #include <windows.h>
 /*#include <glaze/glaze.hpp>*/
 
@@ -38,8 +39,8 @@ struct AppConfig {
     bool ExcludeFromCapture        = false;
     bool OnTopExclusive            = false;
     std::unordered_map<std::string , uint64_t> Hotkeys;
-    std::vector<std::string> RecentSoundSources;
-    std::vector<std::string> RecentIconSources;
+    std::set<std::string> RecentSoundSources;
+    std::set<std::string> RecentIconSources;
     std::string MuteSoundSource;
     std::string UnmuteSoundSource;
     std::string MutedIconSource;
