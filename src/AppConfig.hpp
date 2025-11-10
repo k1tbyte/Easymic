@@ -39,8 +39,10 @@ struct AppConfig {
     bool ExcludeFromCapture        = false;
     bool OnTopExclusive            = false;
     std::unordered_map<std::string , uint64_t> Hotkeys;
-    std::set<std::string> RecentSoundSources;
-    std::set<std::string> RecentIconSources;
+    std::set<std::string> UnmuteSoundRecentSources;
+    std::set<std::string> MuteSoundRecentSources;
+    std::set<std::string> UnmuteIconRecentSources;
+    std::set<std::string> MuteIconRecentSources;
     std::string MuteSoundSource;
     std::string UnmuteSoundSource;
     std::string MutedIconSource;

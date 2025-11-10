@@ -129,11 +129,25 @@ public:
             case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
                 if (HandleSoundFileSelection(this->_view->GetHandle(), "Select mute sound file", textTmp)) {
                     _cfg.MuteSoundSource = textTmp;
+                    Utils::AddToRecentSources(_cfg.MuteSoundRecentSources, textTmp);
+                    // Refresh combobox to show new selection
+                    Utils::PopulateSoundComboBox(
+                        GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
+                        _cfg.MuteSoundRecentSources,
+                        _cfg.MuteSoundSource
+                    );
                 }
                 break;
             case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
                 if (HandleSoundFileSelection(this->_view->GetHandle(), "Select unmute sound file", textTmp)) {
                     _cfg.UnmuteSoundSource = textTmp;
+                    Utils::AddToRecentSources(_cfg.UnmuteSoundRecentSources, textTmp);
+                    // Refresh combobox to show new selection
+                    Utils::PopulateSoundComboBox(
+                        GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
+                        _cfg.UnmuteSoundRecentSources,
+                        _cfg.UnmuteSoundSource
+                    );
                 }
                 break;
         }

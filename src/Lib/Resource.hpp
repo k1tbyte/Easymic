@@ -1,12 +1,8 @@
-//
-// Created by kitbyte on 10.11.2025.
-//
+#ifndef EASYMIC_RESOURCE_HPP
+#define EASYMIC_RESOURCE_HPP
 
-#ifndef EASYMIC_RESOURCE_H
-#define EASYMIC_RESOURCE_H
-
-#include <windows.h>
 #include <memory>
+#include <windows.h>
 
 // RAII Resource wrapper for automatic memory management
 class Resource {
@@ -66,4 +62,5 @@ public:
     Resource(const Resource&) = delete;
     Resource& operator=(const Resource&) = delete;
 };
-#endif //EASYMIC_RESOURCE_H
+
+#endif //EASYMIC_RESOURCE_HPP
