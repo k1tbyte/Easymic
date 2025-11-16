@@ -99,8 +99,17 @@ void MainWindow::SetupMessageHandlers() {
         return OnTrayIconMessage(wp, lp);
     });
 
+    RegisterMessageHandler(WM_TIMER, [this](WPARAM wp, LPARAM lp) {
+        if (_onTimer) {
+            _onTimer(wp);
+        }
+        return 0;
+    });
+
     RegisterMessageHandler(WM_COMMAND, [this](WPARAM wp, LPARAM lp) {
-        _onTrayMenu(wp);
+        if (_onTrayMenu) {
+            _onTrayMenu(wp);
+        }
         return 0;
     });
 

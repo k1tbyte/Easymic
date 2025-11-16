@@ -34,6 +34,10 @@
         bool IsVisible() const { return isVisible_; }
 
         virtual void Invalidate() {
+            if (!isVisible_) {
+                return;
+            }
+
             if (_shadowHwnd) {
                 SendMessage(hwnd_, WM_PAINT, 0, 0);
                 return;
@@ -247,9 +251,9 @@
             }
 
             ShowWindow(hWnd, SW_SHOW);
+            isVisible_ = true;
             Invalidate();
             UpdateWindow(hWnd);
-            isVisible_ = true;
         }
 
         POINT _size{};

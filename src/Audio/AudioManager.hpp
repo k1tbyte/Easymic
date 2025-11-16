@@ -14,7 +14,7 @@
 class AudioManager {
 
     std::shared_ptr<AudioDeviceController> _captureDevice = std::make_shared<AudioDeviceController>();
-    std::shared_ptr<AudioDeviceController> _renderDevice = std::make_shared<AudioDeviceController>();
+    std::shared_ptr<AudioDeviceController> _playbackDevice = std::make_shared<AudioDeviceController>();
 
 
     ComPtr<IMMDeviceEnumerator> deviceEnumerator;
@@ -22,28 +22,28 @@ class AudioManager {
 
 
     Event<> _defaultCaptureChanged;
-    Event<> _defaultRenderChanged;
+    Event<> _defaultPlaybackChanged;
     Event<bool, float> _captureStateChanged;
-    Event<bool, float> _renderStateChanged;
+    Event<bool, float> _playbackStateChanged;
     Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _captureSessionPropertyChanged;
-    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _renderSessionPropertyChanged;
+    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _playbackSessionPropertyChanged;
 
     std::atomic<bool> _captureReinitPending = false;
-    std::atomic<bool> _renderReinitPending = false;
+    std::atomic<bool> _playbackReinitPending = false;
     std::future<void> _captureReinitTask;
-    std::future<void> _renderReinitTask;
+    std::future<void> _playbackReinitTask;
 
     bool _captureWatching = false;
-    bool _renderWatching  = false;
+    bool _playbackWatching  = false;
 
 public:
 
      IEvent<>& OnDefaultCaptureChanged = _defaultCaptureChanged;
-     IEvent<>& OnDefaultRenderChanged = _defaultRenderChanged;
+     IEvent<>& OnDefaultPlaybackChanged = _defaultPlaybackChanged;
      IEvent<bool, float>& OnCaptureStateChanged = _captureStateChanged;
-     IEvent<bool, float>& OnRenderStateChanged = _renderStateChanged;
+     IEvent<bool, float>& OnPlaybackStateChanged = _playbackStateChanged;
      IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnCaptureSessionPropertyChanged = _captureSessionPropertyChanged;
-     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnRenderSessionPropertyChanged = _renderSessionPropertyChanged;
+     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnPlaybackSessionPropertyChanged = _playbackSessionPropertyChanged;
 
 
 
@@ -66,7 +66,7 @@ public:
         CHECK_HR(result, "Failed to register endpoint notification callback");
 
         _initCaptureDeviceController();
-        _initRenderDeviceController();
+        _initPlaybackDeviceController();
     }
 
     void Cleanup() {
@@ -85,11 +85,11 @@ public:
         _captureWatching = true;
     }
 
-    void WatchForRenderSessions()  {
-        if (_renderDevice) {
-            _renderDevice->WatchForSessions();
+    void WatchForPlaybackSessions()  {
+        if (_playbackDevice) {
+            _playbackDevice->WatchForSessions();
         }
-        _renderWatching = true;
+        _playbackWatching = true;
     }
 
     void StopWatchingForCaptureSessions()  {
@@ -99,11 +99,11 @@ public:
         _captureWatching = false;
     }
 
-    void StopWatchingForRenderSessions()  {
-        if (_renderDevice) {
-            _renderDevice->StopWatchingForSessions();
+    void StopWatchingForPlaybackSessions()  {
+        if (_playbackDevice) {
+            _playbackDevice->StopWatchingForSessions();
         }
-        _renderWatching = false;
+        _playbackWatching = false;
     }
 
     bool IsInitialized() const {
@@ -114,8 +114,8 @@ public:
         return _captureDevice;
     }
 
-    std::shared_ptr<AudioDeviceController> RenderDevice() const {
-        return _renderDevice;
+    std::shared_ptr<AudioDeviceController> PlaybackDevice() const {
+        return _playbackDevice;
     }
 
 
@@ -123,8 +123,8 @@ public:
         if (_captureReinitTask.valid()) {
             _captureReinitTask.wait();
         }
-        if (_renderReinitTask.valid()) {
-            _renderReinitTask.wait();
+        if (_playbackReinitTask.valid()) {
+            _playbackReinitTask.wait();
         }
         Cleanup();
     }
@@ -142,15 +142,15 @@ private:
         }
     }
 
-    void _initRenderDeviceController() {
-        _renderDevice                           = std::make_shared<AudioDeviceController>();
-        _renderDevice->OnDeviceStateChanged     = &this->_renderStateChanged;
-        _renderDevice->OnSessionPropertyChanged = &this->_renderSessionPropertyChanged;
+    void _initPlaybackDeviceController() {
+        _playbackDevice                           = std::make_shared<AudioDeviceController>();
+        _playbackDevice->OnDeviceStateChanged     = &this->_playbackStateChanged;
+        _playbackDevice->OnSessionPropertyChanged = &this->_playbackSessionPropertyChanged;
 
-        _renderDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
+        _playbackDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
 
-        if (_renderWatching) {
-            _renderDevice->WatchForSessions();
+        if (_playbackWatching) {
+            _playbackDevice->WatchForSessions();
         }
     }
 
@@ -171,15 +171,15 @@ private:
                 _captureReinitPending = false;
             });
         } else if (flow == EDataFlow::eRender) {
-            if (_renderReinitPending.exchange(true)) {
+            if (_playbackReinitPending.exchange(true)) {
                 return;
             }
 
-            _renderReinitTask = std::async(std::launch::async, [this]() {
+            _playbackReinitTask = std::async(std::launch::async, [this]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                _initRenderDeviceController();
-                _defaultRenderChanged();
-                _renderReinitPending = false;
+                _initPlaybackDeviceController();
+                _defaultPlaybackChanged();
+                _playbackReinitPending = false;
             });
         }
     };

@@ -31,13 +31,14 @@ struct AppConfig {
 
     uint16_t WindowPosX            = 0;
     uint16_t WindowPosY            = 0;
-    uint8_t BellVolume             = 50;
-    uint8_t MicVolume              = -1;
+    int8_t BellVolume              = 25;
+    int8_t MicVolume               = -1;
     uint8_t IndicatorSize          = 16;
-    IndicatorState IndicatorState  = IndicatorState::Hidden;
-    float IndicatorVolumeThreshold = .01f;
+    IndicatorState IndicatorState  = IndicatorState::Muted;
+    float IndicatorVolumeThreshold = .001f;
     bool ExcludeFromCapture        = false;
     bool OnTopExclusive            = false;
+    bool IsMicKeepVolume           = true;
     std::unordered_map<std::string , uint64_t> Hotkeys;
     std::set<std::string> UnmuteSoundRecentSources;
     std::set<std::string> MuteSoundRecentSources;

@@ -15,6 +15,7 @@ public:
     using OnTrayClickCallback = std::function<void()>;
     using OnTrayMenuCallback = std::function<void(UINT_PTR commandId)>;
     using OnCloseCallback = std::function<void()>;
+    using OnTimerCallback = std::function<void(UINT_PTR timerId)>;
 
     static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
     static constexpr auto Style = WS_POPUP | WS_DISABLED;
@@ -65,6 +66,9 @@ public:
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
     }
 
+    void SetTimerCallback(OnTimerCallback callback) {
+        _onTimer = std::move(callback);
+    }
 
 private:
     bool RegisterWindowClass(const WindowConfig& config) const;
@@ -88,6 +92,7 @@ private:
     OnTrayClickCallback _onTrayClick;
     OnTrayMenuCallback _onTrayMenu;
     OnCloseCallback _onClose;
+    OnTimerCallback _onTimer;
     GDIRenderer::RenderCallback _onRender;
 
     // Resources

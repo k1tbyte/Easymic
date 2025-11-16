@@ -117,14 +117,18 @@ public:
                 // Initialize microphone volume trackbar
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
-                    1, MAKELONG(0, 100), _cfg.MicVolume == static_cast<uint8_t>(-1) ? 50 : _cfg.MicVolume
+                    1, MAKELONG(0, 100), _cfg.MicVolume == -1 ?
+                        _audioManager.CaptureDevice()->GetVolumePercent() : _cfg.MicVolume
                 );
 
                 // Initialize bell volume trackbar
                 Utils::InitTrackbar(
                     GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
-                    1, MAKELONG(0, 100), _cfg.BellVolume
+                    1, MAKELONG(0, 100), _cfg.BellVolume == -1 ?
+                        _audioManager.PlaybackDevice()->GetSimpleVolumePercent() : _cfg.BellVolume
                 );
+
+                Set(IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME, BM_SETCHECK, _cfg.IsMicKeepVolume, 0);
 
                 RefreshSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, _cfg.MuteSoundRecentSources, _cfg.MuteSoundSource);
                 RefreshSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, _cfg.UnmuteSoundRecentSources, _cfg.UnmuteSoundSource);
@@ -166,7 +170,7 @@ public:
                 _cfg.OnTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
                 break;
             case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
-                // Handle microphone volume lock checkbox
+                _cfg.IsMicKeepVolume = Utils::IsCheckboxCheck(hWnd, buttonId);
                 break;
             case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
                 HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file",
@@ -296,11 +300,8 @@ public:
     void Init() override {
         _cfgPrev = _cfg;
         MainWnd = reinterpret_cast<MainWindow *>(_view->GetParent());
-
-
         MainWnd->Show();
         MainWnd->ToggleInteractivity(true);
-        // Allow drag move on parent window by removing WS_EX_TRANSPARENT
 
         _view->OnButtonClick = [this](HWND hWnd, int buttonId) {
             HandleButtonClick(hWnd, buttonId);
