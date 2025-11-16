@@ -1,4 +1,6 @@
 #include "UpdateManager.hpp"
+#include "AppConfig.hpp"
+#include "Resources/Resource.h"
 #include <windows.h>
 #include <wininet.h>
 #include <shlobj.h>
@@ -12,13 +14,13 @@
 
 #pragma comment(lib, "wininet.lib")
 
-UpdateManager::UpdateManager() {
+UpdateManager::UpdateManager(AppConfig& config) : config_(config) {
 }
 
 UpdateManager::~UpdateManager() {
 }
 
-std::string UpdateManager::GetApiUrl() {
+std::string UpdateManager::GetApiUrl() const {
     return "https://api.github.com/repos/" GITHUB_OWNER "/" GITHUB_REPO "/releases/latest";
 }
 
@@ -42,6 +44,13 @@ void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::str
             // Compare versions
             Version latestVersion(latestRelease_.tag_name);
             Version currentVersion = g_AppVersion;
+            
+            // Check if this version is skipped
+            if (IsVersionSkipped(latestRelease_.tag_name)) {
+                hasUpdate_ = false;
+                callback(false, "Version " + latestRelease_.tag_name + " is skipped");
+                return;
+            }
             
             hasUpdate_ = latestVersion > currentVersion;
             callback(hasUpdate_, "");
@@ -88,16 +97,24 @@ void UpdateManager::ShowUpdateNotification() {
         return;
     }
     
-    std::string message = "A new version (" + latestRelease_.tag_name + ") is available!\n\n";
-    if (!latestRelease_.body.empty()) {
-        message += "Release Notes:\n" + latestRelease_.body + "\n\n";
-    }
-    message += "Would you like to download and install the update?";
+    // Use custom dialog for better user experience with proper button names
+    INT_PTR result = DialogBoxParamA(GetModuleHandleA(nullptr), 
+                                    MAKEINTRESOURCEA(IDD_UPDATE_DIALOG), 
+                                    nullptr, 
+                                    UpdateDialogProc, 
+                                    (LPARAM)this);
     
-    int result = MessageBoxA(nullptr, message.c_str(), "Easymic | Update Available", MB_YESNO | MB_ICONINFORMATION);
-    
-    if (result == IDYES) {
-        DownloadAndInstallUpdate();
+    switch (result) {
+        case IDC_UPDATE_INSTALL:
+            DownloadAndInstallUpdate();
+            break;
+        case IDC_UPDATE_SKIP:
+            SkipVersion();
+            break;
+        case IDC_UPDATE_LATER:
+        default:
+            // Do nothing - remind later
+            break;
     }
 }
 
@@ -202,3 +219,73 @@ void UpdateManager::ApplyUpdate(const std::string& filePath) {
         ExitProcess(0);
     }).detach();
 }
+
+bool UpdateManager::IsVersionSkipped(const std::string& version) const {
+    return config_.SkippedVersions.find(version) != config_.SkippedVersions.end();
+}
+
+void UpdateManager::SkipVersion() {
+    if (!latestRelease_.tag_name.empty()) {
+        config_.SkippedVersions.insert(latestRelease_.tag_name);
+        config_.Save();
+        LOG_INFO("Skipped version: %s", latestRelease_.tag_name.c_str());
+    }
+}
+
+INT_PTR CALLBACK UpdateManager::UpdateDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+    static UpdateManager* pUpdateManager = nullptr;
+    
+    switch (message) {
+        case WM_INITDIALOG:
+            {
+                pUpdateManager = reinterpret_cast<UpdateManager*>(lParam);
+                if (pUpdateManager) {
+                    // Set version text
+                    SetDlgItemTextA(hDlg, IDC_UPDATE_VERSION, pUpdateManager->latestRelease_.tag_name.c_str());
+                    
+                    // Set release notes
+                    std::string notes = pUpdateManager->latestRelease_.body;
+                    if (notes.empty()) {
+                        notes = "No release notes available.";
+                    }
+                    SetDlgItemTextA(hDlg, IDC_UPDATE_NOTES, notes.c_str());
+                }
+                
+                // Center the dialog
+                RECT rect;
+                GetWindowRect(hDlg, &rect);
+                int x = (GetSystemMetrics(SM_CXSCREEN) - (rect.right - rect.left)) / 2;
+                int y = (GetSystemMetrics(SM_CYSCREEN) - (rect.bottom - rect.top)) / 2;
+                SetWindowPos(hDlg, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                
+                return TRUE;
+            }
+            
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDC_UPDATE_INSTALL:
+                    EndDialog(hDlg, IDC_UPDATE_INSTALL);
+                    return TRUE;
+                    
+                case IDC_UPDATE_SKIP:
+                    EndDialog(hDlg, IDC_UPDATE_SKIP);
+                    return TRUE;
+                    
+                case IDC_UPDATE_LATER:
+                    EndDialog(hDlg, IDC_UPDATE_LATER);
+                    return TRUE;
+                    
+                case IDCANCEL:
+                    EndDialog(hDlg, IDC_UPDATE_LATER);
+                    return TRUE;
+            }
+            break;
+            
+        case WM_CLOSE:
+            EndDialog(hDlg, IDC_UPDATE_LATER);
+            return TRUE;
+    }
+    
+    return FALSE;
+}
+

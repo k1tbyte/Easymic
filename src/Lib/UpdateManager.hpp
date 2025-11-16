@@ -7,6 +7,9 @@
 #include <vector>
 #include "Version.hpp"
 
+// Forward declaration to avoid circular includes
+struct AppConfig;
+
 struct GitHubAsset {
     std::string name;
     std::string browser_download_url;
@@ -20,7 +23,7 @@ struct GitHubRelease {
 
 class UpdateManager {
 public:
-    UpdateManager();
+    UpdateManager(AppConfig& config);
     ~UpdateManager();
 
     // Check for updates asynchronously
@@ -34,16 +37,25 @@ public:
     // Show update notification to user
     void ShowUpdateNotification();
     
+    // Skip this version
+    void SkipVersion();
+    
     // Download and apply update
     void DownloadAndInstallUpdate();
 
 private:
+    AppConfig& config_;
     bool hasUpdate_ = false;
     GitHubRelease latestRelease_;
     
+    bool IsVersionSkipped(const std::string& version) const;
+    
+    // Dialog procedure for custom update dialog
+    static INT_PTR CALLBACK UpdateDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+    
     // HTTP request helper
     std::string MakeHttpRequest(const std::string& url);
-    static std::string GetApiUrl();
+    std::string GetApiUrl() const;
     std::string DownloadFile(const std::string& url, const std::string& filename);
     void ApplyUpdate(const std::string& filePath);
 };

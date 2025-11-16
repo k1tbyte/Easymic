@@ -27,7 +27,6 @@
 
 
 #define IDD_SETTINGS_GENERAL                        201
-#define IDD_SETTINGS_GENERAL                        201
 #define IDC_SETTINGS_AUTOSTART                      202
 
 #define IDD_SETTINGS_INDICATOR                      251
@@ -55,3 +54,12 @@
 #define IDC_ABOUT_VERSION_INFO                       502
 #define IDC_ABOUT_GITHUB_LINK                        503
 #define IDC_ABOUT_LOG_LIST                           504
+
+#define IDD_UPDATE_DIALOG                            601
+#define IDC_UPDATE_TITLE                             602
+#define IDC_UPDATE_VERSION                           603
+#define IDC_UPDATE_NOTES                             604
+#define IDC_UPDATE_INSTALL                           605
+#define IDC_UPDATE_SKIP                              606
+#define IDC_UPDATE_LATER                             607
+
