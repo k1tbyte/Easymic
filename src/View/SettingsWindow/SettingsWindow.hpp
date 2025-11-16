@@ -86,6 +86,7 @@ private:
     void CreateGroupBox();
     void LoadCategoryContent(int resourceId);
     void UpdateGroupBoxLayout();
+    void UpdateVersionLabel();
 
     HTREEITEM AddTreeViewItem(HTREEITEM hParent, const CategoryItem& item);
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
@@ -108,6 +109,7 @@ private:
     HWND hwndContentDialog_ = nullptr;
     HWND hwndOkButton_ = nullptr;
     HWND hwndCancelButton_ = nullptr;
+    HWND hwndVersionLabel_ = nullptr;
     int currentCategoryId_ = -1;
 
 

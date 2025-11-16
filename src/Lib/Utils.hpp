@@ -4,6 +4,11 @@
 #include <commctrl.h>
 #include <filesystem>
 #include <fstream>
+#include <set>
+#include <string>
+#include <vector>
+#include <windows.h>
+#include <winver.h>
 #include "Resource.hpp"
 
 
@@ -182,6 +187,40 @@ namespace Utils {
                 // Could implement LRU policy later if needed
             }
         }
+    }
+
+    // Get application version from version info resource
+    static std::string GetApplicationVersion() {
+        wchar_t modulePath[MAX_PATH];
+        if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
+            return "1.0.0.0";
+        }
+
+        DWORD verHandle = 0;
+        DWORD verSize = GetFileVersionInfoSizeW(modulePath, &verHandle);
+        if (verSize == 0) {
+            return "1.0.0.0";
+        }
+
+        std::vector<BYTE> verData(verSize);
+        if (!GetFileVersionInfoW(modulePath, verHandle, verSize, verData.data())) {
+            return "1.0.0.0";
+        }
+
+        VS_FIXEDFILEINFO* pFileInfo = nullptr;
+        UINT puLenFileInfo = 0;
+        if (!VerQueryValueW(verData.data(), L"\\", (VOID**)&pFileInfo, &puLenFileInfo)) {
+            return "1.0.0.0";
+        }
+
+        // Extract version numbers
+        DWORD major = (pFileInfo->dwFileVersionMS >> 16) & 0xffff;
+        DWORD minor = (pFileInfo->dwFileVersionMS) & 0xffff;
+        DWORD patch = (pFileInfo->dwFileVersionLS >> 16) & 0xffff;
+        DWORD build = (pFileInfo->dwFileVersionLS) & 0xffff;
+
+        return std::to_string(major) + "." + std::to_string(minor) + "." + 
+               std::to_string(patch) + "." + std::to_string(build);
     }
 }
 

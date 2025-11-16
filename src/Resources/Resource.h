@@ -52,3 +52,6 @@
 
 
 #define IDD_SETTINGS_ABOUT                          501
+#define IDC_ABOUT_VERSION_INFO                       502
+#define IDC_ABOUT_GITHUB_LINK                        503
+#define IDC_ABOUT_LOG_LIST                           504
