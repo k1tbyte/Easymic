@@ -99,6 +99,7 @@ private:
     LRESULT OnNotify(WPARAM wParam, LPARAM lParam);
     LRESULT OnSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
+    LRESULT OnCtlColorStatic(WPARAM wParam, LPARAM lParam);
 
     Event<> _onExit;
     Event<> _onApply;
@@ -110,6 +111,7 @@ private:
     HWND hwndOkButton_ = nullptr;
     HWND hwndCancelButton_ = nullptr;
     HWND hwndVersionLabel_ = nullptr;
+    HBRUSH hGrayBrush_ = nullptr;
     int currentCategoryId_ = -1;
 
 

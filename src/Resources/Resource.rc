@@ -116,8 +116,8 @@ FONT 8, "Ms Shell Dlg"
 //
 
 1 VERSIONINFO
- FILEVERSION    1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION    1,0,1,0
+ PRODUCTVERSION 1,0,1,0
  FILEOS			VOS__WINDOWS32
  FILETYPE		VFT_APP
  FILESUBTYPE	VFT2_UNKNOWN
@@ -129,11 +129,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "kitbyte"
             VALUE "FileDescription", "Easymic"
-            VALUE "FileVersion", "1.0.0.0"
+            VALUE "FileVersion", "1.0.1.0"
             VALUE "InternalName", "WindowsP.exe"
             VALUE "LegalCopyright", "Copyright (C) 2024"
             VALUE "OriginalFilename", "Easymic.exe"
-            VALUE "ProductVersion", "1.0.0.0"
+            VALUE "ProductVersion", "1.0.1.0"
         END
     END
     BLOCK "VarFileInfo"

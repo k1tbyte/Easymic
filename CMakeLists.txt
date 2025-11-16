@@ -24,7 +24,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         gdiplus
         comctl32
         version
-#[[        glaze::glaze]]
+        wininet
+        shell32
+        glaze::glaze
 )
 
 

@@ -13,8 +13,8 @@ using Microsoft::WRL::ComPtr;
 #define REPO_NAME   "Easymic"
 #define DEV_NAME    "k1tbyte"
 #define REPO_URL    "https://github.com/" DEV_NAME "/" REPO_NAME
-
-static inline 
+#define GITHUB_OWNER DEV_NAME
+#define GITHUB_REPO REPO_NAME 
 
 #define CHECK_HR(hr, msg) \
     if (FAILED(hr)) { \

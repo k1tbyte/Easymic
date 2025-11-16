@@ -5,7 +5,7 @@
 #include <uxtheme.h>
 
 #include "../../Resources/Resource.h"
-#include "../../Lib/Utils.hpp"
+#include "../../Lib/Version.hpp"
 
 // Forward declaration
 static void InitializeHotkeysList(HWND hwndList);
@@ -58,6 +58,10 @@ void SettingsWindow::SetupMessageHandlers() {
     RegisterMessageHandler(WM_DESTROY, [this](WPARAM wParam, LPARAM lParam) {
         return OnDestroy(wParam, lParam);
     });
+
+    RegisterMessageHandler(WM_CTLCOLORSTATIC, [this](WPARAM wParam, LPARAM lParam) {
+        return OnCtlColorStatic(wParam, lParam);
+    });
 }
 
 void SettingsWindow::RegisterWindowClass() {
@@ -103,10 +107,10 @@ void SettingsWindow::CreateMainButtons() {
     static constexpr int BUTTON_WIDTH = 75;
     static constexpr int BUTTON_HEIGHT = 23;
 
-    // Create version label in bottom left corner
+    // Create version label in bottom left corner (smaller and grayer)
     hwndVersionLabel_ = CreateWindowW(
         L"STATIC",
-        L"1.0.0.0", // Will be updated with actual version
+        L"", // Will be updated with actual version
         WS_VISIBLE | WS_CHILD | SS_LEFT,
         MARGIN, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
         150, BUTTON_HEIGHT,
@@ -142,21 +146,28 @@ void SettingsWindow::CreateMainButtons() {
         nullptr
     );
 
-    // Set default font for buttons and version label (same as dialog font)
-    HFONT hFont = CreateFontW(
+    // Set fonts
+    HFONT hButtonFont = CreateFontW(
         -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
     );
 
+    // Smaller font for version label
+    HFONT hVersionFont = CreateFontW(
+        -8, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
+    );
+
     if (hwndOkButton_) {
-        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hButtonFont, TRUE);
     }
     if (hwndCancelButton_) {
-        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hButtonFont, TRUE);
     }
     if (hwndVersionLabel_) {
-        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hVersionFont, TRUE);
     }
 }
 
@@ -221,6 +232,9 @@ LRESULT SettingsWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
+
+    // Create gray brush for version label
+    hGrayBrush_ = CreateSolidBrush(RGB(128, 128, 128));
 
     // Create OK and Cancel buttons manually with same positions as in resource
     CreateMainButtons();
@@ -293,6 +307,13 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
 
 LRESULT SettingsWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     _onExit();
+    
+    // Clean up gray brush
+    if (hGrayBrush_) {
+        DeleteObject(hGrayBrush_);
+        hGrayBrush_ = nullptr;
+    }
+    
     hwnd_ = nullptr;
     hwndTreeView_ = nullptr;
     hwndGroupBox_ = nullptr;
@@ -663,9 +684,23 @@ void SettingsWindow::UpdateVersionLabel() {
         return;
     }
     
-    // Get version from Utils and set it as window text
-    std::string version = Utils::GetApplicationVersion();
+    // Get version from global Version instance and set it as window text
+    std::string version = g_AppVersion.GetFullFormat();
     std::wstring wversion(version.begin(), version.end());
     SetWindowTextW(hwndVersionLabel_, wversion.c_str());
+}
+
+LRESULT SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
+    HWND hStatic = (HWND)lParam;
+    
+    // Check if this is our version label
+    if (hStatic == hwndVersionLabel_) {
+        HDC hdc = (HDC)wParam;
+        SetTextColor(hdc, RGB(128, 128, 128)); // Gray text color
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH); // Transparent background
+    }
+    
+    return DefWindowProc(hwnd_, WM_CTLCOLORSTATIC, wParam, lParam);
 }
 
