@@ -7,6 +7,7 @@
 
 #include <windows.h>
 #include <wrl/client.h>
+#include "Logger.hpp"
 
 using Microsoft::WRL::ComPtr;
 
@@ -21,10 +22,6 @@ using Microsoft::WRL::ComPtr;
         printf("%s FAILED: 0x%08lX\n", msg, hr); \
         throw std::runtime_error(msg); \
     }
-
-// Forward declare logger functions for global access
-class Logger;
-void InitializeLogger();
 
 // Conditional logging macros - can be disabled in release builds
 #ifndef NDEBUG
