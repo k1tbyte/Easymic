@@ -183,7 +183,7 @@ private:
             if (_settingsWindow) {
                 return;
             }
-                DetachListeners();
+               // DetachListeners();
                 SuspendActivity();
                 iconToDisplay = unmutedIcon;
                 _view->Invalidate();

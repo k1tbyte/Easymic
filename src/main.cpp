@@ -9,6 +9,7 @@
 #include "SettingsWindow/SettingsWindow.hpp"
 #include "ViewModel/MainWindowViewModel.hpp"
 #include "ViewModel/SettingsWindowViewModel.hpp"
+#include "Lib/Logger.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -26,10 +27,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GdiplusStartupInput input;
     GdiplusStartup(&token_, &input, nullptr);
 
+    // Initialize Logger
+    InitializeLogger();
+
     AppConfig config = AppConfig::Load();
 
     auto manager = AudioManager();
     manager.Init();
+    LOG_INFO("AudioManager initialized successfully");
 
     /*HotkeyManager::Initialize();*/
 
@@ -37,10 +42,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
 
     if (!mainWindow->Initialize({})) {
+        LOG_ERROR("Failed to initialize MainWindow");
         return 1;
     }
+    
+    LOG_INFO("MainWindow initialized successfully");
 
     atexit([]() {
+        LOG_INFO("Application shutting down");
         mainWindow->Hide();
     });
 

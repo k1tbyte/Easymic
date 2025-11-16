@@ -23,6 +23,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         winmm
         gdiplus
         comctl32
+        version
 #[[        glaze::glaze]]
 )
 
