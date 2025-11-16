@@ -39,6 +39,7 @@ struct AppConfig {
     bool ExcludeFromCapture        = false;
     bool OnTopExclusive            = false;
     bool IsMicKeepVolume           = true;
+    bool IsUpdatesEnabled          = true;
     std::unordered_map<std::string , uint64_t> Hotkeys;
     std::set<std::string> UnmuteSoundRecentSources;
     std::set<std::string> MuteSoundRecentSources;
@@ -63,6 +64,7 @@ struct AppConfig {
     static AppConfig Load()
     {
         AppConfig config{};
+        
       //  glz::read_file_beve(config, GetConfigPath(), std::string{});
         return config;
     }

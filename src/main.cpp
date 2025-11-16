@@ -10,6 +10,8 @@
 #include "ViewModel/MainWindowViewModel.hpp"
 #include "ViewModel/SettingsWindowViewModel.hpp"
 #include "Lib/Logger.hpp"
+#include "Lib/Version.hpp"
+#include "Lib/UpdateManager.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -29,8 +31,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Initialize Logger
     InitializeLogger();
+    
+    // Initialize global version
+    g_AppVersion = Version::GetCurrentVersion();
+    LOG_INFO("Application version: %s", g_AppVersion.GetFormatted().c_str());
 
     AppConfig config = AppConfig::Load();
+    
+    // Check for updates if enabled
+    if (config.IsUpdatesEnabled) {
+        static UpdateManager updateManager;
+        updateManager.CheckForUpdatesAsync([](bool hasUpdate, const std::string& error) {
+            if (!error.empty()) {
+                LOG_WARNING("Update check failed: %s", error.c_str());
+                return;
+            }
+            
+            if (hasUpdate) {
+                LOG_INFO("Update available");
+                updateManager.ShowUpdateNotification();
+            } else {
+                LOG_INFO("No updates available");
+            }
+        });
+    }
 
     auto manager = AudioManager();
     manager.Init();

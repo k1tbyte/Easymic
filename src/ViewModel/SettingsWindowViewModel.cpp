@@ -3,6 +3,7 @@
 #include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
+#include "Lib/Version.hpp"
 #include <windows.h>
 #include <commctrl.h>
 
@@ -95,7 +96,7 @@ void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
     currentAboutHwnd_ = hWnd;
     
     // Set dynamic version information
-    std::string version = "Version " + Utils::GetApplicationVersion();
+    std::string version = "Version " + g_AppVersion.GetFullFormat();
     SetWindowTextA(GetDlgItem(hWnd, IDC_ABOUT_VERSION_INFO), version.c_str());
     
     // Make GitHub link look like a hyperlink (underlined)
@@ -197,7 +198,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             break;
         case IDC_ABOUT_GITHUB_LINK:
             // Open GitHub link
-            ShellExecuteA(nullptr, "open", "https://github.com/your-username/Easymic", nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteA(nullptr, "open", REPO_URL, nullptr, nullptr, SW_SHOWNORMAL);
             break;
     }
 }
