@@ -5,6 +5,7 @@
 #include <uxtheme.h>
 
 #include "../../Resources/Resource.h"
+#include "../../Lib/Utils.hpp"
 
 // Forward declaration
 static void InitializeHotkeysList(HWND hwndList);
@@ -102,6 +103,19 @@ void SettingsWindow::CreateMainButtons() {
     static constexpr int BUTTON_WIDTH = 75;
     static constexpr int BUTTON_HEIGHT = 23;
 
+    // Create version label in bottom left corner
+    hwndVersionLabel_ = CreateWindowW(
+        L"STATIC",
+        L"1.0.0.0", // Will be updated with actual version
+        WS_VISIBLE | WS_CHILD | SS_LEFT,
+        MARGIN, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
+        150, BUTTON_HEIGHT,
+        hwnd_,
+        nullptr,
+        hInstance_,
+        nullptr
+    );
+
     // Create OK button
     hwndOkButton_ = CreateWindowW(
         L"BUTTON",
@@ -128,7 +142,7 @@ void SettingsWindow::CreateMainButtons() {
         nullptr
     );
 
-    // Set default font for buttons (same as dialog font)
+    // Set default font for buttons and version label (same as dialog font)
     HFONT hFont = CreateFontW(
         -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -140,6 +154,9 @@ void SettingsWindow::CreateMainButtons() {
     }
     if (hwndCancelButton_) {
         SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hFont, TRUE);
+    }
+    if (hwndVersionLabel_) {
+        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hFont, TRUE);
     }
 }
 
@@ -207,6 +224,9 @@ LRESULT SettingsWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
 
     // Create OK and Cancel buttons manually with same positions as in resource
     CreateMainButtons();
+    
+    // Update version label with actual version info
+    UpdateVersionLabel();
 
     CreateTreeView();
     CreateGroupBox();
@@ -636,5 +656,16 @@ static void InitializeHotkeysList(HWND hwndList) {
         SendMessageA(hwndList, LVM_SETITEMTEXTA, itemIndex, (LPARAM)&lvi);
         /*printf("Hotkey title: %s\n", title);*/
     }
+}
+
+void SettingsWindow::UpdateVersionLabel() {
+    if (!hwndVersionLabel_) {
+        return;
+    }
+    
+    // Get version from Utils and set it as window text
+    std::string version = Utils::GetApplicationVersion();
+    std::wstring wversion(version.begin(), version.end());
+    SetWindowTextW(hwndVersionLabel_, wversion.c_str());
 }
 
