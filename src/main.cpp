@@ -40,20 +40,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     // Check for updates if enabled
     if (config.IsUpdatesEnabled) {
-        static UpdateManager updateManager;
+        static UpdateManager updateManager(config);
         updateManager.CheckForUpdatesAsync([](bool hasUpdate, const std::string& error) {
             if (!error.empty()) {
-                LOG_WARNING("Update check failed: %s", error.c_str());
+                if (error.find("is skipped") != std::string::npos) {
+                    LOG_INFO("Update check: %s", error.c_str());
+                } else {
+                    LOG_WARNING("Update check failed: %s", error.c_str());
+                }
                 return;
             }
             
             if (hasUpdate) {
-                LOG_INFO("Update available");
+                LOG_INFO("Update available - showing notification");
                 updateManager.ShowUpdateNotification();
             } else {
                 LOG_INFO("No updates available");
             }
         });
+    } else {
+        LOG_INFO("Update checking is disabled");
     }
 
     auto manager = AudioManager();
