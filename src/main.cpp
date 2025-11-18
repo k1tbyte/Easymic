@@ -54,12 +54,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (hasUpdate) {
                 LOG_INFO("Update available - showing notification");
                 updateManager.ShowUpdateNotification();
-            } else {
-                LOG_INFO("No updates available");
             }
         });
-    } else {
-        LOG_INFO("Update checking is disabled");
     }
 
     auto manager = AudioManager();

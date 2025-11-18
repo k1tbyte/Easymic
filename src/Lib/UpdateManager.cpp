@@ -40,6 +40,12 @@ void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::str
                 callback(false, "Failed to parse JSON response: " + std::string(glz::format_error(parseResult, response)));
                 return;
             }
+
+            // If any .exe asset is found, consider it for update
+            if (const auto exeAssets = GetExecutableAssets(); exeAssets.empty()) {
+                LOG_INFO("No executable assets found in release %s", latestRelease_.tag_name.c_str());
+                return;
+            }
             
             // Compare versions
             Version latestVersion(latestRelease_.tag_name);
@@ -125,27 +131,27 @@ void UpdateManager::DownloadAndInstallUpdate() {
     }
     
     // Find .exe asset
-    GitHubAsset* exeAsset = nullptr;
-    for (auto& asset : latestRelease_.assets) {
-        if (asset.name.ends_with(".exe")) {
-            exeAsset = &asset;
-            break;
-        }
-    }
-    
-    if (!exeAsset) {
-        MessageBoxA(nullptr, "No executable found in release assets.", "Update Error", MB_ICONERROR);
-        return;
-    }
+    auto exeAsset = GetExecutableAssets()[0];
     
     try {
-        std::string downloadPath = DownloadFile(exeAsset->browser_download_url, exeAsset->name);
+        std::string downloadPath = DownloadFile(exeAsset.browser_download_url, exeAsset.name);
         ApplyUpdate(downloadPath);
     } catch (const std::exception& e) {
         std::string error = "Update failed: " + std::string(e.what());
         MessageBoxA(nullptr, error.c_str(), "Update Error", MB_ICONERROR);
     }
 }
+
+std::vector<GitHubAsset> UpdateManager::GetExecutableAssets() const {
+    std::vector<GitHubAsset> exeAssets;
+    for (auto& asset : latestRelease_.assets) {
+        if (asset.name.ends_with(".exe")) {
+            exeAssets.push_back(asset);
+        }
+    }
+    return exeAssets;
+}
+
 
 std::string UpdateManager::DownloadFile(const std::string& url, const std::string& filename) {
     // Get temp directory
