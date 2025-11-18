@@ -28,6 +28,8 @@
 
 #define IDD_SETTINGS_GENERAL                        201
 #define IDC_SETTINGS_AUTOSTART                      202
+#define IDC_SETTINGS_UPDATES_ENABLED                203
+#define IDC_SETTINGS_CLEAR_SKIPPED                  204
 
 #define IDD_SETTINGS_INDICATOR                      251
 #define IDC_SETTINGS_INDICATOR_COMBO                252
