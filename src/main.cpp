@@ -12,6 +12,7 @@
 #include "Lib/Logger.hpp"
 #include "Lib/Version.hpp"
 #include "Lib/UpdateManager.hpp"
+#include "Lib/UACService.hpp"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -22,6 +23,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
         return 0;
+    }
+
+    AppConfig config = AppConfig::Load();
+
+    if (config.IsSkipUACEnabled && !UAC::Service::IsElevated() && UAC::Service::IsSkipUACEnabled()) {
+        if (UAC::Service::RunWithSkipUAC()) {
+            // Successfully started elevated instance, close this one
+            ReleaseMutex(mutex);
+            return 0;
+        }
+        MessageBoxA(nullptr,
+            "Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
+            "UAC Bypass Failed",
+            MB_OK | MB_ICONWARNING);
+        // If Skip UAC fails, continue with normal startup
+        LOG_WARNING("Skip UAC failed, continuing with normal startup");
     }
 
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);
@@ -36,7 +53,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFormatted().c_str());
 
-    AppConfig config = AppConfig::Load();
     
     // Check for updates if enabled
     if (config.IsUpdatesEnabled) {
