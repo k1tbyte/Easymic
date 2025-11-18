@@ -4,6 +4,7 @@
 #include "Resources/Resource.h"
 #include "definitions.h"
 #include "Lib/Version.hpp"
+#include "Lib/UACService.hpp"
 #include <windows.h>
 #include <commctrl.h>
 
@@ -32,6 +33,14 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
 void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) {
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTOSTART), BM_SETCHECK, 
                 Utils::IsInAutoStartup(AppName), 0);
+
+    // Skip UAC checkbox - only enable if running as admin
+    HWND hSkipUAC = GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC);
+    SendMessage(hSkipUAC, BM_SETCHECK, _cfg.IsSkipUACEnabled, 0);
+    EnableWindow(hSkipUAC, UAC::Service::IsSkipUACAvailable());
+
+    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_UPDATES_ENABLED), BM_SETCHECK,
+                _cfg.IsUpdatesEnabled, 0);
 }
 
 void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) {
@@ -179,12 +188,85 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
                 Utils::AddToAutoStartup(AppName);
             }
             break;
+        case IDC_SETTINGS_SKIP_UAC: {
+            bool skipUACRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
+
+            if (!UAC::Service::IsElevated()) {
+                // Show message and request elevation
+                int result = MessageBoxA(hWnd,
+                    "Administrator privileges are required to configure UAC bypass.\nWould you like to restart the application as administrator?",
+                    "Administrator Required",
+                    MB_YESNO | MB_ICONQUESTION);
+
+                if (result == IDYES) {
+                    // Save current config before elevation
+                    _cfg.IsSkipUACEnabled = skipUACRequested;
+                    _cfg.Save();
+
+                    // Request elevation - this will close current instance
+                    UAC::Service::RequestElevation();
+                    return;
+                }
+                // Revert checkbox state
+                SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, !skipUACRequested, 0);
+                return;
+            }
+
+            // Handle Skip UAC toggle
+            bool success = false;
+            if (skipUACRequested) {
+                success = UAC::Service::EnableSkipUAC();
+                if (!success) {
+                    MessageBoxA(hWnd, "Failed to create UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
+                }
+            } else {
+                success = UAC::Service::DisableSkipUAC();
+                if (!success) {
+                    MessageBoxA(hWnd, "Failed to remove UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
+                }
+            }
+
+            // Update checkbox state based on actual result
+            if (!success) {
+                SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, !skipUACRequested, 0);
+            } else {
+                _cfg.IsSkipUACEnabled = skipUACRequested;
+            }
+            break;
+        }
+        case IDC_SETTINGS_UPDATES_ENABLED:
+            _cfg.IsUpdatesEnabled = Utils::IsCheckboxCheck(hWnd, buttonId);
+            break;
         case IDC_SETTINGS_INDICATOR_CAPTURE:
             _cfg.ExcludeFromCapture = Utils::IsCheckboxCheck(hWnd, buttonId);
             break;
-        case IDC_SETTINGS_INDICATOR_ON_TOP:
-            _cfg.OnTopExclusive = Utils::IsCheckboxCheck(hWnd, buttonId);
+        case IDC_SETTINGS_INDICATOR_ON_TOP: {
+            bool onTopRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
+
+            // Check if we need admin rights for "On top of all windows"
+            if (onTopRequested && !UAC::Service::IsElevated()) {
+                // Show message and request elevation
+                int result = MessageBoxA(hWnd,
+                    "Administrator privileges are required for 'On top of all windows' feature.\nWould you like to restart the application as administrator?",
+                    "Administrator Required",
+                    MB_YESNO | MB_ICONQUESTION);
+
+                if (result == IDYES) {
+                    // Save current config before elevation
+                    _cfg.OnTopExclusive = true;
+                    _cfg.Save();
+
+                    // Request elevation - this will close current instance
+                    UAC::Service::RequestElevation();
+                    return;
+                }
+                SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, FALSE, 0);
+
+                return;
+            }
+            _cfg.OnTopExclusive = onTopRequested;
             break;
+        }
         case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
             _cfg.IsMicKeepVolume = Utils::IsCheckboxCheck(hWnd, buttonId);
             break;
