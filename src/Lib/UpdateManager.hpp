@@ -34,14 +34,13 @@ public:
     const GitHubRelease& GetLatestRelease() const { return latestRelease_; }
     Version GetLatestVersion() const;
     
-    // Show update notification to user
     void ShowUpdateNotification();
     
-    // Skip this version
     void SkipVersion();
     
-    // Download and apply update
     void DownloadAndInstallUpdate();
+
+    std::vector<GitHubAsset> GetExecutableAssets() const;
 
 private:
     AppConfig& config_;
