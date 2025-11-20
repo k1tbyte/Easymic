@@ -105,7 +105,7 @@ STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "Ms Shell Dlg"
 {
-    LTEXT           "Version 1.0.0.0", IDC_ABOUT_VERSION_INFO, 0, 0, 100, 10
+    LTEXT           "", IDC_ABOUT_VERSION_INFO, 0, 0, 100, 10
     LTEXT           "GitHub", IDC_ABOUT_GITHUB_LINK, 105, 0, 80, 10, SS_NOTIFY
     CONTROL         "", IDC_ABOUT_LOG_LIST, "EDIT", ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP, 0, 15, 186, 107
 }
@@ -133,8 +133,8 @@ FONT 8, "Ms Shell Dlg"
 //
 
 1 VERSIONINFO
- FILEVERSION    1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION    1,1,0,0
+ PRODUCTVERSION 1,1,0,0
  FILEOS			VOS__WINDOWS32
  FILETYPE		VFT_APP
  FILESUBTYPE	VFT2_UNKNOWN
@@ -146,11 +146,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "kitbyte"
             VALUE "FileDescription", "Easymic"
-            VALUE "FileVersion", "1.0.0.0"
+            VALUE "FileVersion", "1.1.0.0"
             VALUE "InternalName", "WindowsP.exe"
             VALUE "LegalCopyright", "Copyright (C) 2024"
             VALUE "OriginalFilename", "Easymic.exe"
-            VALUE "ProductVersion", "1.0.0.0"
+            VALUE "ProductVersion", "1.1.0.0"
         END
     END
     BLOCK "VarFileInfo"

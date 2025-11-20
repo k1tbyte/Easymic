@@ -3,6 +3,7 @@
 #include "definitions.h"
 #include "AppConfig.hpp"
 #include "AudioManager.hpp"
+#include "CrashHandler.hpp"
 #include "HotkeyManager.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
@@ -18,17 +19,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 {
     MSG callbackMsg;
 
-    auto *const mutex =  CreateMutexW(nullptr, FALSE, MutexName);
+    auto *const mutex =  CreateMutexW(nullptr, FALSE, MUTEX_NAME);
 
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
         return 0;
     }
 
+    CrashHandler::LogCallback logCallback = [](const std::string& msg) {
+        LOG_ERROR(msg.c_str());
+    };
+
+    if (!CrashHandler::Initialize({ .logCallback = logCallback})) {
+        LOG_ERROR("Failed to initialize CrashHandler");
+        return 1;
+    }
+
     AppConfig config = AppConfig::Load();
 
-    if (config.IsSkipUACEnabled && !UAC::Service::IsElevated() && UAC::Service::IsSkipUACEnabled()) {
-        if (UAC::Service::RunWithSkipUAC()) {
+    if (config.IsSkipUACEnabled && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
+        if (UAC::RunWithSkipUAC()) {
             // Successfully started elevated instance, close this one
             ReleaseMutex(mutex);
             return 0;
@@ -45,6 +55,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ULONG_PTR token_ = 0;
     GdiplusStartupInput input;
     GdiplusStartup(&token_, &input, nullptr);
+
 
     // Initialize Logger
     InitializeLogger();

@@ -1,6 +1,6 @@
 #ifndef EASYMIC_CONFIG_HPP
 #define EASYMIC_CONFIG_HPP
-
+#define CONFIG_ENABLED
 
 #include <cstdint>
 #include <sys/stat.h>
@@ -8,16 +8,11 @@
 #include <unordered_map>
 #include <set>
 #include <windows.h>
-/*#include <glaze/glaze.hpp>*/
+#include "definitions.h"
 
-#define MutexName L"Easymic-8963D562-E35B-492A-A3D2-5FD724CE24B2"
-#define AppName L"Easymic"
-#define ConfigName L"conf.b"
-
-#define WM_SHELLICON (WM_USER + 1)
-#define WM_UPDATE_MIC (WM_USER + 2)
-#define MIC_PEAK_TIMER (WM_USER + 3)
-#define WM_UPDATE_STATE (WM_USER + 4)
+#ifdef CONFIG_ENABLED
+#include <glaze/glaze.hpp>
+#endif // CONFIG_ENABLED
 
 enum class IndicatorState {
     Hidden,
@@ -56,7 +51,9 @@ struct AppConfig {
 
     static void Save(const AppConfig& config)
     {
-       // glz::write_file_beve(config, GetConfigPath(), std::string{});
+#ifdef CONFIG_ENABLED
+        glz::write_file_beve(config, GetConfigPath(), std::string{});
+#endif // CONFIG_ENABLED
     }
 
     void Save() const {
@@ -66,8 +63,9 @@ struct AppConfig {
     static AppConfig Load()
     {
         AppConfig config{};
-        
-      //  glz::read_file_beve(config, GetConfigPath(), std::string{});
+#ifdef CONFIG_ENABLED
+        glz::read_file_beve(config, GetConfigPath(), std::string{});
+#endif // CONFIG_ENABLED
         return config;
     }
 
@@ -75,13 +73,15 @@ private:
     static std::string GetConfigPath()
     {
 
-        /*if (DefaultPath.empty()) {
+#ifdef CONFIG_ENABLED
+        if (DefaultPath.empty()) {
             wchar_t modulePath[MAX_PATH];
             GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
 
             const std::filesystem::path path{modulePath};
-            DefaultPath = (path.parent_path() / ConfigName).string();
-        }*/
+            DefaultPath = (path.parent_path() / CONFIG_NAME).string();
+        }
+#endif // CONFIG_ENABLED
         return DefaultPath;
     }
 };

@@ -32,12 +32,12 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
 
 void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) {
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTOSTART), BM_SETCHECK, 
-                Utils::IsInAutoStartup(AppName), 0);
+                Utils::IsInAutoStartup(APP_NAME), 0);
 
     // Skip UAC checkbox - only enable if running as admin
     HWND hSkipUAC = GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC);
     SendMessage(hSkipUAC, BM_SETCHECK, _cfg.IsSkipUACEnabled, 0);
-    EnableWindow(hSkipUAC, UAC::Service::IsSkipUACAvailable());
+    EnableWindow(hSkipUAC, UAC::IsSkipUACAvailable());
 
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_UPDATES_ENABLED), BM_SETCHECK,
                 _cfg.IsUpdatesEnabled, 0);
@@ -182,16 +182,16 @@ void SettingsWindowViewModel::UpdateLogDisplay(const std::string& formattedEntry
 void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
     switch (buttonId) {
         case IDC_SETTINGS_AUTOSTART:
-            if (Utils::IsInAutoStartup(AppName)) {
-                Utils::RemoveFromAutoStartup(AppName);
+            if (Utils::IsInAutoStartup(APP_NAME)) {
+                Utils::RemoveFromAutoStartup(APP_NAME);
             } else {
-                Utils::AddToAutoStartup(AppName);
+                Utils::AddToAutoStartup(APP_NAME);
             }
             break;
         case IDC_SETTINGS_SKIP_UAC: {
             bool skipUACRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
 
-            if (!UAC::Service::IsElevated()) {
+            if (!UAC::IsElevated()) {
                 // Show message and request elevation
                 int result = MessageBoxA(hWnd,
                     "Administrator privileges are required to configure UAC bypass.\nWould you like to restart the application as administrator?",
@@ -204,7 +204,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
                     _cfg.Save();
 
                     // Request elevation - this will close current instance
-                    UAC::Service::RequestElevation();
+                    UAC::RequestElevation();
                     return;
                 }
                 // Revert checkbox state
@@ -215,12 +215,12 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             // Handle Skip UAC toggle
             bool success = false;
             if (skipUACRequested) {
-                success = UAC::Service::EnableSkipUAC();
+                success = UAC::EnableSkipUAC();
                 if (!success) {
                     MessageBoxA(hWnd, "Failed to create UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
                 }
             } else {
-                success = UAC::Service::DisableSkipUAC();
+                success = UAC::DisableSkipUAC();
                 if (!success) {
                     MessageBoxA(hWnd, "Failed to remove UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
                 }
@@ -244,7 +244,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             bool onTopRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
 
             // Check if we need admin rights for "On top of all windows"
-            if (onTopRequested && !UAC::Service::IsElevated()) {
+            if (onTopRequested && !UAC::IsElevated()) {
                 // Show message and request elevation
                 int result = MessageBoxA(hWnd,
                     "Administrator privileges are required for 'On top of all windows' feature.\nWould you like to restart the application as administrator?",
@@ -257,7 +257,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
                     _cfg.Save();
 
                     // Request elevation - this will close current instance
-                    UAC::Service::RequestElevation();
+                    UAC::RequestElevation();
                     return;
                 }
                 SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, FALSE, 0);

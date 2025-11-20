@@ -199,7 +199,7 @@ void SettingsWindow::Show() {
     hwnd_ = CreateWindowExW(
         0,                              // Extended window style
         L"SettingsWindow",              // Window class name
-        (std::wstring(L"Easymic - settings") + (UAC::Service::IsElevated() ? L" (Administrator)" : L"")).c_str(),
+        (std::wstring(L"Easymic - settings") + (UAC::IsElevated() ? L" (Administrator)" : L"")).c_str(),
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, // Same style as DS_MODALFRAME but for CreateWindow
         posX, posY,                     // Position
         width, height,                  // Size

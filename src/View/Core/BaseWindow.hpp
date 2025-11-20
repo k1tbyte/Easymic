@@ -7,6 +7,9 @@
     #include <memory>
     #include <unordered_map>
     #include <type_traits>
+
+#include "definitions.h"
+#include "RateLimiter.hpp"
     #include "WindowRegistry.hpp"
     #include "ViewModel/ViewModel.hpp"
 
@@ -145,6 +148,15 @@
                 return result == HTCLIENT ? HTCAPTION : result;
             }
 
+#if _DEBUG
+            if (message == WM_PAINT) {
+                MEASURE_RATE(RenderDebugLimiter, 50,1000, {
+                    Beep(1600, 150);
+                    throw std::runtime_error("Anomaly detected in WM_PAINT frequency");
+                });
+            }
+#endif
+
             // Search for registered handler
             if (const auto it = messageHandlers_.find(message); it != messageHandlers_.end()) {
                 return it->second(wParam, lParam);
@@ -188,6 +200,7 @@
             }
 
             return window->HandleMessage(message, wParam, lParam);
+          //  return DefWindowProcW(hwnd, message, wParam, lParam);
         }
 
         /**
