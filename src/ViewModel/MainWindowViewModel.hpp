@@ -8,7 +8,9 @@
 
 #include <filesystem>
 
+#include "RateLimiter.hpp"
 #include "SettingsWindowViewModel.hpp"
+#include "UACService.hpp"
 #include "../Lib/UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
 #include "MainWindow/MainWindow.hpp"
@@ -157,17 +159,16 @@ private:
             Utils::LoadFileAsResource(_cfg.MuteSoundSource) :
             Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE");
 
-        if (_cfg.OnTopExclusive && !_view->IsOvershadowed()) {
+        if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
+            // Hide original window
             _view->Hide();
             auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY, MainWindow::StyleEx, MainWindow::Style);
             _view->SetShadowHwnd(shadowHwnd);
             _view->RefreshPos(HWND_TOPMOST);
-            //Hide shadow window
-            _view->Hide();
         }
 
-        /*SetWindowDisplayAffinity(_view->GetHandle(),
-                         _cfg.excludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);*/
+        SetWindowDisplayAffinity(_view->GetHandle(),
+                         _cfg.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
 
         UpdateDevice();
     }
@@ -210,7 +211,7 @@ private:
         if (!iconToDisplay) {
             return;
         }
-        
+
         
 #define WND_BACKGROUND RGB(24,27,40)
         GraphicsPath path;
