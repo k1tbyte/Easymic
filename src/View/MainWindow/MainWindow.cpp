@@ -142,13 +142,17 @@ LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
-    if (!_onRender) {
-        return 0;
-    }
 
     auto hwnd = GetEffectiveHandle();
-    GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, _onRender);
+    // ALWAYS use BeginPaint / EndPaint in WM_PAINT handler
+    // If we don't do this, Windows will think that the window is not painted
+    // and will keep sending WM_PAINT messages in an endless loop
+    BeginPaint(hwnd, nullptr);
+    if (_onRender) {
+        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, _onRender);
+    }
 
+    EndPaint(hwnd, nullptr);
     ValidateRect(hwnd, nullptr);
     return 0;
 }
