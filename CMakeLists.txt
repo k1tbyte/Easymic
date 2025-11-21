@@ -26,7 +26,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         version
         wininet
         taskschd
-        comsupp
         shell32
         glaze::glaze
 )

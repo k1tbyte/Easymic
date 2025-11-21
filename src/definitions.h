@@ -33,9 +33,12 @@ using Microsoft::WRL::ComPtr;
     #define LOG_WARNING(...) Logger::Warning(__VA_ARGS__)
     #define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
 #else
-    #define LOG_INFO(...) ((void)0)
+    /*#define LOG_INFO(...) ((void)0)
     #define LOG_WARNING(...) ((void)0)
-    #define LOG_ERROR(...) ((void)0)
+    #define LOG_ERROR(...) ((void)0)*/
+#define LOG_INFO(...) Logger::Info(__VA_ARGS__)
+#define LOG_WARNING(...) Logger::Warning(__VA_ARGS__)
+#define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
 #endif
 
 

@@ -44,11 +44,8 @@ void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) {
 }
 
 void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) {
-    DWORD affinity;
-    GetWindowDisplayAffinity(MainWnd->GetEffectiveHandle(), &affinity);
-    
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_CAPTURE), BM_SETCHECK, 
-                affinity == WDA_EXCLUDEFROMCAPTURE, 0);
+                _cfg.ExcludeFromCapture, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_ON_TOP), BM_SETCHECK, 
                 _cfg.OnTopExclusive, 0);
     
