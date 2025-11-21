@@ -492,7 +492,11 @@ bool RunWithSkipUAC() {
     IRunningTask* runningTask = nullptr;
     hr = registeredTask->RunEx(
         params,
+#ifdef _MSC_VER
         TASK_RUN_IGNORE_CONSTRAINTS,
+#else
+        0x2,
+#endif
         0,
         nullptr,
         &runningTask

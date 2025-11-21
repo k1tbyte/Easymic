@@ -16,5 +16,6 @@ public:
     UIAccessManager() = delete;
 
     static HWND GetOrCreateWindow(const char* key, DWORD exStyle, DWORD style);
+    static bool InjectDisplayAffinity(HWND hWnd, DWORD affinity);
 };
 #endif //EASYMICTESTING_UIACCESSMANAGER_H
