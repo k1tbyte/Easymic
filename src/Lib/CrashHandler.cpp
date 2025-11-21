@@ -60,9 +60,9 @@ namespace CrashHandler {
         }
 
         __declspec(nothrow) const char* SafeStdExceptionWhat(const void* thrownObject) {
-            __try {
+            try {
                 return static_cast<const std::exception*>(thrownObject)->what();
-            } __except(EXCEPTION_EXECUTE_HANDLER) {
+            } catch(...) {
                 return "";
             }
         }
@@ -363,7 +363,9 @@ namespace CrashHandler {
         g_state.previousTerminateHandler = std::set_terminate(TerminateHandler);
 
         InstallSignalHandlers();
+#ifdef _MSC_VER
         _set_se_translator(SETranslatorFunction);
+#endif
 
         g_state.initialized = true;
         return true;

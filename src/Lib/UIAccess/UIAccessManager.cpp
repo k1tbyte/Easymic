@@ -7,10 +7,10 @@
 
 #include <tlhelp32.h>
 
+#include "Utils.hpp"
 
 
-
-struct ShellcodeParams {
+struct ShellcodeWindowCreateParams {
     FARPROC pfCreateWindowExA;
     FARPROC pfGetMessageA;
     FARPROC pfTranslateMessage;
@@ -22,13 +22,19 @@ struct ShellcodeParams {
     char windowTitle[64];
 };
 
+struct ShellcodeAffinityParams {
+    FARPROC pfSetWindowDisplayAffinity;
+    HWND hWnd;
+    DWORD affinity;
+};
+
 
 /*extern "C" VOID WINAPI RemoteThreadFunc(LPVOID lpParam);
 extern "C" SIZE_T RemoteThreadFuncSize;*/
 
 
-VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
-    const ShellcodeParams *params = (ShellcodeParams *) lpParam;
+VOID WINAPI WindowCreateRemoteThreadFunc(LPVOID lpParam) {
+    const ShellcodeWindowCreateParams *params = (ShellcodeWindowCreateParams *) lpParam;
 
     typedef HWND (WINAPI *CreateWindowExA_t)(DWORD, LPCSTR, LPCSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE,
                                              LPVOID);
@@ -60,26 +66,35 @@ VOID WINAPI RemoteThreadFunc(LPVOID lpParam) {
         fnTranslateMessage(&msg);
         fnDispatchMessageA(&msg);
     }
-
 }
 
 
 #ifdef __MINGW32__ // Shit working with MinGW but no with MSVC
-DWORD WINAPI RemoteThreadFuncEnd() {
+DWORD WINAPI WindowCreateRemoteThreadFuncEnd() {
+    return 0;
+}
+#endif
+
+VOID WINAPI AffinityRemoteThreadFunc(LPVOID lpParam) {
+    ShellcodeAffinityParams* params = (ShellcodeAffinityParams*)lpParam;
+
+    typedef BOOL (WINAPI *SetWindowDisplayAffinityFunc)(HWND, DWORD);
+    SetWindowDisplayAffinityFunc fnSetWindowDisplayAffinity =
+        (SetWindowDisplayAffinityFunc)params->pfSetWindowDisplayAffinity;
+
+    fnSetWindowDisplayAffinity(params->hWnd, params->affinity);
+}
+
+#ifdef __MINGW32__
+DWORD WINAPI AffinityRemoteThreadFuncEnd() {
     return 0;
 }
 #endif
 
 BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
-    HANDLE hProcess = OpenProcess(
-        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | PROCESS_CREATE_THREAD,
-        FALSE, pid
-    );
-    if (!hProcess) return FALSE;
-
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
 
-    ShellcodeParams params = {};
+    ShellcodeWindowCreateParams params = {};
     params.pfCreateWindowExA = GetProcAddress(hUser32, "CreateWindowExA");
     params.pfGetMessageA = GetProcAddress(hUser32, "GetMessageA");
     params.pfTranslateMessage = GetProcAddress(hUser32, "TranslateMessage");
@@ -93,29 +108,9 @@ BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
 #if _MSC_VER
     SIZE_T codeSize = 2048;
 #else
-    SIZE_T codeSize = (SIZE_T)RemoteThreadFuncEnd - (SIZE_T)RemoteThreadFunc;
+    SIZE_T codeSize = (SIZE_T) WindowCreateRemoteThreadFuncEnd - (SIZE_T) WindowCreateRemoteThreadFunc;
 #endif
-    LPVOID pRemoteCode = VirtualAllocEx(hProcess, NULL, codeSize,
-        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-
-    LPVOID pRemoteParams = VirtualAllocEx(hProcess, NULL,
-        sizeof(ShellcodeParams), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-
-    WriteProcessMemory(hProcess, pRemoteCode, (LPVOID)RemoteThreadFunc, codeSize, NULL);
-    WriteProcessMemory(hProcess, pRemoteParams, &params, sizeof(params), NULL);
-
-    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0,
-        (LPTHREAD_START_ROUTINE)pRemoteCode, pRemoteParams, 0, NULL);
-
-    if (hThread) {
-        // We are not waiting for the thread to finish! The window should work independently
-        CloseHandle(hThread);
-    }
-
-    // DO NOT free memory while the window is running!
-    CloseHandle(hProcess);
-
-    return (hThread != NULL);
+    return Utils::InjectShellcode(pid, params, (PVOID)WindowCreateRemoteThreadFunc, codeSize, false);
 }
 
 bool IsUiAccessProcess(HANDLE hProcess) {
@@ -167,14 +162,14 @@ std::vector<DWORD> FindUiAccessProcesses() {
 
 HWND GetWindowsByTitle(std::vector<DWORD> pids, LPCSTR title) {
     struct CallbackData {
-        HWND* outHwnd;
+        HWND *outHwnd;
         DWORD targetPid;
         LPCSTR targetTitle;
     };
 
     HWND hWnd{};
     CallbackData data = {&hWnd, 0, title};
-    for (const auto &processId : pids) {
+    for (const auto &processId: pids) {
         data.targetPid = processId;
         EnumWindows([](HWND hWnd, LPARAM lParam) {
             auto *pData = reinterpret_cast<CallbackData *>(lParam);
@@ -221,4 +216,23 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
     }
 
     return hwnd;
+}
+
+bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
+    DWORD pid;
+    GetWindowThreadProcessId(hWnd, &pid);
+    if (pid == 0) {
+        return false;
+    }
+    HMODULE hUser32 = GetModuleHandleA("user32.dll");
+    ShellcodeAffinityParams params = {};
+    params.pfSetWindowDisplayAffinity = GetProcAddress(hUser32, "SetWindowDisplayAffinity");
+    params.hWnd = hWnd;
+    params.affinity = affinity;
+#ifdef _MSC_VER
+    SIZE_T codeSize = 2048;
+#else
+    SIZE_T codeSize = (SIZE_T) AffinityRemoteThreadFuncEnd - (SIZE_T) AffinityRemoteThreadFunc;
+#endif
+    return Utils::InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
 }
