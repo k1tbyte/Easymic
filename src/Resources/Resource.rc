@@ -50,6 +50,7 @@ FONT 8, "Ms Shell Dlg"
     CONTROL         "Start with Windows", IDC_SETTINGS_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,0,180,10
     CONTROL         "Skip UAC (Administrator required)", IDC_SETTINGS_SKIP_UAC, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,15,180,10
     CONTROL         "Check for updates", IDC_SETTINGS_UPDATES_ENABLED, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,30,180,10
+    CONTROL         "Enable auto-updates", IDC_SETTINGS_AUTO_UPDATE_ENABLED, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,45,180,10
 }
 
 IDD_SETTINGS_INDICATOR DIALOGEX 0, 0, 260, 168
@@ -148,7 +149,7 @@ BEGIN
             VALUE "FileDescription", "Easymic"
             VALUE "FileVersion", "1.1.0.0"
             VALUE "InternalName", "WindowsP.exe"
-            VALUE "LegalCopyright", "Copyright (C) 2024"
+            VALUE "LegalCopyright", "Copyright (C) 2025"
             VALUE "OriginalFilename", "Easymic.exe"
             VALUE "ProductVersion", "1.1.0.0"
         END

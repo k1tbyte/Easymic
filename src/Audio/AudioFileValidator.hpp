@@ -137,10 +137,10 @@ inline bool AudioFileValidator::ValidateWavHeader(const WavHeader& header) {
         return false;
     }
 
-    // Check data signature
+    /*// Check data signature
     if (strncmp(header.data, "data", 4) != 0) {
         return false;
-    }
+    }*/
 
     // Check audio format (PCM = 1)
     if (header.audioFormat != 1) {

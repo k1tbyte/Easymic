@@ -35,6 +35,7 @@ struct AppConfig {
     bool OnTopExclusive            = false;
     bool IsMicKeepVolume           = true;
     bool IsUpdatesEnabled          = true;
+    bool IsAutoUpdateEnabled       = false;
     bool IsSkipUACEnabled          = false;
     std::set<std::string> SkippedVersions;
     std::unordered_map<std::string , uint64_t> Hotkeys;
