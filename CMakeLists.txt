@@ -3,6 +3,20 @@ cmake_minimum_required(VERSION 3.27)
 set(CMAKE_CXX_STANDARD 23)
 project(Easymic)
 
+option(ENABLE_UPX_COMPRESSION "Enable UPX compression for Release builds" ON)
+
+set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
+set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
+
+
+if(MSVC)
+    if(IS_RELEASE)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
+    endif()
+endif()
+
 add_subdirectory(vendor)
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -47,27 +61,23 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 if(MINGW)
-#[[    target_compile_options(${PROJECT_NAME} PRIVATE
+    target_compile_options(${PROJECT_NAME} PRIVATE
             -ffunction-sections
             -fdata-sections
             -fno-rtti
-            -fno-unwind-tables
-    )]]
-
-    target_link_options(${PROJECT_NAME} PRIVATE
-            -static-libgcc
-            -static-libstdc++
-            -Wl,--allow-multiple-definition
-#[[            -Wl,--gc-sections         # remove unused sections
-            -Wl,--strip-all          # remove debugging symbols
-            -Wl,--strip-debug
-            -s                       # additional stripping]]
     )
 
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    if(IS_RELEASE)
         set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
 
         target_link_options(${PROJECT_NAME} PRIVATE
+                -static
+                -static-libgcc
+                -static-libstdc++
+                -Wl,--allow-multiple-definition
+                -Wl,--gc-sections
+                -Wl,--strip-all
+                -s
                 -Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive
         )
     endif()
@@ -89,8 +99,17 @@ elseif(MSVC)
     )
 endif()
 
+if(IS_RELEASE AND ENABLE_UPX_COMPRESSION)
+    find_program(UPX_EXECUTABLE upx)
 
-
-
-
+    if(UPX_EXECUTABLE)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${UPX_EXECUTABLE} --best --lzma $<TARGET_FILE:${PROJECT_NAME}>
+                COMMENT "Compressing ${PROJECT_NAME} with UPX..."
+        )
+        message(STATUS "UPX found: ${UPX_EXECUTABLE}")
+    else()
+        message(STATUS "UPX not found - Release build will not be compressed")
+    endif()
+endif()
 

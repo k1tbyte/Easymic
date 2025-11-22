@@ -102,7 +102,14 @@ void UpdateManager::ShowUpdateNotification() {
     if (!hasUpdate_) {
         return;
     }
-    
+
+    // If auto-update is enabled, skip the dialog and install directly
+    if (config_.IsAutoUpdateEnabled) {
+        LOG_INFO("Auto-update enabled - installing update automatically");
+        DownloadAndInstallUpdate();
+        return;
+    }
+
     // Use custom dialog for better user experience with proper button names
     INT_PTR result = DialogBoxParamA(GetModuleHandleA(nullptr), 
                                     MAKEINTRESOURCEA(IDD_UPDATE_DIALOG), 
