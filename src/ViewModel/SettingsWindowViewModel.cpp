@@ -231,8 +231,21 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             }
             break;
         }
-        case IDC_SETTINGS_UPDATES_ENABLED:
+        case IDC_SETTINGS_UPDATES_ENABLED: {
             _cfg.IsUpdatesEnabled = Utils::IsCheckboxCheck(hWnd, buttonId);
+
+            // Disable auto-update if updates are disabled
+            if (!_cfg.IsUpdatesEnabled) {
+                _cfg.IsAutoUpdateEnabled = false;
+                SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), BM_SETCHECK, FALSE, 0);
+            }
+
+            // Enable/disable auto-update checkbox based on updates enabled state
+            EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.IsUpdatesEnabled);
+            break;
+        }
+        case IDC_SETTINGS_AUTO_UPDATE_ENABLED:
+            _cfg.IsAutoUpdateEnabled = Utils::IsCheckboxCheck(hWnd, buttonId);
             break;
         case IDC_SETTINGS_INDICATOR_CAPTURE:
             _cfg.ExcludeFromCapture = Utils::IsCheckboxCheck(hWnd, buttonId);
