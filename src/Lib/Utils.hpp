@@ -240,6 +240,35 @@ namespace Utils {
 
         return hThread != nullptr;
     }
+
+    static std::string GetProcessNameByHWND(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) {
+            return "";
+        }
+
+        DWORD processId = 0;
+        GetWindowThreadProcessId(hwnd, &processId);
+
+        if (processId == 0) {
+            return "";
+        }
+
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+        if (hProcess == NULL) {
+            return "";
+        }
+
+        char processName[MAX_PATH] = "<unknown>";
+
+        DWORD size = MAX_PATH;
+        if (QueryFullProcessImageNameA(hProcess, 0, processName, &size)) {
+            return std::string(processName);
+        }
+
+        CloseHandle(hProcess);
+        return std::string(processName);
+    }
+
 }
 
 #endif //EASYMIC_UTILS_HPP
