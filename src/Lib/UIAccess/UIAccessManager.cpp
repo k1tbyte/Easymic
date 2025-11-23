@@ -243,4 +243,6 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     const auto result = Utils::InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
     LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
              affinity, pid, result ? "Success" : "Failure");
+
+    return result;
 }

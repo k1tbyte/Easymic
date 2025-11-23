@@ -278,10 +278,16 @@ namespace  HotkeyManager {
         }
     }
 
+    auto _getBinding(const uint8_t currentCode) {
+        if (currentCode > 0) {
+            return _hotkeys.find(static_cast<uint64_t>(currentCode) << 8);
+        }
+        return _hotkeys.find(_sequenceMask);
+    }
 
     void _onKeyRelease(const uint8_t vkCode) {
 
-        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end() && it->second.onRelease) {
+        if (const auto it = _getBinding(vkCode); it != _hotkeys.end() && it->second.onRelease) {
 #ifdef KEYLOG
             printf("Raising hotkey keyrelease | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
 #endif
@@ -343,7 +349,7 @@ namespace  HotkeyManager {
         printf("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
 #endif
 
-        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end() && it->second.onPress) {
+        if (const auto it = _getBinding(vkCode); it != _hotkeys.end() && it->second.onPress) {
 #ifdef KEYLOG
             printf("Raising hotkey keypress | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
 #endif

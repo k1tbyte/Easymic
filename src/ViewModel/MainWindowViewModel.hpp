@@ -293,9 +293,8 @@ private:
         CaptureDeviceStateChanged(true);
         const auto activeSessions = _audio.CaptureDevice()->GetActiveSessionsCount();
 
-        if (!hasCaptureDevice || activeSessions == 0 || _cfg.IndicatorState == IndicatorState::Hidden) {
+        if (!hasCaptureDevice || _cfg.IndicatorState == IndicatorState::Hidden || (_cfg.HideWhenInactive && activeSessions == 0)) {
             KillPeakMeter();
-
             _view->Hide();
             return;
         }
