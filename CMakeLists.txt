@@ -5,8 +5,14 @@ project(Easymic)
 
 option(ENABLE_UPX_COMPRESSION "Enable UPX compression for Release builds" ON)
 
-set(IS_DEBUG CMAKE_BUILD_TYPE STREQUAL "Debug")
-set(IS_RELEASE CMAKE_BUILD_TYPE STREQUAL "Release")
+set(IS_DEBUG FALSE)
+set(IS_RELEASE FALSE)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(IS_DEBUG TRUE)
+else()
+    set(IS_RELEASE TRUE)
+endif()
 
 
 if(MSVC)
@@ -26,7 +32,7 @@ file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 
 
-add_executable(${PROJECT_NAME} WIN32)
+add_executable(${PROJECT_NAME} #[[WIN32]])
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

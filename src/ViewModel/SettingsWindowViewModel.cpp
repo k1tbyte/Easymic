@@ -48,7 +48,9 @@ void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) {
                 _cfg.ExcludeFromCapture, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_ON_TOP), BM_SETCHECK, 
                 _cfg.OnTopExclusive, 0);
-    
+    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_HIDE_INACTIVE), BM_SETCHECK,
+                _cfg.HideWhenInactive, 0);
+
     // Setup indicator state combo box
     HWND hCombo = GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_COMBO);
     SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
@@ -277,6 +279,9 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             _cfg.OnTopExclusive = onTopRequested;
             break;
         }
+        case IDC_SETTINGS_INDICATOR_HIDE_INACTIVE:
+            _cfg.HideWhenInactive = Utils::IsCheckboxCheck(hWnd, buttonId);
+            break;
         case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
             _cfg.IsMicKeepVolume = Utils::IsCheckboxCheck(hWnd, buttonId);
             break;
