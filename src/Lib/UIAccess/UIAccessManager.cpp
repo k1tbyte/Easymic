@@ -7,6 +7,7 @@
 
 #include <tlhelp32.h>
 
+#include "definitions.h"
 #include "Utils.hpp"
 
 
@@ -199,6 +200,7 @@ HWND GetWindowsByTitle(std::vector<DWORD> pids, LPCSTR title) {
 HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD style) {
     auto uiAccessPids = FindUiAccessProcesses();
     if (uiAccessPids.empty()) {
+        LOG_ERROR("No UIAccess processes found");
         return nullptr;
     }
 
@@ -206,14 +208,17 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
 
     if (!hwnd) {
         if (!InjectToProcess(uiAccessPids[0], key, exStyle, style)) {
+            LOG_ERROR("Failed to inject UIAccess process for window creation");
             return nullptr;
         }
 
         // Wait a bit for the window to be created
         Sleep(100);
-
-        hwnd = GetWindowsByTitle(uiAccessPids, key);
     }
+
+    hwnd = GetWindowsByTitle(uiAccessPids, key);
+    std::string processName = Utils::GetProcessNameByHWND(hwnd);
+    LOG_INFO("[UIAccess] Using window from: %s", processName.c_str());
 
     return hwnd;
 }
@@ -222,6 +227,7 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     DWORD pid;
     GetWindowThreadProcessId(hWnd, &pid);
     if (pid == 0) {
+            LOG_INFO("[InjectDisplayAffinity] Failed to get PID for HWND %p", hWnd);
         return false;
     }
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
@@ -234,5 +240,7 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
 #else
     SIZE_T codeSize = (SIZE_T) AffinityRemoteThreadFuncEnd - (SIZE_T) AffinityRemoteThreadFunc;
 #endif
-    return Utils::InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
+    const auto result = Utils::InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
+    LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
+             affinity, pid, result ? "Success" : "Failure");
 }

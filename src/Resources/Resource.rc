@@ -59,7 +59,7 @@ EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "Ms Shell Dlg"
 {
     CONTROL         "Exclude from capture", IDC_SETTINGS_INDICATOR_CAPTURE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,0,180,10
-    CONTROL         "On top of all the windows (* administrator required)", IDC_SETTINGS_INDICATOR_ON_TOP, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,11,180,10
+    CONTROL         "On top of all the windows (works with FSO, not FSE)", IDC_SETTINGS_INDICATOR_ON_TOP, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,0,11,180,10
     LTEXT           "Show while",IDC_STATIC,0,26,80,15
     COMBOBOX        IDC_SETTINGS_INDICATOR_COMBO,84,24,95,70,CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE
     LTEXT           "Size (px)",IDC_STATIC,0,42,80,15
