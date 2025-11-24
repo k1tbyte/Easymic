@@ -2,8 +2,8 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMICTESTING_PCH_H
-#define EASYMICTESTING_PCH_H
+#ifndef EASYMIC_DEFINITIONS_H
+#define EASYMIC_DEFINITIONS_H
 
 #include <windows.h>
 #include <wrl/client.h>
@@ -27,19 +27,9 @@ using Microsoft::WRL::ComPtr;
         throw std::runtime_error(msg); \
     }
 
-// Conditional logging macros - can be disabled in release builds
-#ifndef NDEBUG
-    #define LOG_INFO(...) Logger::Info(__VA_ARGS__)
-    #define LOG_WARNING(...) Logger::Warning(__VA_ARGS__)
-    #define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
-#else
-    /*#define LOG_INFO(...) ((void)0)
-    #define LOG_WARNING(...) ((void)0)
-    #define LOG_ERROR(...) ((void)0)*/
+// Logging macros - always enabled for now
 #define LOG_INFO(...) Logger::Info(__VA_ARGS__)
 #define LOG_WARNING(...) Logger::Warning(__VA_ARGS__)
 #define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
-#endif
 
-
-#endif //EASYMICTESTING_PCH_H
+#endif //EASYMIC_DEFINITIONS_H

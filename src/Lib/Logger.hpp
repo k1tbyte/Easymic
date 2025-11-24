@@ -45,6 +45,7 @@ private:
     static std::string FormatLogEntry(Level level, const std::string& message);
     static std::string FormatString(const char* format, va_list args);
     static void CheckLogFileSize();
+    static void LogImpl(Level level, const std::string& message);
 };
 
 #endif //EASYMIC_LOGGER_HPP

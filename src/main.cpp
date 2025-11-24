@@ -1,15 +1,9 @@
-#include <iostream>
-
 #include "definitions.h"
 #include "AppConfig.hpp"
 #include "AudioManager.hpp"
 #include "CrashHandler.hpp"
-#include "HotkeyManager.hpp"
 #include "MainWindow/MainWindow.hpp"
-#include "Resources/Resource.h"
-#include "SettingsWindow/SettingsWindow.hpp"
 #include "ViewModel/MainWindowViewModel.hpp"
-#include "ViewModel/SettingsWindowViewModel.hpp"
 #include "Lib/Logger.hpp"
 #include "Lib/Version.hpp"
 #include "Lib/UpdateManager.hpp"
@@ -19,7 +13,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 {
     MSG callbackMsg;
 
-    auto *const mutex =  CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+    auto *const mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
 
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
@@ -47,15 +41,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             "Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
             "UAC Bypass Failed",
             MB_OK | MB_ICONWARNING);
-        // If Skip UAC fails, continue with normal startup
         LOG_WARNING("Skip UAC failed, continuing with normal startup");
     }
 
-    CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     ULONG_PTR token_ = 0;
     GdiplusStartupInput input;
     GdiplusStartup(&token_, &input, nullptr);
-
 
     // Initialize Logger
     InitializeLogger();
@@ -63,7 +55,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Initialize global version
     g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFormatted().c_str());
-
     
     // Check for updates if enabled
     if (config.IsUpdatesEnabled) {
@@ -89,8 +80,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     manager.Init();
     LOG_INFO("AudioManager initialized successfully");
 
-    /*HotkeyManager::Initialize();*/
-
     static auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
     mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
 
@@ -106,23 +95,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         mainWindow->Hide();
     });
 
-    /*auto settingsWindow = std::make_shared<SettingsWindow>(hInstance);
-    settingsWindow->AttachViewModel<SettingsWindowViewModel>(config, manager);
-
-    // Configure settings window
-    SettingsWindow::Config windowConfig;
-    windowConfig.parentHwnd = mainWindow->GetHandle();
-
-    // Initialize
-    if (!settingsWindow->Initialize(windowConfig)) {
-        return 1;
-    }
-
-    settingsWindow->Show();*/
-
-
-    while(GetMessage(&callbackMsg, nullptr, 0, 0))
-    {
+    while (GetMessage(&callbackMsg, nullptr, 0, 0)) {
         TranslateMessage(&callbackMsg);
         DispatchMessage(&callbackMsg);
     }

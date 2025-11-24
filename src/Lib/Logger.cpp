@@ -87,16 +87,7 @@ std::string Logger::FormatString(const char* format, va_list args) {
     return result;
 }
 
-void Logger::Log(Level level, const char* format, ...) {
-    if (!initialized_) {
-        return;
-    }
-    
-    va_list args;
-    va_start(args, format);
-    std::string message = FormatString(format, args);
-    va_end(args);
-    
+void Logger::LogImpl(Level level, const std::string& message) {
     std::lock_guard<std::mutex> lock(logMutex_);
     
     std::string formattedEntry = FormatLogEntry(level, message);
@@ -110,6 +101,19 @@ void Logger::Log(Level level, const char* format, ...) {
     OnLogAdded(level, message, formattedEntry);
 }
 
+void Logger::Log(Level level, const char* format, ...) {
+    if (!initialized_) {
+        return;
+    }
+    
+    va_list args;
+    va_start(args, format);
+    std::string message = FormatString(format, args);
+    va_end(args);
+    
+    LogImpl(level, message);
+}
+
 void Logger::Info(const char* format, ...) {
     if (!initialized_) {
         return;
@@ -120,17 +124,7 @@ void Logger::Info(const char* format, ...) {
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(Level::Info, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Info, message, formattedEntry);
+    LogImpl(Level::Info, message);
 }
 
 void Logger::Warning(const char* format, ...) {
@@ -143,17 +137,7 @@ void Logger::Warning(const char* format, ...) {
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(Level::Warning, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Warning, message, formattedEntry);
+    LogImpl(Level::Warning, message);
 }
 
 void Logger::Error(const char* format, ...) {
@@ -166,17 +150,7 @@ void Logger::Error(const char* format, ...) {
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(Level::Error, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Error, message, formattedEntry);
+    LogImpl(Level::Error, message);
 }
 
 std::string Logger::GetLogText() {
