@@ -27,3 +27,4 @@ Makefile
 
 # Log files
 *.log
+_codeql_detected_source_root
