@@ -147,28 +147,28 @@ void SettingsWindow::CreateMainButtons() {
         nullptr
     );
 
-    // Set fonts
-    HFONT hButtonFont = CreateFontW(
+    // Set fonts - store for cleanup later
+    hButtonFont_ = CreateFontW(
         -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
     );
 
     // Smaller font for version label
-    HFONT hVersionFont = CreateFontW(
+    hVersionFont_ = CreateFontW(
         -8, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
     );
 
     if (hwndOkButton_) {
-        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hButtonFont, TRUE);
+        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hButtonFont_, TRUE);
     }
     if (hwndCancelButton_) {
-        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hButtonFont, TRUE);
+        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hButtonFont_, TRUE);
     }
     if (hwndVersionLabel_) {
-        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hVersionFont, TRUE);
+        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hVersionFont_, TRUE);
     }
 }
 
@@ -309,10 +309,22 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
 LRESULT SettingsWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     _onExit();
     
-    // Clean up gray brush
+    // Clean up GDI resources
     if (hGrayBrush_) {
         DeleteObject(hGrayBrush_);
         hGrayBrush_ = nullptr;
+    }
+    if (hButtonFont_) {
+        DeleteObject(hButtonFont_);
+        hButtonFont_ = nullptr;
+    }
+    if (hVersionFont_) {
+        DeleteObject(hVersionFont_);
+        hVersionFont_ = nullptr;
+    }
+    if (hGroupBoxFont_) {
+        DeleteObject(hGroupBoxFont_);
+        hGroupBoxFont_ = nullptr;
     }
     
     hwnd_ = nullptr;
@@ -375,13 +387,13 @@ void SettingsWindow::CreateGroupBox() {
     );
 
     if (hwndGroupBox_) {
-        // Set the bold font for the groupbox title
-        HFONT hFont = CreateFontW(
+        // Set the bold font for the groupbox title - store for cleanup later
+        hGroupBoxFont_ = CreateFontW(
             -12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"MS Shell Dlg"
         );
-        SendMessage(hwndGroupBox_, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(hwndGroupBox_, WM_SETFONT, (WPARAM)hGroupBoxFont_, TRUE);
     }
 }
 

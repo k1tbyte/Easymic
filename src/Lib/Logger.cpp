@@ -13,44 +13,38 @@ bool Logger::initialized_ = false;
 Event<Logger::Level, const std::string&, const std::string&> Logger::OnLogAdded;
 Event<> Logger::OnLogCleared;
 
-void InitializeLogger() {
+
+void Logger::Initialize() {
+
+    if (initialized_) {
+        return;
+    }
+
     wchar_t modulePath[MAX_PATH];
     if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
         return;
     }
-    
+
     std::wstring wPath(modulePath);
     std::string logPath(wPath.begin(), wPath.end());
-    
+
     size_t pos = logPath.find_last_of("\\");
     if (pos != std::string::npos) {
         logPath = logPath.substr(0, pos + 1) + "easymic.log";
     } else {
         logPath = "easymic.log";
     }
-    
-    Logger::Initialize(logPath);
-}
 
-void Logger::Initialize(const std::string& logFilePath) {
     std::lock_guard<std::mutex> lock(logMutex_);
-    logFilePath_ = logFilePath;
+    logFilePath_ = logPath;
     initialized_ = true;
     
     // Create directory if needed
-    std::filesystem::path path(logFilePath);
+    std::filesystem::path path(logPath);
     std::filesystem::create_directories(path.parent_path());
     
     // Check log file size and delete if too large
     CheckLogFileSize();
-    
-    // Write startup message
-    std::string formattedEntry = FormatLogEntry(Level::Info, "Application started");
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
 }
 
 void Logger::CheckLogFileSize() {
@@ -87,16 +81,12 @@ std::string Logger::FormatString(const char* format, va_list args) {
     return result;
 }
 
-void Logger::Log(Level level, const char* format, ...) {
+void Logger::LogImpl(Level level, const std::string& message) {
+    Initialize();
     if (!initialized_) {
         return;
     }
-    
-    va_list args;
-    va_start(args, format);
-    std::string message = FormatString(format, args);
-    va_end(args);
-    
+
     std::lock_guard<std::mutex> lock(logMutex_);
     
     std::string formattedEntry = FormatLogEntry(level, message);
@@ -110,76 +100,44 @@ void Logger::Log(Level level, const char* format, ...) {
     OnLogAdded(level, message, formattedEntry);
 }
 
-void Logger::Info(const char* format, ...) {
-    if (!initialized_) {
-        return;
-    }
-    
+void Logger::Log(Level level, const char* format, ...) {
     va_list args;
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
+    LogImpl(level, message);
+}
+
+void Logger::Info(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    std::string message = FormatString(format, args);
+    va_end(args);
     
-    std::string formattedEntry = FormatLogEntry(Level::Info, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Info, message, formattedEntry);
+    LogImpl(Level::Info, message);
 }
 
 void Logger::Warning(const char* format, ...) {
-    if (!initialized_) {
-        return;
-    }
-    
     va_list args;
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(Level::Warning, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Warning, message, formattedEntry);
+    LogImpl(Level::Warning, message);
 }
 
 void Logger::Error(const char* format, ...) {
-    if (!initialized_) {
-        return;
-    }
-    
     va_list args;
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
     
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(Level::Error, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
-        logFile.close();
-    }
-    
-    OnLogAdded(Level::Error, message, formattedEntry);
+    LogImpl(Level::Error, message);
 }
 
 std::string Logger::GetLogText() {
+    Initialize();
     if (!initialized_) {
         return "";
     }
@@ -201,6 +159,7 @@ std::string Logger::GetLogText() {
 }
 
 void Logger::ClearLog() {
+    Initialize();
     if (!initialized_) {
         return;
     }

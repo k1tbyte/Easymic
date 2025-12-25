@@ -7,9 +7,6 @@
 #include <cstdarg>
 #include "Event.hpp"
 
-// Logger initialization
-void InitializeLogger();
-
 /**
  * @brief Simple file-based logger with thread-safe operations and printf-style formatting
  */
@@ -21,7 +18,7 @@ public:
         Error
     };
 
-    static void Initialize(const std::string& logFilePath);
+    static void Initialize();
     static void Log(Level level, const char* format, ...);
     static void Info(const char* format, ...);
     static void Warning(const char* format, ...);
@@ -45,6 +42,7 @@ private:
     static std::string FormatLogEntry(Level level, const std::string& message);
     static std::string FormatString(const char* format, va_list args);
     static void CheckLogFileSize();
+    static void LogImpl(Level level, const std::string& message);
 };
 
 #endif //EASYMIC_LOGGER_HPP

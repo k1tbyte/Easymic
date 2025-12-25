@@ -2,8 +2,8 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMICTESTING_EVENT_H
-#define EASYMICTESTING_EVENT_H
+#ifndef EASYMIC_EVENT_HPP
+#define EASYMIC_EVENT_HPP
 
 #include <functional>
 #include <unordered_map>
@@ -51,4 +51,4 @@ public:
     }
 };
 
-#endif //EASYMICTESTING_EVENT_H
+#endif //EASYMIC_EVENT_HPP
