@@ -2,8 +2,8 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMICTESTING_CAPTUREDEVICECONTROLLER_H
-#define EASYMICTESTING_CAPTUREDEVICECONTROLLER_H
+#ifndef EASYMIC_AUDIODEVICECONTROLLER_HPP
+#define EASYMIC_AUDIODEVICECONTROLLER_HPP
 
 
 #include <atomic>
@@ -275,7 +275,7 @@ public:
     }
 
     void StopWatchingForSessions() {
-        if (!sessionCreateHandler || sessionManager) {
+        if (!sessionCreateHandler || !sessionManager) {
             return;
         }
 
@@ -365,4 +365,4 @@ private:
     }
 };
 
-#endif //EASYMICTESTING_CAPTUREDEVICECONTROLLER_H
+#endif //EASYMIC_AUDIODEVICECONTROLLER_HPP

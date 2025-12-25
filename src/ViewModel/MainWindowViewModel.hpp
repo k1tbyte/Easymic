@@ -8,6 +8,7 @@
 
 #include <filesystem>
 
+#include "HotkeyManager.hpp"
 #include "RateLimiter.hpp"
 #include "SettingsWindowViewModel.hpp"
 #include "UACService.hpp"
@@ -18,17 +19,23 @@
 
 #include "Utils.hpp"
 
-#define ID_PEAK_TIMER               WM_USER + 100
-#define PEAK_TIMER_INTERVAL_MS      150 // ms
-#define PEAK_METER_DEBOUNCE_PHASES  2
-
 class AudioManager;
 
 using namespace Gdiplus;
 
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
-    constexpr static const char *SHADOW_WINDOW_KEY = "EasymicIndicator";
+    static constexpr UINT ID_PEAK_TIMER = WM_USER + 100;
+    static constexpr int PEAK_TIMER_INTERVAL_MS = 150;  // milliseconds
+    static constexpr int PEAK_METER_DEBOUNCE_PHASES = 2;
+    static constexpr const char *SHADOW_WINDOW_KEY = "EasymicIndicator";
+    
+    // Window background color (RGBA)
+    static constexpr BYTE WND_BG_R = 24;
+    static constexpr BYTE WND_BG_G = 27;
+    static constexpr BYTE WND_BG_B = 40;
+    static constexpr BYTE WND_BG_ALPHA = 220;
+    static constexpr float WND_CORNER_RADIUS = 10.0f;
 
     int OnCaptureStateChangedId = -1;
     int OnCaptureSessionPropertyChangedId = -1;
@@ -226,13 +233,11 @@ private:
             return;
         }
 
-
-#define WND_BACKGROUND RGB(24,27,40)
         GraphicsPath path;
         RectF rect(0, 0, static_cast<float>(ctx.width), static_cast<float>(ctx.height));
 
-        GDIRenderer::CreateRoundedRectPath(path, rect, 10.0f);
-        SolidBrush brush(Color(220, GetRValue(WND_BACKGROUND), GetGValue(WND_BACKGROUND), GetBValue(WND_BACKGROUND)));
+        GDIRenderer::CreateRoundedRectPath(path, rect, WND_CORNER_RADIUS);
+        SolidBrush brush(Color(WND_BG_ALPHA, WND_BG_R, WND_BG_G, WND_BG_B));
         ctx.graphics->FillPath(&brush, &path);
 
         Bitmap iconBitmap(iconToDisplay);

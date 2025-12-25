@@ -2,8 +2,8 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMICTESTING_AUDIOMANAGER_H
-#define EASYMICTESTING_AUDIOMANAGER_H
+#ifndef EASYMIC_AUDIOMANAGER_HPP
+#define EASYMIC_AUDIOMANAGER_HPP
 
 
 #include <future>
@@ -186,4 +186,4 @@ private:
 
 };
 
-#endif //EASYMICTESTING_AUDIOMANAGER_H
+#endif //EASYMIC_AUDIOMANAGER_HPP

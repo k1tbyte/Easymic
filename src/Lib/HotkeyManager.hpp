@@ -11,8 +11,11 @@
 #include <functional>
 
 namespace Keys {
-    constexpr uint8_t KEY_RELEASED = 0;
-    constexpr uint8_t KEY_PRESSED = 1;
+
+    typedef enum {
+        KEY_RELEASED = 0,
+        KEY_PRESSED  = 1
+    } State;
 
     typedef enum {
         MOD_NONE   = 0x00,
@@ -61,12 +64,7 @@ namespace HotkeyManager {
         MOUSE = 2
     };
 
-    enum InputState {
-        PRESSED = 1,
-        RELEASED = 2
-    };
-
-    using BindingCallback = std::function<void(uint8_t lastCode, InputState lastState, uint64_t sequenceMask, const std::string& hotkeyName)>;
+    using BindingCallback = std::function<void(uint8_t lastCode, Keys::State lastState, uint64_t sequenceMask, const std::string& hotkeyName)>;
 
 
 

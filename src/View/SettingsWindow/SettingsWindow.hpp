@@ -112,6 +112,9 @@ private:
     HWND hwndCancelButton_ = nullptr;
     HWND hwndVersionLabel_ = nullptr;
     HBRUSH hGrayBrush_ = nullptr;
+    HFONT hButtonFont_ = nullptr;
+    HFONT hVersionFont_ = nullptr;
+    HFONT hGroupBoxFont_ = nullptr;
     int currentCategoryId_ = -1;
 
 

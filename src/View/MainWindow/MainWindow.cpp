@@ -14,7 +14,6 @@ MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
 MainWindow::~MainWindow() {
     if (currentIcon_) {
         DestroyIcon(currentIcon_);
-        MessageBoxA(nullptr, "Destroyed icon", "Debug", MB_OK);
     }
 }
 

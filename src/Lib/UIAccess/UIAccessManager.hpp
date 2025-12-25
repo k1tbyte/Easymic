@@ -2,8 +2,8 @@
 // Created by kitbyte on 03.11.2025.
 //
 
-#ifndef EASYMICTESTING_UIACCESSMANAGER_H
-#define EASYMICTESTING_UIACCESSMANAGER_H
+#ifndef EASYMIC_UIACCESSMANAGER_HPP
+#define EASYMIC_UIACCESSMANAGER_HPP
 
 #include <windows.h>
 
@@ -18,4 +18,4 @@ public:
     static HWND GetOrCreateWindow(const char* key, DWORD exStyle, DWORD style);
     static bool InjectDisplayAffinity(HWND hWnd, DWORD affinity);
 };
-#endif //EASYMICTESTING_UIACCESSMANAGER_H
+#endif //EASYMIC_UIACCESSMANAGER_HPP
