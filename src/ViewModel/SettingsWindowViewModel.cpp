@@ -414,11 +414,11 @@ void SettingsWindowViewModel::HandleHotkeyBinding(HWND hWnd, int index, LPCSTR i
 
     HotkeyManager::BindStart([this, index, itemText](
         uint8_t vkCode,
-        HotkeyManager::InputState state,
+        Keys::State state,
         uint64_t sequenceMask,
         const std::string& hotkeyName) {
 
-        if (state != HotkeyManager::InputState::RELEASED) {
+        if (state != Keys::State::KEY_RELEASED) {
             _prevSequenceMask = sequenceMask;
             this->_view->SetHotkeyCellValue(index, hotkeyName.c_str());
             return;

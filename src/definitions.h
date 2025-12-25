@@ -27,9 +27,17 @@ using Microsoft::WRL::ComPtr;
         throw std::runtime_error(msg); \
     }
 
+#define LOGGING_ENABLED 0
+
+#define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
+
 // Logging macros - always enabled for now
+#if LOGGING_ENABLED
 #define LOG_INFO(...) Logger::Info(__VA_ARGS__)
 #define LOG_WARNING(...) Logger::Warning(__VA_ARGS__)
-#define LOG_ERROR(...) Logger::Error(__VA_ARGS__)
+#else
+#define LOG_INFO(...)
+#define LOG_WARNING(...)
+#endif
 
 #endif //EASYMIC_DEFINITIONS_H

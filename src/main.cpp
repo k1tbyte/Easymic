@@ -49,8 +49,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GdiplusStartupInput input;
     GdiplusStartup(&token_, &input, nullptr);
 
-    // Initialize Logger
-    InitializeLogger();
     
     // Initialize global version
     g_AppVersion = Version::GetCurrentVersion();

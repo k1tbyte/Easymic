@@ -8,6 +8,7 @@
 
 #include <filesystem>
 
+#include "HotkeyManager.hpp"
 #include "RateLimiter.hpp"
 #include "SettingsWindowViewModel.hpp"
 #include "UACService.hpp"

@@ -6,9 +6,13 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include <array>
 #include "Win32Hook.hpp"
 
-//#define KEYLOG
+/*#define KEYLOG(x, ...) \
+    printf("[HotkeyManager] " x "\n", __VA_ARGS__)*/
+
+#define KEYLOG(x, ...)
 
 #pragma region [PRIVATE] Hotkeys name table
 
@@ -253,6 +257,18 @@ constexpr const char* KeysNameTable[255] = {
     nullptr,
     "<",                 // VK_OEM_102 0xE2
 };
+
+constexpr std::array<uint8_t, 256> MakeModifierTable() {
+    std::array<uint8_t, 256> table{};
+    table[VK_LCONTROL] = Keys:: Modifier::MOD_LCTRL;
+    table[VK_LSHIFT]   = Keys::Modifier::MOD_LSHIFT;
+    table[VK_LMENU]    = Keys:: Modifier::MOD_LALT;
+    table[VK_RCONTROL] = Keys::Modifier::MOD_RCTRL;
+    table[VK_RSHIFT]   = Keys::Modifier:: MOD_RSHIFT;
+    table[VK_RMENU]    = Keys::Modifier:: MOD_RALT;
+    return table;
+}
+
 #pragma endregion
 
 namespace  HotkeyManager {
@@ -264,41 +280,46 @@ namespace  HotkeyManager {
     uint8_t _keys[255];
     std::unique_ptr<Win32Hook> _keyboardHook = nullptr;
     std::unique_ptr<Win32Hook> _mouseHook = nullptr;
+    constexpr auto ModifierTable = MakeModifierTable();
 
 
-    constexpr uint64_t _getModifierBit(uint8_t vkCode) {
-        switch (vkCode) {
-            case VK_LCONTROL: return Keys::Modifier::MOD_LCTRL;  // Bit 2
-            case VK_LSHIFT:   return Keys::Modifier::MOD_LSHIFT; // Bit 3
-            case VK_LMENU:    return Keys::Modifier::MOD_LALT;   // Bit 4
-            case VK_RCONTROL: return Keys::Modifier::MOD_RCTRL;  // Bit 5
-            case VK_RSHIFT:   return Keys::Modifier::MOD_RSHIFT; // Bit 6
-            case VK_RMENU:    return Keys::Modifier::MOD_RALT;   // Bit 7
-            default:          return Keys::Modifier::MOD_NONE;
+    void _raiseAction(Keys::State state, uint8_t vkCode) {
+
+        const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
+
+        if (const auto it = _hotkeys.find(singleMask); it != _hotkeys.end()) {
+            if (state == Keys::State::KEY_PRESSED && it->second.onPress) {
+                KEYLOG("Raising hotkey keypress | name: %s", GetHotkeyName(_sequenceMask).c_str());
+                it->second.onPress();
+            } else if (state == Keys::State::KEY_RELEASED && it->second.onRelease) {
+                KEYLOG("Raising hotkey keyrelease | name: %s", GetHotkeyName(_sequenceMask).c_str());
+                it->second.onRelease();
+            }
         }
-    }
 
-    auto _getBinding(const uint8_t currentCode) {
-        if (currentCode > 0) {
-            return _hotkeys.find(static_cast<uint64_t>(currentCode) << 8);
+        if (singleMask == _sequenceMask) {
+            return;
         }
-        return _hotkeys.find(_sequenceMask);
+
+        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end()) {
+            if (state == Keys::State::KEY_PRESSED && it->second.onPress) {
+                KEYLOG("Raising hotkey keypress | name: %s", GetHotkeyName(_sequenceMask).c_str());
+                it->second.onPress();
+            } else if (state == Keys::State::KEY_RELEASED && it->second.onRelease) {
+                KEYLOG("Raising hotkey keyrelease | name: %s", GetHotkeyName(_sequenceMask).c_str());
+                it->second.onRelease();
+            }
+        }
     }
 
     void _onKeyRelease(const uint8_t vkCode) {
 
-        if (const auto it = _getBinding(vkCode); it != _hotkeys.end() && it->second.onRelease) {
-#ifdef KEYLOG
-            printf("Raising hotkey keyrelease | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
-#endif
-            it->second.onRelease();
+        if (!_onBindingCallback) {
+            _raiseAction(Keys::State::KEY_RELEASED, vkCode);
         }
 
-        if (const auto modifierBit = _getModifierBit(vkCode)) {
+        if (const auto modifierBit = ModifierTable[vkCode]) {
             _sequenceMask &= ~modifierBit;
-#ifdef KEYLOG
-            printf("Modifier released | mask: 0x%.16llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
-#endif
         } else {
             const uint8_t modifiers = _sequenceMask & 0xFF;
             const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
@@ -310,24 +331,19 @@ namespace  HotkeyManager {
             _sequenceMask = lastKeyPressed == vkCode ? (((_sequenceMask >> 16) << 8) | modifiers) : modifiers;
         }
 
+        KEYLOG("Key released | mask: 0x%.16llX, vkCode hex: 0x%02X, name: %s", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
 
         if (_onBindingCallback) {
-            _onBindingCallback(vkCode, RELEASED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(vkCode, Keys::State::KEY_RELEASED, _sequenceMask, GetHotkeyName(_sequenceMask));
             // Skip hotkey handling if in binding mode
             return;
         }
 
-#ifdef KEYLOG
-        printf("Key released | mask: 0x%.16llX, vkCode hex: 0x%02X\n", _sequenceMask, vkCode);
-#endif
     }
 
     void _onKeyPress(const uint8_t vkCode) {
-        if (const auto modifierBit = _getModifierBit(vkCode)) {
+        if (const auto modifierBit = ModifierTable[vkCode]) {
             _sequenceMask |= modifierBit;
-#ifdef KEYLOG
-            printf("Modifier pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
-#endif
         } else {
             // 1. Save the current (first) byte of modifiers
             const uint8_t modifiers = _sequenceMask & 0xFF;
@@ -339,23 +355,16 @@ namespace  HotkeyManager {
             _sequenceMask = sequence | modifiers;
         }
 
+        KEYLOG("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
+
         if (_onBindingCallback) {
-            _onBindingCallback(vkCode, PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(vkCode, Keys::State::KEY_PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
             // Skip hotkey handling if in binding mode
             return;
         }
 
-#ifdef KEYLOG
-        printf("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s\n", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
-#endif
 
-        if (const auto it = _getBinding(vkCode); it != _hotkeys.end() && it->second.onPress) {
-#ifdef KEYLOG
-            printf("Raising hotkey keypress | name: %s\n", GetHotkeyName(_sequenceMask).c_str());
-#endif
-            it->second.onPress();
-        }
-
+        _raiseAction(Keys::State::KEY_PRESSED, vkCode);
     }
 
     LRESULT CALLBACK _lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -392,24 +401,28 @@ namespace  HotkeyManager {
 
             case WM_XBUTTONUP:
                 keyup = true;
+                [[fallthrough]];
             case WM_XBUTTONDOWN:
                 vkCode = (pMouseStruct->mouseData >> 16) + 4;
                 break;
 
             case WM_LBUTTONUP:
                 keyup = true;
+                [[fallthrough]];
             case WM_LBUTTONDOWN:
                 vkCode = VK_LBUTTON;
                 break;
 
             case WM_MBUTTONUP:
                 keyup = true;
+                [[fallthrough]];
             case WM_MBUTTONDOWN:
                 vkCode = VK_MBUTTON;
                 break;
 
             case WM_RBUTTONUP:
                 keyup = true;
+                [[fallthrough]];
             case WM_RBUTTONDOWN:
                 vkCode = VK_RBUTTON;
                 break;
@@ -493,7 +506,7 @@ namespace  HotkeyManager {
         _onBindingCallback = callback;
         if (_sequenceMask != 0) {
             const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
-            _onBindingCallback(lastKeyPressed, PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(lastKeyPressed, Keys::State::KEY_PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
         }
     }
 
