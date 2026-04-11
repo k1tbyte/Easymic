@@ -57,6 +57,7 @@ private:
     bool hasCaptureDevice = false;
     bool captureDeviceMuted = false;
     float captureDeviceVolume = -1.0f;
+    int8_t _prevBellVolume = 25;
 
     bool isPeakMeterActive = false;
     int peakMeterPhase = 0;
@@ -86,6 +87,10 @@ private:
         mic.SetVolumePercent(std::max<BYTE>(currentVolume - 10, 0));
     };
 
+    const std::function<void()> HotkeyToggleBell = [this] {
+        ToggleBellSound();
+    };
+
     std::unordered_map<std::string, HotkeyManager::HotkeyBinding> hotkeyHandlers = {
         {
             HotkeyTitles.ToggleMute, {HotkeyToggleMute}
@@ -97,7 +102,8 @@ private:
             }
         },
         {HotkeyTitles.MicVolumeUp, {HotkeyVolumeUp}},
-        {HotkeyTitles.MicVolumeDown, {HotkeyVolumeDown}}
+        {HotkeyTitles.MicVolumeDown, {HotkeyVolumeDown}},
+        {HotkeyTitles.ToggleBellSound, {HotkeyToggleBell}}
     };
 
     std::unordered_map<uint64_t, HotkeyManager::HotkeyBinding> activeHotkeys;
@@ -138,7 +144,19 @@ private:
     }
 
     void AdjustAppVolume() const {
-        _audio.PlaybackDevice()->SetSimpleVolumePercent(_cfg.BellVolume);
+        const WORD vol = static_cast<WORD>(_cfg.BellVolume * 0xFFFF / 100);
+        waveOutSetVolume(nullptr, MAKELONG(vol, vol));
+    }
+
+    void ToggleBellSound() {
+        if (_cfg.BellVolume > 0) {
+            _prevBellVolume = _cfg.BellVolume;
+            _cfg.BellVolume = 0;
+        } else {
+            _cfg.BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
+        }
+        AdjustAppVolume();
+        _cfg.Save();
     }
 
     void RestoreConfig() {
@@ -200,6 +218,9 @@ private:
         switch (commandId) {
             case ID_APP_EXIT:
                 PostQuitMessage(0);
+                break;
+            case ID_APP_TOGGLE_BELL:
+                ToggleBellSound();
                 break;
             case ID_APP_SETTINGS:
 

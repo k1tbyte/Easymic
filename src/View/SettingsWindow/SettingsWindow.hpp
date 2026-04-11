@@ -15,6 +15,7 @@ static inline struct  {
     const char* PushToTalk = "Push to talk";
     const char* MicVolumeUp = "Mic volume up";
     const char* MicVolumeDown = "Mic volume down";
+    const char* ToggleBellSound = "Toggle bell sound";
 } HotkeyTitles;
 #pragma pack(pop)
 
