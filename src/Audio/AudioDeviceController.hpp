@@ -10,6 +10,7 @@
 #include <cmath>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 
 #include "EventHandlers/SessionCreateEventsHandler.hpp"
 #include "EventHandlers/VolumeEventsHandler.hpp"
@@ -64,7 +65,7 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
     PROPVARIANT deviceNameProp{};
 
 
-    std::unordered_map<IAudioSessionControl *, ComPtr<SessionStateEventsHandler> > audioSessions;
+    std::unordered_map<IAudioSessionControl *, ComPtr<SessionStateEventsHandler>> audioSessions;
 
     mutable std::mutex audioSessionMutex;
     std::atomic<int> _activeSessionsCount{0};
@@ -253,9 +254,6 @@ public:
         }
 
         IterateSessions([this](const ComPtr<IAudioSessionControl> &control, int i) {
-            if (GetSessionState(control) == AudioSessionStateActive) {
-                ++_activeSessionsCount;
-            }
             this->_watchForSessionStateChanges(control);
         });
 
@@ -268,13 +266,15 @@ public:
             }
 
             LOG_SESSION("New session {%p} created", control);
-            _this->_watchForSessionStateChanges(control);
+            _this->_watchForSessionStateChanges(control, true);
         });
 
         sessionManager->RegisterSessionNotification(sessionCreateHandler.Get());
     }
 
     void StopWatchingForSessions() {
+        std::lock_guard lock(audioSessionMutex);
+
         if (!sessionCreateHandler || !sessionManager) {
             return;
         }
@@ -321,7 +321,7 @@ public:
     }
 
 private:
-    void _watchForSessionStateChanges(const ComPtr<IAudioSessionControl> &sessionControl) {
+    void _watchForSessionStateChanges(const ComPtr<IAudioSessionControl> &sessionControl, const bool notifyConnected = false) {
         if (audioSessions.contains(sessionControl.Get())) {
             return;
         }
@@ -361,7 +361,17 @@ private:
 
         sessionControl->RegisterAudioSessionNotification(eventHandler.Get());
         audioSessions[sessionControl.Get()] = eventHandler;
+
+        // Count session if it's already active at registration time
+        if (GetSessionState(sessionControl) == AudioSessionStateActive) {
+            ++_activeSessionsCount;
+        }
+
         LOG_SESSION("Started watching session {%p}", sessionControl.Get());
+
+        if (notifyConnected && OnSessionPropertyChanged) {
+            (*OnSessionPropertyChanged)(sessionControl, Connected);
+        }
     }
 };
 

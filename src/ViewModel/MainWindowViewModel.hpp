@@ -350,7 +350,6 @@ public:
         unmutedIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_UNMUTED));
         activeIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_ACTIVE));
 
-
         AttachListeners();
         _view->CreateTrayIcon(nullptr, L"");
 

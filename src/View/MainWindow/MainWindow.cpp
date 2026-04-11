@@ -90,6 +90,11 @@ void MainWindow::SetupMessageHandlers() {
         return OnPaint(wp, lp);
     });
 
+    RegisterMessageHandler(WM_MOVE, [this](WPARAM wp, LPARAM lp) {
+        UpdateRect();
+        return 0;
+    });
+
     RegisterMessageHandler(WM_CLOSE, [this](WPARAM wp, LPARAM lp) {
         return OnClose(wp, lp);
     });
@@ -143,16 +148,25 @@ LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
 LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
 
     auto hwnd = GetEffectiveHandle();
-    // ALWAYS use BeginPaint / EndPaint in WM_PAINT handler
-    // If we don't do this, Windows will think that the window is not painted
-    // and will keep sending WM_PAINT messages in an endless loop
-    BeginPaint(hwnd, nullptr);
-    if (_onRender) {
-        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, _onRender);
+    PAINTSTRUCT paintStruct{};
+    const bool paintsOwnedWindow = hwnd == GetHandle();
+
+    if (paintsOwnedWindow) {
+        // ALWAYS use BeginPaint / EndPaint in WM_PAINT handler for windows we own.
+        // The shadow window lives in a foreign UIAccess process and is only used as a render target.
+        BeginPaint(hwnd, &paintStruct);
     }
 
-    EndPaint(hwnd, nullptr);
-    ValidateRect(hwnd, nullptr);
+    if (_onRender) {
+        const POINT windowPos{GetPositionX(), GetPositionY()};
+        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, windowPos, _onRender);
+    }
+
+    if (paintsOwnedWindow) {
+        EndPaint(hwnd, &paintStruct);
+        ValidateRect(hwnd, nullptr);
+    }
+
     return 0;
 }
 
@@ -174,7 +188,7 @@ LRESULT MainWindow::OnTrayIconMessage(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT MainWindow::OnExitSizeMove(WPARAM wParam, LPARAM lParam) {
-    // Can add callback for position saving
+    UpdateRect();
     return 0;
 }
 

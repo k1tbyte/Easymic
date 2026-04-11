@@ -2,6 +2,7 @@
     #define EASYMIC_BASEWINDOW_HPP
 
     #include <cstdio>
+    #include <algorithm>
     #include <windows.h>
     #include <functional>
     #include <memory>
@@ -228,6 +229,19 @@
         std::shared_ptr<BaseWindow> _refreshPos(HWND hWnd, HWND insertAfter) {
             if (!hWnd) {
                 return shared_from_this();
+            }
+
+            const POINT anchor{_pos.x, _pos.y};
+            const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
+            if (monitor) {
+                MONITORINFO monitorInfo{sizeof(MONITORINFO)};
+                if (GetMonitorInfoW(monitor, &monitorInfo)) {
+                    const auto &workArea = monitorInfo.rcWork;
+                    const LONG maxX = std::max(workArea.left, workArea.right - _size.x);
+                    const LONG maxY = std::max(workArea.top, workArea.bottom - _size.y);
+                    _pos.x = std::clamp(_pos.x, workArea.left, maxX);
+                    _pos.y = std::clamp(_pos.y, workArea.top, maxY);
+                }
             }
 
             SetWindowPos(

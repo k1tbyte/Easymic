@@ -34,6 +34,10 @@ file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 
 add_executable(${PROJECT_NAME} #[[WIN32]])
 
+if(WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX)
+endif()
+
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         ole32

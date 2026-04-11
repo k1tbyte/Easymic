@@ -24,8 +24,8 @@ struct AppConfig {
 
     static inline std::string DefaultPath{};
 
-    uint16_t WindowPosX            = 0;
-    uint16_t WindowPosY            = 0;
+    int32_t WindowPosX             = 0;
+    int32_t WindowPosY             = 0;
     int8_t BellVolume              = 25;
     int8_t MicVolume               = -1;
     uint8_t IndicatorSize          = 16;
