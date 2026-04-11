@@ -474,8 +474,8 @@ void SettingsWindowViewModel::Init() {
 
     _view->OnApply += [this]() {
         MainWnd->UpdateRect();
-        _cfg.WindowPosX = static_cast<USHORT>(MainWnd->GetPositionX());
-        _cfg.WindowPosY = static_cast<USHORT>(MainWnd->GetPositionY());
+        _cfg.WindowPosX = MainWnd->GetPositionX();
+        _cfg.WindowPosY = MainWnd->GetPositionY();
 
         if (_cfg != _cfgPrev) {
             _cfg.Save();

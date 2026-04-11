@@ -21,7 +21,7 @@
  */
 
 namespace GDIRenderer {
-    static void RenderLayeredWindow(HWND hwnd, int width, int height, const RenderCallback &renderFunc) {
+    static void RenderLayeredWindow(HWND hwnd, int width, int height, const POINT &windowPos, const RenderCallback &renderFunc) {
         if (!hwnd || !renderFunc) {
             return;
         }
@@ -33,7 +33,7 @@ namespace GDIRenderer {
 
         HDC hdcMem = CreateCompatibleDC(hdcScreen);
         if (!hdcMem) {
-            ReleaseDC(nullptr, hdcScreen);
+            ReleaseDC(hwnd, hdcScreen);
             return;
         }
 
@@ -50,7 +50,7 @@ namespace GDIRenderer {
         HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pvBits, nullptr, 0);
         if (!hBitmap) {
             DeleteDC(hdcMem);
-            ReleaseDC(nullptr, hdcScreen);
+            ReleaseDC(hwnd, hdcScreen);
             return;
         }
 
@@ -67,12 +67,8 @@ namespace GDIRenderer {
         RenderContext ctx{&graphics, width, height};
         renderFunc(ctx);
 
-        // Update layered window
-        RECT rcWnd;
-        GetWindowRect(hwnd, &rcWnd);
-
         POINT ptSrc = {0, 0};
-        POINT ptDst = {rcWnd.left, rcWnd.top};
+        POINT ptDst = windowPos;
         SIZE sizeWnd = {width, height};
         BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
 
@@ -82,7 +78,7 @@ namespace GDIRenderer {
         SelectObject(hdcMem, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMem);
-        ReleaseDC(nullptr, hdcScreen);
+        ReleaseDC(hwnd, hdcScreen);
     }
 }
 
