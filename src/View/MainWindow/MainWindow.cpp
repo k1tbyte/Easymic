@@ -224,6 +224,11 @@ void MainWindow::ShowTrayContextMenu() {
         return;
     }
 
+    const bool bellEnabled = appConfig_.BellVolume > 0;
+    InsertMenuA(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
+               ID_APP_TOGGLE_BELL,
+               bellEnabled ? "Disable bell sound" : "Enable bell sound");
+
     POINT cursor;
     GetCursorPos(&cursor);
 

@@ -19,6 +19,7 @@
 #define IDR_TRAY_MENU	    100
 #define ID_APP_EXIT         40009
 #define ID_APP_SETTINGS     40010
+#define ID_APP_TOGGLE_BELL  40011
 
 
 //////////////////////////////////////////////////////////////////////////////
