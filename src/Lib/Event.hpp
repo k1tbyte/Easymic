@@ -6,7 +6,9 @@
 #define EASYMIC_EVENT_HPP
 
 #include <functional>
+#include <mutex>
 #include <unordered_map>
+#include <vector>
 
 template<typename... Args>
 class IEvent {
@@ -21,11 +23,13 @@ class Event final : public IEvent<Args...> {
 private:
     using Handler = std::function<void(Args...)>;
     std::unordered_map<int, Handler> handlers_;
+    mutable std::mutex mutex_;
     int nextId_ = 0;
 
 public:
     // Subscribe - returns ID
     int operator+=(Handler handler) override {
+        std::lock_guard lock(mutex_);
         int id = nextId_++;
         handlers_[id] = std::move(handler);
         return id;
@@ -33,6 +37,7 @@ public:
 
     // Unsubscribe by ID
     void operator-=(int id) override {
+        std::lock_guard lock(mutex_);
         handlers_.erase(id);
     }
 
@@ -41,12 +46,21 @@ public:
     }
 
     void invoke(Args... args) {
-        for (auto& [id, handler] : handlers_) {
+        std::vector<Handler> snapshot;
+        {
+            std::lock_guard lock(mutex_);
+            snapshot.reserve(handlers_.size());
+            for (auto& [id, handler] : handlers_) {
+                snapshot.push_back(handler);
+            }
+        }
+        for (auto& handler : snapshot) {
             handler(args...);
         }
     }
 
     void clear() {
+        std::lock_guard lock(mutex_);
         handlers_.clear();
     }
 };

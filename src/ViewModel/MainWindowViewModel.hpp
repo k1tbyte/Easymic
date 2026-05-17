@@ -408,6 +408,9 @@ public:
         if (unmutedIcon) {
             DestroyIcon(unmutedIcon);
         }
+        if (activeIcon) {
+            DestroyIcon(activeIcon);
+        }
     }
 };
 #endif //EASYMIC_MAINWINDOWVIEWMODEL_HPP

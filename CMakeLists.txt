@@ -51,6 +51,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         wininet
         taskschd
         shell32
+        Shcore
         glaze::glaze
 )
 

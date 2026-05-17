@@ -9,42 +9,36 @@
 
 std::string Logger::logFilePath_;
 std::mutex Logger::logMutex_;
-bool Logger::initialized_ = false;
+std::once_flag Logger::initFlag_;
 Event<Logger::Level, const std::string&, const std::string&> Logger::OnLogAdded;
 Event<> Logger::OnLogCleared;
 
 
 void Logger::Initialize() {
+    std::call_once(initFlag_, []() {
+        wchar_t modulePath[MAX_PATH];
+        if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
+            return;
+        }
 
-    if (initialized_) {
-        return;
-    }
+        std::wstring wPath(modulePath);
+        std::string logPath(wPath.begin(), wPath.end());
 
-    wchar_t modulePath[MAX_PATH];
-    if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
-        return;
-    }
+        size_t pos = logPath.find_last_of("\\");
+        if (pos != std::string::npos) {
+            logPath = logPath.substr(0, pos + 1) + "easymic.log";
+        } else {
+            logPath = "easymic.log";
+        }
 
-    std::wstring wPath(modulePath);
-    std::string logPath(wPath.begin(), wPath.end());
+        std::lock_guard<std::mutex> lock(logMutex_);
+        logFilePath_ = logPath;
 
-    size_t pos = logPath.find_last_of("\\");
-    if (pos != std::string::npos) {
-        logPath = logPath.substr(0, pos + 1) + "easymic.log";
-    } else {
-        logPath = "easymic.log";
-    }
+        std::filesystem::path path(logPath);
+        std::filesystem::create_directories(path.parent_path());
 
-    std::lock_guard<std::mutex> lock(logMutex_);
-    logFilePath_ = logPath;
-    initialized_ = true;
-    
-    // Create directory if needed
-    std::filesystem::path path(logPath);
-    std::filesystem::create_directories(path.parent_path());
-    
-    // Check log file size and delete if too large
-    CheckLogFileSize();
+        CheckLogFileSize();
+    });
 }
 
 void Logger::CheckLogFileSize() {
@@ -83,7 +77,7 @@ std::string Logger::FormatString(const char* format, va_list args) {
 
 void Logger::LogImpl(Level level, const std::string& message) {
     Initialize();
-    if (!initialized_) {
+    if (logFilePath_.empty()) {
         return;
     }
 
@@ -138,7 +132,7 @@ void Logger::Error(const char* format, ...) {
 
 std::string Logger::GetLogText() {
     Initialize();
-    if (!initialized_) {
+    if (logFilePath_.empty()) {
         return "";
     }
     
@@ -160,7 +154,7 @@ std::string Logger::GetLogText() {
 
 void Logger::ClearLog() {
     Initialize();
-    if (!initialized_) {
+    if (logFilePath_.empty()) {
         return;
     }
     

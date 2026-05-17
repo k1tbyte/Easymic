@@ -23,6 +23,8 @@ public:
         return std::unique_ptr<Win32Hook>(new Win32Hook(idHook, callback, hInstance, dwThreadId));
     }
 
+    bool IsValid() const { return _hook != nullptr; }
+
     ~Win32Hook() {
         if (_hook) {
             UnhookWindowsHookEx(_hook);

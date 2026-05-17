@@ -5,6 +5,7 @@
 #include <mutex>
 #include <chrono>
 #include <cstdarg>
+#include <mutex>
 #include "Event.hpp"
 
 /**
@@ -34,7 +35,7 @@ public:
 private:
     static std::string logFilePath_;
     static std::mutex logMutex_;
-    static bool initialized_;
+    static std::once_flag initFlag_;
     static constexpr size_t MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 
     static std::string GetTimestamp();

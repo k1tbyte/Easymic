@@ -17,6 +17,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
+        CloseHandle(mutex);
         return 0;
     }
 
@@ -26,6 +27,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (!CrashHandler::Initialize({ .logCallback = logCallback})) {
         LOG_ERROR("Failed to initialize CrashHandler");
+        CloseHandle(mutex);
         return 1;
     }
 
@@ -35,6 +37,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (UAC::RunWithSkipUAC()) {
             // Successfully started elevated instance, close this one
             ReleaseMutex(mutex);
+            CloseHandle(mutex);
             return 0;
         }
         MessageBoxA(nullptr,
@@ -74,7 +77,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         });
     }
 
-    auto manager = AudioManager();
+    static auto manager = AudioManager();
     manager.Init();
     LOG_INFO("AudioManager initialized successfully");
 
@@ -83,6 +86,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (!mainWindow->Initialize({})) {
         LOG_ERROR("Failed to initialize MainWindow");
+        CloseHandle(mutex);
         return 1;
     }
     
@@ -99,5 +103,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     ReleaseMutex(mutex);
+    CloseHandle(mutex);
     return 0;
 }

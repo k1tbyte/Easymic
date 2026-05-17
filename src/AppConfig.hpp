@@ -77,11 +77,13 @@ private:
 
 #ifdef CONFIG_ENABLED
         if (DefaultPath.empty()) {
-            wchar_t modulePath[MAX_PATH];
-            GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
-
-            const std::filesystem::path path{modulePath};
-            DefaultPath = (path.parent_path() / CONFIG_NAME).string();
+            wchar_t modulePath[MAX_PATH] = {};
+            if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
+                DefaultPath = "conf.b";
+            } else {
+                const std::filesystem::path path{modulePath};
+                DefaultPath = (path.parent_path() / CONFIG_NAME).string();
+            }
         }
 #endif // CONFIG_ENABLED
         return DefaultPath;

@@ -7,6 +7,7 @@
 
 
 #include <future>
+#include <mutex>
 #include <typeinfo>
 #include "EventHandlers/AudioDeviceEventsHandler.hpp"
 #include "AudioDeviceController.hpp"
@@ -33,8 +34,9 @@ class AudioManager {
     std::future<void> _captureReinitTask;
     std::future<void> _playbackReinitTask;
 
-    bool _captureWatching = false;
-    bool _playbackWatching  = false;
+    mutable std::mutex _deviceMutex;
+    std::atomic<bool> _captureWatching = false;
+    std::atomic<bool> _playbackWatching = false;
 
 public:
 
@@ -78,32 +80,28 @@ public:
         deviceEnumerator.Reset();
     }
 
-    void WatchForCaptureSessions()  {
-        if (_captureDevice) {
-            _captureDevice->WatchForSessions();
-        }
+    void WatchForCaptureSessions() {
         _captureWatching = true;
+        std::lock_guard lock(_deviceMutex);
+        if (_captureDevice) { _captureDevice->WatchForSessions(); }
     }
 
-    void WatchForPlaybackSessions()  {
-        if (_playbackDevice) {
-            _playbackDevice->WatchForSessions();
-        }
+    void WatchForPlaybackSessions() {
         _playbackWatching = true;
+        std::lock_guard lock(_deviceMutex);
+        if (_playbackDevice) { _playbackDevice->WatchForSessions(); }
     }
 
-    void StopWatchingForCaptureSessions()  {
-        if (_captureDevice) {
-            _captureDevice->StopWatchingForSessions();
-        }
+    void StopWatchingForCaptureSessions() {
         _captureWatching = false;
+        std::lock_guard lock(_deviceMutex);
+        if (_captureDevice) { _captureDevice->StopWatchingForSessions(); }
     }
 
-    void StopWatchingForPlaybackSessions()  {
-        if (_playbackDevice) {
-            _playbackDevice->StopWatchingForSessions();
-        }
+    void StopWatchingForPlaybackSessions() {
         _playbackWatching = false;
+        std::lock_guard lock(_deviceMutex);
+        if (_playbackDevice) { _playbackDevice->StopWatchingForSessions(); }
     }
 
     bool IsInitialized() const {
@@ -111,10 +109,12 @@ public:
     }
 
     std::shared_ptr<AudioDeviceController> CaptureDevice() const {
+        std::lock_guard lock(_deviceMutex);
         return _captureDevice;
     }
 
     std::shared_ptr<AudioDeviceController> PlaybackDevice() const {
+        std::lock_guard lock(_deviceMutex);
         return _playbackDevice;
     }
 
@@ -132,26 +132,31 @@ public:
 private:
 
     void _initCaptureDeviceController() {
-        _captureDevice                           = std::make_shared<AudioDeviceController>();
-        _captureDevice->OnDeviceStateChanged     = &this->_captureStateChanged;
-        _captureDevice->OnSessionPropertyChanged = &this->_captureSessionPropertyChanged;
-        _captureDevice->Init(deviceEnumerator, EDataFlow::eCapture, ERole::eCommunications);
+        auto newDevice = std::make_shared<AudioDeviceController>();
+        newDevice->OnDeviceStateChanged     = &this->_captureStateChanged;
+        newDevice->OnSessionPropertyChanged = &this->_captureSessionPropertyChanged;
+        newDevice->Init(deviceEnumerator, EDataFlow::eCapture, ERole::eCommunications);
 
         if (_captureWatching) {
-            _captureDevice->WatchForSessions();
+            newDevice->WatchForSessions();
         }
+
+        std::lock_guard lock(_deviceMutex);
+        _captureDevice = std::move(newDevice);
     }
 
     void _initPlaybackDeviceController() {
-        _playbackDevice                           = std::make_shared<AudioDeviceController>();
-        _playbackDevice->OnDeviceStateChanged     = &this->_playbackStateChanged;
-        _playbackDevice->OnSessionPropertyChanged = &this->_playbackSessionPropertyChanged;
-
-        _playbackDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
+        auto newDevice = std::make_shared<AudioDeviceController>();
+        newDevice->OnDeviceStateChanged     = &this->_playbackStateChanged;
+        newDevice->OnSessionPropertyChanged = &this->_playbackSessionPropertyChanged;
+        newDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
 
         if (_playbackWatching) {
-            _playbackDevice->WatchForSessions();
+            newDevice->WatchForSessions();
         }
+
+        std::lock_guard lock(_deviceMutex);
+        _playbackDevice = std::move(newDevice);
     }
 
     const std::function<void(EDataFlow, ERole, LPCWSTR)> _handleDeviceChanged = [this](EDataFlow flow, ERole role, LPCWSTR) {

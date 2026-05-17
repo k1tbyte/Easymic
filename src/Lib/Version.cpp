@@ -96,24 +96,24 @@ void Version::ParseVersionString(const std::string& versionString) {
 Version Version::LoadFromVersionResource() {
     wchar_t modulePath[MAX_PATH];
     if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
-       return Version(1, 2, 0, 0);
+       return Version(1, 2, 1, 0);
     }
 
     DWORD verHandle = 0;
     DWORD verSize = GetFileVersionInfoSizeW(modulePath, &verHandle);
     if (verSize == 0) {
-       return Version(1, 2, 0, 0);
+       return Version(1, 2, 1, 0);
     }
 
     std::vector<BYTE> verData(verSize);
     if (!GetFileVersionInfoW(modulePath, verHandle, verSize, verData.data())) {
-       return Version(1, 2, 0, 0);
+       return Version(1, 2, 1, 0);
     }
 
     VS_FIXEDFILEINFO* pFileInfo = nullptr;
     UINT puLenFileInfo = 0;
     if (!VerQueryValueW(verData.data(), L"\\", (VOID**)&pFileInfo, &puLenFileInfo)) {
-       return Version(1, 2, 0, 0);
+       return Version(1, 2, 1, 0);
     }
 
     // Extract version numbers

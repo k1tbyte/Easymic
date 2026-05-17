@@ -124,6 +124,7 @@ void MainWindow::SetupMessageHandlers() {
     // Restoring tray icon on Explorer restart
     const UINT taskbarCreatedMsg = RegisterWindowMessageA("TaskbarCreated");
     RegisterMessageHandler(taskbarCreatedMsg, [this](WPARAM wp, LPARAM lp) {
+        trayIcon_->Remove(); // clears isCreated_ even if NIM_DELETE fails (shell already lost it)
         if (currentIcon_) {
             CreateTrayIcon(currentIcon_, _currentTooltip);
         }

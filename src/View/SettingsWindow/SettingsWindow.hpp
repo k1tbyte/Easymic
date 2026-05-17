@@ -25,11 +25,15 @@ static inline struct  {
 class SettingsWindow : public BaseWindow {
 
 public:
-    // Layout constants
-    static constexpr int SIDE_MENU_WIDTH = 90;
-    static constexpr int MARGIN = 8;
-    static constexpr int BUTTON_AREA_HEIGHT = 30;
-    static constexpr int GROUPBOX_PADDING = 8;
+    static int Scale(int px, UINT dpi) { return MulDiv(px, static_cast<int>(dpi), 96); }
+
+    // Runtime DPI-scaled layout helpers
+    int SideMenuWidth()    const { return Scale(90, dpi_); }
+    int Margin()           const { return Scale(8,  dpi_); }
+    int ButtonAreaHeight() const { return Scale(30, dpi_); }
+    int GroupBoxPadding()  const { return Scale(8,  dpi_); }
+    int ButtonWidth()      const { return Scale(75, dpi_); }
+    int ButtonHeight()     const { return Scale(23, dpi_); }
 
     // Control IDs
     static constexpr int ID_TREEVIEW = 1001;
@@ -101,11 +105,16 @@ private:
     LRESULT OnSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
     LRESULT OnCtlColorStatic(WPARAM wParam, LPARAM lParam);
+    LRESULT OnDpiChanged(WPARAM wParam, LPARAM lParam);
+
+    void RebuildFonts();
+    void RepositionButtons();
 
     Event<> _onExit;
     Event<> _onApply;
 
     Config config_;
+    UINT dpi_ = 96;
     HWND hwndTreeView_ = nullptr;
     HWND hwndGroupBox_ = nullptr;
     HWND hwndContentDialog_ = nullptr;

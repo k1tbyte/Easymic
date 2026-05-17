@@ -1,6 +1,7 @@
 #include "SettingsWindow.hpp"
 
 #include <commctrl.h>
+#include <shellscalingapi.h>
 #include <string>
 #include <uxtheme.h>
 
@@ -9,7 +10,7 @@
 #include "../../Lib/Version.hpp"
 
 // Forward declaration
-static void InitializeHotkeysList(HWND hwndList);
+static void InitializeHotkeysList(HWND hwndList, UINT dpi);
 
 const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
@@ -63,6 +64,10 @@ void SettingsWindow::SetupMessageHandlers() {
     RegisterMessageHandler(WM_CTLCOLORSTATIC, [this](WPARAM wParam, LPARAM lParam) {
         return OnCtlColorStatic(wParam, lParam);
     });
+
+    RegisterMessageHandler(WM_DPICHANGED, [this](WPARAM wParam, LPARAM lParam) {
+        return OnDpiChanged(wParam, lParam);
+    });
 }
 
 void SettingsWindow::RegisterWindowClass() {
@@ -105,16 +110,17 @@ void SettingsWindow::CreateMainButtons() {
     RECT clientRect;
     GetClientRect(hwnd_, &clientRect);
 
-    static constexpr int BUTTON_WIDTH = 75;
-    static constexpr int BUTTON_HEIGHT = 23;
+    const int bw = ButtonWidth();
+    const int bh = ButtonHeight();
+    const int mg = Margin();
 
     // Create version label in bottom left corner (smaller and grayer)
     hwndVersionLabel_ = CreateWindowW(
         L"STATIC",
         L"", // Will be updated with actual version
         WS_VISIBLE | WS_CHILD | SS_LEFT,
-        MARGIN, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
-        150, BUTTON_HEIGHT,
+        mg, clientRect.bottom - bh - mg,
+        Scale(150, dpi_), bh,
         hwnd_,
         nullptr,
         hInstance_,
@@ -126,8 +132,8 @@ void SettingsWindow::CreateMainButtons() {
         L"BUTTON",
         L"OK",
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        clientRect.right - BUTTON_WIDTH * 2 - MARGIN * 2, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
-        BUTTON_WIDTH, BUTTON_HEIGHT,
+        clientRect.right - bw * 2 - mg * 2, clientRect.bottom - bh - mg,
+        bw, bh,
         hwnd_,
         (HMENU)IDOK,
         hInstance_,
@@ -139,37 +145,15 @@ void SettingsWindow::CreateMainButtons() {
         L"BUTTON",
         L"Cancel",
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        clientRect.right - BUTTON_WIDTH - MARGIN, clientRect.bottom - BUTTON_HEIGHT - MARGIN,
-        BUTTON_WIDTH, BUTTON_HEIGHT,
+        clientRect.right - bw - mg, clientRect.bottom - bh - mg,
+        bw, bh,
         hwnd_,
         (HMENU)IDCANCEL,
         hInstance_,
         nullptr
     );
 
-    // Set fonts - store for cleanup later
-    hButtonFont_ = CreateFontW(
-        -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
-    );
-
-    // Smaller font for version label
-    hVersionFont_ = CreateFontW(
-        -8, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
-    );
-
-    if (hwndOkButton_) {
-        SendMessage(hwndOkButton_, WM_SETFONT, (WPARAM)hButtonFont_, TRUE);
-    }
-    if (hwndCancelButton_) {
-        SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hButtonFont_, TRUE);
-    }
-    if (hwndVersionLabel_) {
-        SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hVersionFont_, TRUE);
-    }
+    RebuildFonts();
 }
 
 void SettingsWindow::Show() {
@@ -182,13 +166,17 @@ void SettingsWindow::Show() {
     // Register window class if not already registered
     RegisterWindowClass();
 
-    // Create window with same dimensions as IDD_SETTINGS (270x170 dialog units)
-    // Convert dialog units to pixels
-    RECT rect = {0, 0, 422, 315};
-
-
-    const int width = rect.right;
-    const int height = rect.bottom;
+    // GetDpiForSystem() returns DPI at process start — stale if user changed scaling.
+    // GetDpiForMonitor gives the live DPI of the monitor where the window will appear.
+    {
+        const POINT center = { GetSystemMetrics(SM_CXSCREEN) / 2, GetSystemMetrics(SM_CYSCREEN) / 2 };
+        HMONITOR hMon = MonitorFromPoint(center, MONITOR_DEFAULTTOPRIMARY);
+        UINT dpiX = 96, dpiY = 96;
+        GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+        dpi_ = dpiX;
+    }
+    const int width  = Scale(422, dpi_);
+    const int height = Scale(315, dpi_);
 
     // Center window on screen
     const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -216,6 +204,7 @@ void SettingsWindow::Show() {
         return;
     }
 
+    dpi_ = GetDpiForWindow(hwnd_);
     ShowWindow(hwnd_, SW_SHOW);
     isVisible_ = true;
 }
@@ -284,22 +273,48 @@ LRESULT SettingsWindow::OnSize(WPARAM wParam, LPARAM lParam) {
     RECT clientRect;
     GetClientRect(hwnd_, &clientRect);
 
+    const int mg  = Margin();
+    const int smw = SideMenuWidth();
+    const int bah = ButtonAreaHeight();
+    const int bw  = ButtonWidth();
+    const int bh  = ButtonHeight();
+
     if (hwndTreeView_) {
         SetWindowPos(hwndTreeView_, nullptr,
-                   MARGIN, MARGIN,
-                   SIDE_MENU_WIDTH, clientRect.bottom - BUTTON_AREA_HEIGHT - MARGIN * 2,
+                   mg, mg,
+                   smw, clientRect.bottom - bah - mg * 2,
                    SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (hwndGroupBox_) {
-        const int groupBoxX = MARGIN + SIDE_MENU_WIDTH + MARGIN;
+        const int groupBoxX = mg + smw + mg;
         SetWindowPos(hwndGroupBox_, nullptr,
-                   groupBoxX, MARGIN,
-                   clientRect.right - groupBoxX - MARGIN,
-                   clientRect.bottom - BUTTON_AREA_HEIGHT - MARGIN * 2,
+                   groupBoxX, mg,
+                   clientRect.right - groupBoxX - mg,
+                   clientRect.bottom - bah - mg * 2,
                    SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
+    if (hwndOkButton_) {
+        SetWindowPos(hwndOkButton_, nullptr,
+                   clientRect.right - bw * 2 - mg * 2, clientRect.bottom - bh - mg,
+                   bw, bh,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (hwndCancelButton_) {
+        SetWindowPos(hwndCancelButton_, nullptr,
+                   clientRect.right - bw - mg, clientRect.bottom - bh - mg,
+                   bw, bh,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (hwndVersionLabel_) {
+        SetWindowPos(hwndVersionLabel_, nullptr,
+                   mg, clientRect.bottom - bh - mg,
+                   Scale(150, dpi_), bh,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 
     UpdateGroupBoxLayout();
 
@@ -341,8 +356,11 @@ void SettingsWindow::CreateTreeView() {
     RECT clientRect;
     GetClientRect(hwnd_, &clientRect);
 
+    const int mg  = Margin();
+    const int smw = SideMenuWidth();
+
     // TreeView height = full height - top and bottom padding - button area
-    const int treeViewHeight = clientRect.bottom - (MARGIN * 2) - BUTTON_AREA_HEIGHT;
+    const int treeViewHeight = clientRect.bottom - (mg * 2) - ButtonAreaHeight();
 
     hwndTreeView_ = CreateWindowExW(
         WS_EX_STATICEDGE,
@@ -352,7 +370,7 @@ void SettingsWindow::CreateTreeView() {
         TVS_LINESATROOT | TVS_SHOWSELALWAYS |
         TVS_TRACKSELECT | TVS_FULLROWSELECT |
         TVS_DISABLEDRAGDROP,
-        MARGIN, MARGIN, SIDE_MENU_WIDTH, treeViewHeight,
+        mg, mg, smw, treeViewHeight,
         hwnd_,
         (HMENU)ID_TREEVIEW,
         hInstance_,
@@ -369,16 +387,18 @@ void SettingsWindow::CreateGroupBox() {
     RECT clientRect;
     GetClientRect(hwnd_, &clientRect);
 
-    // Position after TreeView + indent
-    constexpr int groupBoxX = MARGIN + SIDE_MENU_WIDTH + MARGIN;
-    const int groupBoxWidth = clientRect.right - groupBoxX - MARGIN;
-    const int groupBoxHeight = clientRect.bottom - BUTTON_AREA_HEIGHT - MARGIN * 2;
+    const int mg  = Margin();
+    const int smw = SideMenuWidth();
+
+    const int groupBoxX      = mg + smw + mg;
+    const int groupBoxWidth  = clientRect.right - groupBoxX - mg;
+    const int groupBoxHeight = clientRect.bottom - ButtonAreaHeight() - mg * 2;
 
     hwndGroupBox_ = CreateWindowW(
         L"BUTTON",
         L"",
         WS_VISIBLE | WS_CHILD | BS_GROUPBOX,
-        groupBoxX, MARGIN,
+        groupBoxX, mg,
         groupBoxWidth, groupBoxHeight,
         hwnd_,
         (HMENU)ID_GROUPBOX,
@@ -387,9 +407,8 @@ void SettingsWindow::CreateGroupBox() {
     );
 
     if (hwndGroupBox_) {
-        // Set the bold font for the groupbox title - store for cleanup later
         hGroupBoxFont_ = CreateFontW(
-            -12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            Scale(-12, dpi_), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"MS Shell Dlg"
         );
@@ -547,17 +566,20 @@ LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPAR
 
 // Static dialog procedure for child dialogs
 static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    static SettingsWindow* settingsWindow = nullptr;
+    SettingsWindow* settingsWindow = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (message) {
         case WM_INITDIALOG:
             settingsWindow = reinterpret_cast<SettingsWindow*>(lParam);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(settingsWindow));
             // Initialize ListView for hotkeys dialog
             if (GetDlgItem(hwnd, IDC_HOTKEYS_LIST)) {
-                ::InitializeHotkeysList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST));
+                const UINT dpi = settingsWindow ? GetDpiForWindow(settingsWindow->GetHandle()) : GetDpiForSystem();
+                ::InitializeHotkeysList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST), dpi);
             }
             break;
         case WM_COMMAND: {
+            if (!settingsWindow) { break; }
             switch (HIWORD(wParam)) {
                 case BN_CLICKED:
                     if (settingsWindow->OnButtonClick) {
@@ -571,12 +593,11 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
                         return TRUE;
                     }
                     break;
-                // Handle child dialog commands if needed
             }
             break;
         }
         case WM_HSCROLL:
-            if (LOWORD(wParam) != TB_ENDTRACK) {
+            if (settingsWindow && LOWORD(wParam) != TB_ENDTRACK) {
                 if (settingsWindow->OnTrackbarChange) {
                     settingsWindow->OnTrackbarChange(hwnd, GetDlgCtrlID((HWND)lParam),
                         SendMessage((HWND)lParam, TBM_GETPOS, 0, 0));
@@ -585,10 +606,9 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
             break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
-            if (pnmh->idFrom == IDC_HOTKEYS_LIST) {
+            if (settingsWindow && pnmh->idFrom == IDC_HOTKEYS_LIST) {
                 switch (pnmh->code) {
                     case NM_DBLCLK: {
-                        // Handle double click on hotkey item
                         LPNMITEMACTIVATE pnmia = (LPNMITEMACTIVATE)lParam;
                         if (pnmia->iItem != -1 && settingsWindow->OnHotkeyListChange) {
                             settingsWindow->OnHotkeyListChange(hwnd, pnmia->iItem, reinterpret_cast<char**>(&HotkeyTitles)[pnmia->iItem]);
@@ -638,15 +658,16 @@ void SettingsWindow::UpdateGroupBoxLayout() {
     RECT groupBoxRect;
     GetClientRect(hwndGroupBox_, &groupBoxRect);
 
-    constexpr int titleHeight = 20;
+    const int titleHeight = Scale(20, dpi_);
+    const int gbp = GroupBoxPadding();
     SetWindowPos(hwndContentDialog_, NULL,
-               GROUPBOX_PADDING, titleHeight + GROUPBOX_PADDING,
-               groupBoxRect.right - (GROUPBOX_PADDING * 2),
-               groupBoxRect.bottom - titleHeight - (GROUPBOX_PADDING * 2),
+               gbp, titleHeight + gbp,
+               groupBoxRect.right - (gbp * 2),
+               groupBoxRect.bottom - titleHeight - (gbp * 2),
                SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-static void InitializeHotkeysList(HWND hwndList) {
+static void InitializeHotkeysList(HWND hwndList, UINT dpi) {
     if (!hwndList) {
         return;
     }
@@ -661,15 +682,15 @@ static void InitializeHotkeysList(HWND hwndList) {
 
     // First column - Action name
     lvc.iSubItem = 0;
-    lvc.cxMin = 100;
+    lvc.cxMin = MulDiv(100, static_cast<int>(dpi), 96);
     lvc.pszText = const_cast<wchar_t*>(L"Action");
-    lvc.cx = 120;
+    lvc.cx = MulDiv(120, static_cast<int>(dpi), 96);
     SendMessage(hwndList, LVM_INSERTCOLUMNW, 0, (LPARAM)&lvc);
 
     // Second column - Key combination
     lvc.iSubItem = 1;
     lvc.pszText = const_cast<wchar_t*>(L"Key Combination");
-    lvc.cx = 130;
+    lvc.cx = MulDiv(130, static_cast<int>(dpi), 96);
     SendMessage(hwndList, LVM_INSERTCOLUMNW, 1, (LPARAM)&lvc);
 
     // Add sample data for UI demonstration
@@ -705,7 +726,7 @@ void SettingsWindow::UpdateVersionLabel() {
 
 LRESULT SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
     HWND hStatic = (HWND)lParam;
-    
+
     // Check if this is our version label
     if (hStatic == hwndVersionLabel_) {
         HDC hdc = (HDC)wParam;
@@ -713,7 +734,48 @@ LRESULT SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
         SetBkMode(hdc, TRANSPARENT);
         return (LRESULT)GetStockObject(NULL_BRUSH); // Transparent background
     }
-    
+
     return DefWindowProc(hwnd_, WM_CTLCOLORSTATIC, wParam, lParam);
+}
+
+void SettingsWindow::RebuildFonts() {
+    if (hButtonFont_)   { DeleteObject(hButtonFont_);   hButtonFont_   = nullptr; }
+    if (hVersionFont_)  { DeleteObject(hVersionFont_);  hVersionFont_  = nullptr; }
+    if (hGroupBoxFont_) { DeleteObject(hGroupBoxFont_); hGroupBoxFont_ = nullptr; }
+
+    hButtonFont_ = CreateFontW(
+        Scale(-11, dpi_), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
+    );
+
+    hVersionFont_ = CreateFontW(
+        Scale(-8, dpi_), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Ms Shell Dlg"
+    );
+
+    hGroupBoxFont_ = CreateFontW(
+        Scale(-12, dpi_), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"MS Shell Dlg"
+    );
+
+    if (hwndOkButton_)     { SendMessage(hwndOkButton_,     WM_SETFONT, (WPARAM)hButtonFont_,   TRUE); }
+    if (hwndCancelButton_) { SendMessage(hwndCancelButton_, WM_SETFONT, (WPARAM)hButtonFont_,   TRUE); }
+    if (hwndVersionLabel_) { SendMessage(hwndVersionLabel_, WM_SETFONT, (WPARAM)hVersionFont_,  TRUE); }
+    if (hwndGroupBox_)     { SendMessage(hwndGroupBox_,     WM_SETFONT, (WPARAM)hGroupBoxFont_, TRUE); }
+}
+
+LRESULT SettingsWindow::OnDpiChanged(WPARAM wParam, LPARAM lParam) {
+    dpi_ = HIWORD(wParam);
+    const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+    SetWindowPos(hwnd_, nullptr,
+        suggested->left, suggested->top,
+        suggested->right  - suggested->left,
+        suggested->bottom - suggested->top,
+        SWP_NOZORDER | SWP_NOACTIVATE);
+    RebuildFonts();
+    return 0;
 }
 

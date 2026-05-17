@@ -67,7 +67,7 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
 
     std::unordered_map<IAudioSessionControl *, ComPtr<SessionStateEventsHandler>> audioSessions;
 
-    mutable std::mutex audioSessionMutex;
+    mutable std::recursive_mutex audioSessionMutex;
     std::atomic<int> _activeSessionsCount{0};
     bool _isInitialized = false;
     BOOL _isMuted = false;
@@ -322,6 +322,8 @@ public:
 
 private:
     void _watchForSessionStateChanges(const ComPtr<IAudioSessionControl> &sessionControl, const bool notifyConnected = false) {
+        std::lock_guard lock(audioSessionMutex);
+
         if (audioSessions.contains(sessionControl.Get())) {
             return;
         }

@@ -28,7 +28,7 @@ constexpr struct {
     { 0x80, "RALT" }
 };
 
-constexpr const char* KeysNameTable[255] = {
+constexpr const char* KeysNameTable[256] = {
     nullptr,             // 0x00
     "MouseLeft",         // VK_LBUTTON 	0x01
     "MouseRight",        // VK_RBUTTON 	0x02
@@ -277,7 +277,7 @@ namespace  HotkeyManager {
     BindingCallback _onBindingCallback = nullptr;
 
 
-    uint8_t _keys[255];
+    uint8_t _keys[256];
     std::unique_ptr<Win32Hook> _keyboardHook = nullptr;
     std::unique_ptr<Win32Hook> _mouseHook = nullptr;
     constexpr auto ModifierTable = MakeModifierTable();
@@ -393,7 +393,8 @@ namespace  HotkeyManager {
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
         }
 
-        DWORD vkCode = -1;
+        constexpr uint8_t NO_VK = 0xFF;
+        uint8_t vkCode = NO_VK;
         bool keyup = false;
         pMouseStruct = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
         // We cant do anything with this strange switch, WM_X does not match VK code
@@ -402,9 +403,11 @@ namespace  HotkeyManager {
             case WM_XBUTTONUP:
                 keyup = true;
                 [[fallthrough]];
-            case WM_XBUTTONDOWN:
-                vkCode = (pMouseStruct->mouseData >> 16) + 4;
+            case WM_XBUTTONDOWN: {
+                const DWORD btn = (pMouseStruct->mouseData >> 16) + 4;
+                if (btn < NO_VK) { vkCode = static_cast<uint8_t>(btn); }
                 break;
+            }
 
             case WM_LBUTTONUP:
                 keyup = true;
@@ -428,7 +431,7 @@ namespace  HotkeyManager {
                 break;
         }
 
-        if (vkCode != -1) {
+        if (vkCode != NO_VK) {
             if (keyup && _keys[vkCode] == Keys::KEY_PRESSED) {
                 _keys[vkCode] = Keys::KEY_RELEASED;
                 _onKeyRelease(vkCode);
@@ -465,18 +468,19 @@ namespace  HotkeyManager {
                 break;
             }
 
-            const char* keyName = KeysNameTable[keyByte];
-            if (keyName == nullptr) {
-                static char hexCode[5];
+            std::string keyToken;
+            if (const char* keyName = KeysNameTable[keyByte]) {
+                keyToken = keyName;
+            } else {
+                char hexCode[7];
                 sprintf_s(hexCode, "0x%02X", keyByte);
-                keyName = hexCode;
+                keyToken = hexCode;
             }
 
             if (hasKeys) {
                 result.insert(0, " + ");
             }
-            // ReSharper disable once CppDFALocalValueEscapesScope
-            result.insert(0, keyName);
+            result.insert(0, keyToken);
             hasKeys = true;
         }
 
@@ -524,6 +528,11 @@ namespace  HotkeyManager {
         }
         _keyboardHook = Win32Hook::Create(WH_KEYBOARD_LL, _lowLevelKeyboardProc, nullptr, 0);
         _mouseHook = Win32Hook::Create(WH_MOUSE_LL, _lowLevelMouseProc, nullptr, 0);
+        if (!_keyboardHook->IsValid() || !_mouseHook->IsValid()) {
+            _keyboardHook = nullptr;
+            _mouseHook = nullptr;
+            throw std::runtime_error("HotkeyManager: SetWindowsHookEx failed");
+        }
     }
 
 
@@ -535,6 +544,7 @@ namespace  HotkeyManager {
         _keyboardHook = nullptr;
         _mouseHook = nullptr;
         _sequenceMask = 0;
+        _hotkeys.clear();
         memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));
     }
 }
