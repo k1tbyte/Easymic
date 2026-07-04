@@ -171,8 +171,12 @@ private:
 
             _captureReinitTask = std::async(std::launch::async, [this]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                _initCaptureDeviceController();
-                _defaultCaptureChanged();
+                try {
+                    _initCaptureDeviceController();
+                    _defaultCaptureChanged();
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Capture device reinit failed: %s", e.what());
+                }
                 _captureReinitPending = false;
             });
         } else if (flow == EDataFlow::eRender) {
@@ -182,8 +186,12 @@ private:
 
             _playbackReinitTask = std::async(std::launch::async, [this]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                _initPlaybackDeviceController();
-                _defaultPlaybackChanged();
+                try {
+                    _initPlaybackDeviceController();
+                    _defaultPlaybackChanged();
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Playback device reinit failed: %s", e.what());
+                }
                 _playbackReinitPending = false;
             });
         }

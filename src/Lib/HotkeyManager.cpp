@@ -5,8 +5,11 @@
 
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
 #include <array>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <deque>
 #include "Win32Hook.hpp"
 
 /*#define KEYLOG(x, ...) \
@@ -282,19 +285,62 @@ namespace  HotkeyManager {
     std::unique_ptr<Win32Hook> _mouseHook = nullptr;
     constexpr auto ModifierTable = MakeModifierTable();
 
+    // Hotkey callbacks must never run inside the LL hook proc: the proc has to
+    // return within LowLevelHooksTimeout or it stalls input for the whole desktop.
+    // The proc does only the O(1) mask lookup and hands the action to this worker.
+    std::thread _actionWorker;
+    std::mutex _actionMutex;
+    std::condition_variable _actionCv;
+    std::deque<std::function<void()>> _actionQueue;
+    bool _actionStop = false;
 
-    void _raiseAction(Keys::State state, uint8_t vkCode) {
+    void _dispatch(std::function<void()> action) {
+        if (!action) {
+            return;
+        }
+        {
+            std::lock_guard lock(_actionMutex);
+            _actionQueue.push_back(std::move(action));
+        }
+        _actionCv.notify_one();
+    }
 
+    void _actionLoop() {
+        std::unique_lock lock(_actionMutex);
+        while (true) {
+            _actionCv.wait(lock, [] { return _actionStop || !_actionQueue.empty(); });
+            if (_actionStop && _actionQueue.empty()) {
+                return;
+            }
+            auto action = std::move(_actionQueue.front());
+            _actionQueue.pop_front();
+            lock.unlock();
+            action();
+            lock.lock();
+        }
+    }
+
+    void _stopWorker() {
+        {
+            std::lock_guard lock(_actionMutex);
+            _actionStop = true;
+            _actionQueue.clear();
+        }
+        _actionCv.notify_one();
+        if (_actionWorker.joinable()) {
+            _actionWorker.join();
+        }
+    }
+
+    void _raiseAction(const Keys::State state, const uint8_t vkCode) {
         const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
 
+        const auto fire = [state](const HotkeyBinding& binding) {
+            _dispatch(state == Keys::State::KEY_PRESSED ? binding.onPress : binding.onRelease);
+        };
+
         if (const auto it = _hotkeys.find(singleMask); it != _hotkeys.end()) {
-            if (state == Keys::State::KEY_PRESSED && it->second.onPress) {
-                KEYLOG("Raising hotkey keypress | name: %s", GetHotkeyName(_sequenceMask).c_str());
-                it->second.onPress();
-            } else if (state == Keys::State::KEY_RELEASED && it->second.onRelease) {
-                KEYLOG("Raising hotkey keyrelease | name: %s", GetHotkeyName(_sequenceMask).c_str());
-                it->second.onRelease();
-            }
+            fire(it->second);
         }
 
         if (singleMask == _sequenceMask) {
@@ -302,13 +348,7 @@ namespace  HotkeyManager {
         }
 
         if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end()) {
-            if (state == Keys::State::KEY_PRESSED && it->second.onPress) {
-                KEYLOG("Raising hotkey keypress | name: %s", GetHotkeyName(_sequenceMask).c_str());
-                it->second.onPress();
-            } else if (state == Keys::State::KEY_RELEASED && it->second.onRelease) {
-                KEYLOG("Raising hotkey keyrelease | name: %s", GetHotkeyName(_sequenceMask).c_str());
-                it->second.onRelease();
-            }
+            fire(it->second);
         }
     }
 
@@ -387,8 +427,6 @@ namespace  HotkeyManager {
 
 
     LRESULT CALLBACK _lowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-        static MSLLHOOKSTRUCT* pMouseStruct;
-
         if (nCode != HC_ACTION) {
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
         }
@@ -396,7 +434,7 @@ namespace  HotkeyManager {
         constexpr uint8_t NO_VK = 0xFF;
         uint8_t vkCode = NO_VK;
         bool keyup = false;
-        pMouseStruct = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
+        const auto* const pMouseStruct = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
         // We cant do anything with this strange switch, WM_X does not match VK code
         switch (wParam) {
 
@@ -526,11 +564,16 @@ namespace  HotkeyManager {
         if (_keyboardHook || _mouseHook) {
             throw std::runtime_error("HotkeyManager already initialized");
         }
+
+        _actionStop = false;
+        _actionWorker = std::thread(_actionLoop);
+
         _keyboardHook = Win32Hook::Create(WH_KEYBOARD_LL, _lowLevelKeyboardProc, nullptr, 0);
         _mouseHook = Win32Hook::Create(WH_MOUSE_LL, _lowLevelMouseProc, nullptr, 0);
         if (!_keyboardHook->IsValid() || !_mouseHook->IsValid()) {
             _keyboardHook = nullptr;
             _mouseHook = nullptr;
+            _stopWorker();
             throw std::runtime_error("HotkeyManager: SetWindowsHookEx failed");
         }
     }
@@ -543,6 +586,7 @@ namespace  HotkeyManager {
     void Dispose() {
         _keyboardHook = nullptr;
         _mouseHook = nullptr;
+        _stopWorker();
         _sequenceMask = 0;
         _hotkeys.clear();
         memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));

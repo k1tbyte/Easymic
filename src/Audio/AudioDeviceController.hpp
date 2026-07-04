@@ -216,21 +216,28 @@ public:
         return std::ceil(_volumeLevel * 100);
     }
 
+    // Runs on COM notification threads (session-create callback) — must not throw
+    // across the COM boundary, so failures are swallowed rather than CHECK_HR'd.
     void IterateSessions(const std::function<void(ComPtr<IAudioSessionControl>, int i)> &iterator) const {
-        int sessionsCount{};
+        if (!sessionManager) {
+            return;
+        }
+
         ComPtr<IAudioSessionEnumerator> enumerator;
+        if (FAILED(sessionManager->GetSessionEnumerator(&enumerator)) || !enumerator) {
+            return;
+        }
 
-
-        auto result = sessionManager->GetSessionEnumerator(&enumerator);
-        CHECK_HR(result, "Failed to get audio session enumerator for capture device");
-
-        result = enumerator->GetCount(&sessionsCount);
-        CHECK_HR(result, "Failed to get audio sessions count for capture device");
+        int sessionsCount{};
+        if (FAILED(enumerator->GetCount(&sessionsCount))) {
+            return;
+        }
 
         for (int i = 0; i < sessionsCount; i++) {
             ComPtr<IAudioSessionControl> control;
-            enumerator->GetSession(i, &control);
-            iterator(control, i);
+            if (SUCCEEDED(enumerator->GetSession(i, &control)) && control) {
+                iterator(control, i);
+            }
         }
     }
 
