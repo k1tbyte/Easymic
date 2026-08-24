@@ -38,16 +38,18 @@ private:
     void InitializeIndicatorSection(HWND hWnd);
     void InitializeSoundsSection(HWND hWnd);
     void RefreshActionRows() const;
-    void ClearHotkey(uint64_t mask, int exceptCustomIndex);
+    void ClearHotkey(uint64_t mask, const std::string& exceptBuiltIn, int exceptCustomIndex);
+    void EditBuiltInAction(const BuiltInAction& builtIn);
+    void EditCustomAction(int customIndex);
     void InitializeAboutSection(HWND hWnd);
     
     void SetupLogDisplay(HWND hWnd);
     void CleanupLogDisplay();
     void UpdateLogDisplay(const std::string& formattedEntry);
     
-    // Sound file handling
-    void HandleSoundSourceSelection(HWND hWnd, int comboBoxId, std::string& configSource, std::set<std::string>& recentSources);
-    bool HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource, std::set<std::string>& recentSources);
+    // Mic state feedback sounds - the action sounds live in the action dialog instead
+    void HandleSoundSelection(HWND hWnd, int comboBoxId, std::string& configSource);
+    void HandleSoundBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource);
 
 public:
     SettingsWindowViewModel(const std::shared_ptr<BaseWindow>& baseView, AppConfig& config, const AudioManager& audioManager) :
@@ -68,7 +70,6 @@ public:
     void HandleComboBoxChange(HWND hWnd, int comboBoxId);
     void HandleTrackbarChange(HWND hWnd, int trackbarId, int value);
     void HandleActionActivated(int rowIndex);
-    void HandleHotkeyBinding(int rowIndex, const std::string& actionName);
     
     void Init() override;
 };

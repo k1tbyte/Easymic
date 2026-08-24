@@ -5,15 +5,17 @@
 #include "../../Audio/AudioFileValidator.hpp"
 #include "../../Lib/HotkeyCapture.hpp"
 #include "../../Lib/HotkeyManager.hpp"
+#include "../../Lib/Str.hpp"
 
 namespace {
 
+    /// Posted to self once the dialog is up - starting the capture from WM_INITDIALOG would arm
+    /// the hooks while the dialog manager is still building the window.
+    constexpr UINT WM_AUTOBIND = WM_APP + 1;
+
     struct DialogState {
-        CustomAction* action = nullptr;
+        ActionEdit* action = nullptr;
         std::set<std::string>* recentSounds = nullptr;
-        bool allowDelete = false;
-        bool deleted = false;
-        uint64_t mask = 0;
     };
 
     void SetHotkeyButtonText(HWND dialog, const uint64_t mask) {
@@ -45,21 +47,39 @@ namespace {
         return DefSubclassProc(button, message, wParam, lParam);
     }
 
-    void StartCapture(HWND dialog, DialogState& state) {
+    void StartCapture(HWND dialog, ActionEdit& action) {
         SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, "Press desired key combination or ESC to clear...");
 
         const bool started = HotkeyCapture::Start(dialog,
             [dialog](const std::string& hotkeyName) {
                 SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, hotkeyName.c_str());
             },
-            [dialog, &state](const uint64_t mask) {
-                state.mask = mask;
+            [dialog, &action](const uint64_t mask) {
+                action.Hotkey = mask;
                 SetHotkeyButtonText(dialog, mask);
             });
 
         if (!started) {
-            SetHotkeyButtonText(dialog, state.mask);
+            SetHotkeyButtonText(dialog, action.Hotkey);
         }
+    }
+
+    void LayoutForAction(HWND dialog, const ActionEdit& action) {
+        if (!action.IsCustom) {
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_COMMAND_LABEL, IDC_ACTION_COMMAND});
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_NAME_LABEL, IDC_ACTION_NAME});
+        }
+
+        if (!action.HasSound) {
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_SOUND_LABEL, IDC_ACTION_SOUND,
+                                                 IDC_ACTION_SOUND_BROWSE});
+        }
+
+        if (action.HoldOnly) {
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_ON_RELEASE});
+        }
+
+        ShowWindow(GetDlgItem(dialog, IDC_ACTION_DELETE), action.AllowDelete ? SW_SHOW : SW_HIDE);
     }
 
     INT_PTR CALLBACK DialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -69,18 +89,33 @@ namespace {
             case WM_INITDIALOG: {
                 state = reinterpret_cast<DialogState*>(lParam);
                 SetWindowLongPtrW(dialog, GWLP_USERDATA, lParam);
+                ActionEdit& action = *state->action;
 
-                SetDlgItemTextA(dialog, IDC_ACTION_NAME, state->action->Name.c_str());
-                SetDlgItemTextA(dialog, IDC_ACTION_COMMAND, state->action->Command.c_str());
-                CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, state->action->OnRelease ? BST_CHECKED : BST_UNCHECKED);
-                SetHotkeyButtonText(dialog, state->mask);
-                DialogControls::PopulateSourceComboBox(GetDlgItem(dialog, IDC_ACTION_SOUND),
-                                                       *state->recentSounds, state->action->Sound, "None");
-                ShowWindow(GetDlgItem(dialog, IDC_ACTION_DELETE), state->allowDelete ? SW_SHOW : SW_HIDE);
+                SetWindowTextW(dialog, Str::ToWide(action.Title).c_str());
+                SetDlgItemTextA(dialog, IDC_ACTION_NAME, action.Name.c_str());
+                SetDlgItemTextA(dialog, IDC_ACTION_COMMAND, action.Command.c_str());
+                CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, action.OnRelease ? BST_CHECKED : BST_UNCHECKED);
+                SetHotkeyButtonText(dialog, action.Hotkey);
+                DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
+                                                   *state->recentSounds, action.Sound);
+
+                LayoutForAction(dialog, action);
                 SetWindowSubclass(GetDlgItem(dialog, IDC_ACTION_HOTKEY), HotkeyButtonProc, 0, 0);
                 DialogControls::CenterOnScreen(dialog);
+
+                // Nothing bound yet - the user came here to bind, so skip the extra click
+                if (!action.Hotkey) {
+                    PostMessageW(dialog, WM_AUTOBIND, 0, 0);
+                }
                 return TRUE;
             }
+
+            case WM_AUTOBIND:
+                if (state) {
+                    StartCapture(dialog, *state->action);
+                }
+                return TRUE;
+
             case HotkeyCapture::WM_CAPTURE_DONE:
                 HotkeyCapture::Finish();
                 return TRUE;
@@ -93,42 +128,49 @@ namespace {
                 if (!state) {
                     break;
                 }
+                ActionEdit& action = *state->action;
 
                 switch (LOWORD(wParam)) {
                     case IDC_ACTION_HOTKEY:
-                        StartCapture(dialog, *state);
+                        StartCapture(dialog, action);
                         return TRUE;
 
                     case IDC_ACTION_SOUND_BROWSE: {
                         std::string selected;
                         if (AudioFileValidator::PickValidWavFile(dialog, "Select action sound file", selected)) {
-                            DialogControls::AddToRecentSources(*state->recentSounds, selected);
-                            DialogControls::PopulateSourceComboBox(GetDlgItem(dialog, IDC_ACTION_SOUND),
-                                                                   *state->recentSounds, selected, "None");
+                            DialogControls::AddRecentSound(*state->recentSounds, selected);
+                            DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
+                                                               *state->recentSounds, selected);
                         }
                         return TRUE;
                     }
 
                     case IDC_ACTION_DELETE:
-                        state->deleted = true;
+                        action.Deleted = true;
                         EndDialog(dialog, TRUE);
                         return TRUE;
 
                     case IDOK: {
-                        auto name = GetDlgItemString(dialog, IDC_ACTION_NAME);
-                        auto command = GetDlgItemString(dialog, IDC_ACTION_COMMAND);
+                        if (action.IsCustom) {
+                            auto name = GetDlgItemString(dialog, IDC_ACTION_NAME);
+                            auto command = GetDlgItemString(dialog, IDC_ACTION_COMMAND);
 
-                        if (name.empty() || command.empty()) {
-                            MessageBoxW(dialog, L"Name and command are required.", L"Action", MB_OK | MB_ICONWARNING);
-                            return TRUE;
+                            if (name.empty() || command.empty()) {
+                                MessageBoxW(dialog, L"Name and command are required.", L"Action",
+                                            MB_OK | MB_ICONWARNING);
+                                return TRUE;
+                            }
+
+                            action.Name = std::move(name);
+                            action.Command = std::move(command);
                         }
 
-                        state->action->Name = std::move(name);
-                        state->action->Command = std::move(command);
-                        state->action->OnRelease = IsDlgButtonChecked(dialog, IDC_ACTION_ON_RELEASE) == BST_CHECKED;
-                        state->action->Hotkey = state->mask;
-                        state->action->Sound = DialogControls::ResolveSourceFromComboBox(
-                            GetDlgItem(dialog, IDC_ACTION_SOUND), *state->recentSounds);
+                        action.OnRelease = !action.HoldOnly
+                                           && IsDlgButtonChecked(dialog, IDC_ACTION_ON_RELEASE) == BST_CHECKED;
+                        action.Sound = action.HasSound
+                                       ? DialogControls::ResolveSound(GetDlgItem(dialog, IDC_ACTION_SOUND),
+                                                                      *state->recentSounds)
+                                       : std::string{};
 
                         EndDialog(dialog, TRUE);
                         return TRUE;
@@ -146,13 +188,10 @@ namespace {
     }
 }
 
-bool ActionDialog::Show(HINSTANCE hInstance, HWND owner, CustomAction& action,
-                        std::set<std::string>& recentSounds, const bool allowDelete, bool& deleted) {
-    DialogState state{.action = &action, .recentSounds = &recentSounds,
-                      .allowDelete = allowDelete, .mask = action.Hotkey};
+bool ActionDialog::Show(HINSTANCE hInstance, HWND owner, ActionEdit& action,
+                        std::set<std::string>& recentSounds) {
+    DialogState state{.action = &action, .recentSounds = &recentSounds};
 
-    const INT_PTR result = DialogBoxParamW(hInstance, MAKEINTRESOURCEW(IDD_ACTION_EDIT), owner,
-                                           DialogProc, reinterpret_cast<LPARAM>(&state));
-    deleted = state.deleted;
-    return result == TRUE;
+    return DialogBoxParamW(hInstance, MAKEINTRESOURCEW(IDD_ACTION_EDIT), owner,
+                           DialogProc, reinterpret_cast<LPARAM>(&state)) == TRUE;
 }

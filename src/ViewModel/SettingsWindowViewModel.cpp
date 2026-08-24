@@ -84,33 +84,39 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) {
                 _cfg.IsMicKeepVolume, 0);
 
     // Setup sound combo boxes
-    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
-                                           _cfg.MuteSoundRecentSources, _cfg.MuteSoundSource);
-    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
-                                           _cfg.UnmuteSoundRecentSources, _cfg.UnmuteSoundSource);
+    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
+                                       _cfg.RecentSounds, _cfg.MuteSoundSource);
+    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
+                                       _cfg.RecentSounds, _cfg.UnmuteSoundSource);
 }
 
+/// Built-ins first, in table order, then the custom ones, then the add row.
 void SettingsWindowViewModel::RefreshActionRows() const {
-    std::vector<ActionRow> rows;
-    rows.reserve(BuiltInAction::All.size() + _cfg.CustomActions.size() + 1);
+    const auto describe = [](const uint64_t mask, const bool onRelease) {
+        std::string hotkey = mask ? HotkeyManager::GetHotkeyName(mask) : "";
+        if (onRelease && !hotkey.empty()) {
+            hotkey += " (release)";
+        }
+        return hotkey;
+    };
 
-    for (const auto* name : BuiltInAction::All) {
-        const auto it = _cfg.Hotkeys.find(name);
+    std::vector<ActionRow> rows;
+    rows.reserve(BuiltInActions::Count + _cfg.CustomActions.size() + 1);
+
+    for (const auto& builtIn : BuiltInActions::All) {
+        const auto it = _cfg.Actions.find(builtIn.Id);
+        const ActionBinding binding = it != _cfg.Actions.end() ? it->second : ActionBinding{};
+
         rows.push_back({
-            .Name = name,
-            .Hotkey = it != _cfg.Hotkeys.end() ? HotkeyManager::GetHotkeyName(it->second) : "",
+            .Name = builtIn.Title,
+            .Hotkey = describe(binding.Hotkey, binding.OnRelease),
         });
     }
 
     for (const auto& action : _cfg.CustomActions) {
-        std::string hotkey = action.Hotkey ? HotkeyManager::GetHotkeyName(action.Hotkey) : "";
-        if (action.OnRelease && !hotkey.empty()) {
-            hotkey += " (release)";
-        }
-
         rows.push_back({
             .Name = action.Name,
-            .Hotkey = std::move(hotkey),
+            .Hotkey = describe(action.Hotkey, action.OnRelease),
             .Command = action.Command,
             .IsCustom = true
         });
@@ -121,12 +127,16 @@ void SettingsWindowViewModel::RefreshActionRows() const {
 }
 
 /// Frees a combination from every other action - one hotkey drives one action.
-void SettingsWindowViewModel::ClearHotkey(uint64_t mask, int exceptCustomIndex) {
+void SettingsWindowViewModel::ClearHotkey(uint64_t mask, const std::string& exceptBuiltIn, int exceptCustomIndex) {
     if (!mask) {
         return;
     }
 
-    std::erase_if(_cfg.Hotkeys, [mask](const auto& entry) { return entry.second == mask; });
+    for (auto& [id, binding] : _cfg.Actions) {
+        if (id != exceptBuiltIn && binding.Hotkey == mask) {
+            binding.Hotkey = 0;
+        }
+    }
 
     for (int i = 0; i < static_cast<int>(_cfg.CustomActions.size()); i++) {
         if (i != exceptCustomIndex && _cfg.CustomActions[i].Hotkey == mask) {
@@ -136,36 +146,72 @@ void SettingsWindowViewModel::ClearHotkey(uint64_t mask, int exceptCustomIndex) 
 }
 
 void SettingsWindowViewModel::HandleActionActivated(int rowIndex) {
-    const int builtInCount = static_cast<int>(BuiltInAction::All.size());
-
-    if (rowIndex < builtInCount) {
-        HandleHotkeyBinding(rowIndex, BuiltInAction::All[rowIndex]);
-        return;
-    }
-
-    const int customIndex = rowIndex - builtInCount;
-    const bool isExisting = customIndex < static_cast<int>(_cfg.CustomActions.size());
-
-    CustomAction action = isExisting ? _cfg.CustomActions[customIndex] : CustomAction{};
-    bool deleted = false;
-
-    if (!_view->ShowActionDialog(action, _cfg.ActionSoundRecentSources, isExisting, deleted)) {
-        return;
-    }
-
-    if (deleted) {
-        _cfg.CustomActions.erase(_cfg.CustomActions.begin() + customIndex);
+    if (rowIndex < BuiltInActions::Count) {
+        EditBuiltInAction(BuiltInActions::All[rowIndex]);
     } else {
-        ClearHotkey(action.Hotkey, isExisting ? customIndex : -1);
-
-        if (isExisting) {
-            _cfg.CustomActions[customIndex] = action;
-        } else {
-            _cfg.CustomActions.push_back(action);
-        }
+        EditCustomAction(rowIndex - BuiltInActions::Count);
     }
 
     RefreshActionRows();
+}
+
+void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
+    const auto it = _cfg.Actions.find(builtIn.Id);
+    const bool isConfigured = it != _cfg.Actions.end();
+
+    ActionEdit edit{
+        .Title = builtIn.Title,
+        // An unconfigured action starts from the table default, so saving it as is keeps the
+        // behaviour the user was promised by the list
+        .Sound = isConfigured ? it->second.Sound : builtIn.DefaultSound,
+        .Hotkey = isConfigured ? it->second.Hotkey : 0,
+        .OnRelease = isConfigured && it->second.OnRelease,
+        .HasSound = builtIn.HasSound,
+        .HoldOnly = builtIn.HoldOnly,
+    };
+
+    if (!_view->ShowActionDialog(edit, _cfg.RecentSounds)) {
+        return;
+    }
+
+    ClearHotkey(edit.Hotkey, builtIn.Id, -1);
+    _cfg.Actions[builtIn.Id] = {.Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease, .Sound = edit.Sound};
+}
+
+void SettingsWindowViewModel::EditCustomAction(int customIndex) {
+    const bool isExisting = customIndex < static_cast<int>(_cfg.CustomActions.size());
+    const CustomAction stored = isExisting ? _cfg.CustomActions[customIndex] : CustomAction{};
+
+    ActionEdit edit{
+        .Title = isExisting ? stored.Name : "New action",
+        .Name = stored.Name,
+        .Command = stored.Command,
+        .Sound = stored.Sound,
+        .Hotkey = stored.Hotkey,
+        .OnRelease = stored.OnRelease,
+        .IsCustom = true,
+        .AllowDelete = isExisting,
+    };
+
+    if (!_view->ShowActionDialog(edit, _cfg.RecentSounds)) {
+        return;
+    }
+
+    if (edit.Deleted) {
+        _cfg.CustomActions.erase(_cfg.CustomActions.begin() + customIndex);
+        return;
+    }
+
+    ClearHotkey(edit.Hotkey, {}, isExisting ? customIndex : -1);
+
+    const CustomAction action{.Name = edit.Name, .Command = edit.Command, .Sound = edit.Sound,
+                              .Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease};
+
+    if (isExisting) {
+        _cfg.CustomActions[customIndex] = action;
+    } else {
+        _cfg.CustomActions.push_back(action);
+    }
 }
 
 void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
@@ -355,12 +401,10 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             _cfg.IsMicKeepVolume = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
-            HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file",
-                                _cfg.MuteSoundSource, _cfg.MuteSoundRecentSources);
+            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file", _cfg.MuteSoundSource);
             break;
         case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
-            HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file",
-                                _cfg.UnmuteSoundSource, _cfg.UnmuteSoundRecentSources);
+            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file", _cfg.UnmuteSoundSource);
             break;
         case IDC_ABOUT_GITHUB_LINK:
             // Open GitHub link
@@ -377,10 +421,10 @@ void SettingsWindowViewModel::HandleComboBoxChange(HWND hWnd, int comboBoxId) {
             _cfg.IndicatorState = static_cast<IndicatorState>(indexSelected);
             break;
         case IDC_SETTINGS_SOUNDS_MUTE_COMBO:
-            HandleSoundSourceSelection(hWnd, comboBoxId, _cfg.MuteSoundSource, _cfg.MuteSoundRecentSources);
+            HandleSoundSelection(hWnd, comboBoxId, _cfg.MuteSoundSource);
             break;
         case IDC_SETTINGS_SOUNDS_UNMUTE_COMBO:
-            HandleSoundSourceSelection(hWnd, comboBoxId, _cfg.UnmuteSoundSource, _cfg.UnmuteSoundRecentSources);
+            HandleSoundSelection(hWnd, comboBoxId, _cfg.UnmuteSoundSource);
             break;
     }
 }
@@ -407,54 +451,20 @@ void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, in
     }
 }
 
-void SettingsWindowViewModel::HandleSoundSourceSelection(HWND hWnd, int comboBoxId,
-                                                        std::string& configSource,
-                                                        std::set<std::string>& recentSources) {
-    configSource = DialogControls::ResolveSourceFromComboBox(GetDlgItem(hWnd, comboBoxId), recentSources);
-
-    // The file went missing after the list was built
-    if (!configSource.empty() && !DialogControls::DoesFileExist(configSource)) {
-        configSource.clear();
-        DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), recentSources, configSource);
-    }
+void SettingsWindowViewModel::HandleSoundSelection(HWND hWnd, int comboBoxId, std::string& configSource) {
+    configSource = DialogControls::ResolveSound(GetDlgItem(hWnd, comboBoxId), _cfg.RecentSounds);
 }
 
-bool SettingsWindowViewModel::HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, 
-                                                   std::string& configSource, 
-                                                   std::set<std::string>& recentSources) {
+void SettingsWindowViewModel::HandleSoundBrowse(HWND hWnd, int comboBoxId, const char* title,
+                                                std::string& configSource) {
     std::string selectedFile;
     if (!AudioFileValidator::PickValidWavFile(this->_view->GetHandle(), title, selectedFile)) {
-        return false;
+        return;
     }
-    
+
     configSource = selectedFile;
-    DialogControls::AddToRecentSources(recentSources, selectedFile);
-    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), recentSources, configSource);
-    return true;
-}
-
-void SettingsWindowViewModel::HandleHotkeyBinding(int rowIndex, const std::string& actionName) {
-    _view->SetHotkeySectionTitle(L"Press desired key combination or ESC to clear...");
-
-    const bool started = HotkeyCapture::Start(_view->GetHandle(),
-        [this, rowIndex](const std::string& hotkeyName) {
-            _view->SetHotkeyCellValue(rowIndex, hotkeyName.c_str());
-        },
-        [this, actionName](const uint64_t mask) {
-            if (mask) {
-                ClearHotkey(mask, -1);
-                _cfg.Hotkeys[actionName] = mask;
-            } else {
-                _cfg.Hotkeys.erase(actionName);
-            }
-
-            _view->SetHotkeySectionTitle(nullptr);
-            RefreshActionRows();
-        });
-
-    if (!started) {
-        _view->SetHotkeySectionTitle(nullptr);
-    }
+    DialogControls::AddRecentSound(_cfg.RecentSounds, selectedFile);
+    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, comboBoxId), _cfg.RecentSounds, configSource);
 }
 
 void SettingsWindowViewModel::Init() {

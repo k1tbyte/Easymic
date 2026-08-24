@@ -1,7 +1,8 @@
 # Easymic
 
 Native WinAPI C++23 tray app: global mic control via low-level keyboard/mouse hooks.
-Priorities in order: input latency, binary size, simplicity.
+Priorities in order: input latency and idle footprint (this thing runs all day in the background),
+binary size, simplicity.
 
 ## Build
 

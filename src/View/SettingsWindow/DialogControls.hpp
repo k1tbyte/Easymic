@@ -7,6 +7,8 @@
 #include <string>
 #include <windows.h>
 
+#include "SoundCatalog.hpp"
+
 /// Small helpers shared by the settings pages and the action dialog.
 namespace DialogControls {
 
@@ -31,6 +33,45 @@ namespace DialogControls {
         SendMessage(hWnd, TBM_SETPOS, TRUE, value);
     }
 
+    /// Row pitch of the action dialog - every one of its rows sits on this grid.
+    inline constexpr int RowHeightDlu = 20;
+
+    /**
+     * @brief Hides a row of controls and pulls everything below it up, shrinking the dialog.
+     *
+     * Lets one template serve every kind of action: the rows that do not apply are removed
+     * instead of left as holes.
+     */
+    inline void CollapseRow(HWND dialog, std::initializer_list<int> controlIds) {
+        RECT step{0, 0, 0, RowHeightDlu};
+        MapDialogRect(dialog, &step);
+
+        RECT row{};
+        GetWindowRect(GetDlgItem(dialog, *controlIds.begin()), &row);
+
+        for (const int id : controlIds) {
+            ShowWindow(GetDlgItem(dialog, id), SW_HIDE);
+        }
+
+        for (HWND child = GetWindow(dialog, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+            RECT childRect;
+            GetWindowRect(child, &childRect);
+            if (childRect.top <= row.top) {
+                continue;
+            }
+
+            POINT position{childRect.left, childRect.top - step.bottom};
+            ScreenToClient(dialog, &position);
+            SetWindowPos(child, nullptr, position.x, position.y, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        RECT window;
+        GetWindowRect(dialog, &window);
+        SetWindowPos(dialog, nullptr, 0, 0, window.right - window.left,
+                     window.bottom - window.top - step.bottom, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     inline bool IsChecked(HWND dialog, int controlId) {
         return SendMessage(GetDlgItem(dialog, controlId), BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
@@ -40,51 +81,68 @@ namespace DialogControls {
         return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
     }
 
-    inline void CleanupInvalidSources(std::set<std::string>& recentSources) {
-        std::erase_if(recentSources, [](const std::string& source) { return !DoesFileExist(source); });
+    inline void PruneRecentSounds(std::set<std::string>& recent) {
+        std::erase_if(recent, [](const std::string& source) { return !DoesFileExist(source); });
     }
 
-    inline void AddToRecentSources(std::set<std::string>& recentSources, const std::string& source) {
+    inline void AddRecentSound(std::set<std::string>& recent, const std::string& source) {
         if (!source.empty() && DoesFileExist(source)) {
-            recentSources.insert(source);
+            recent.insert(source);
         }
     }
 
     /**
-     * @brief Fills a source picker: the empty label first, then one entry per recent source.
+     * @brief Fills a sound picker: None, then the bundled sounds, then the user files.
      *
-     * Vanished files are dropped up front, so item index N maps to the N-1'th element of the set
-     * and no item has to carry a pointer into a container it does not own.
-     * @param emptyLabel first entry, meaning "no source picked" - a built-in sound or none at all
+     * Vanished files are dropped up front, so an item index maps back to its entry by position
+     * alone and no item has to carry a pointer into a container it does not own.
      */
-    inline void PopulateSourceComboBox(HWND comboBox, std::set<std::string>& recentSources,
-                                       const std::string& currentSource = "", const char* emptyLabel = "Default") {
-        CleanupInvalidSources(recentSources);
+    inline void PopulateSoundCombo(HWND comboBox, std::set<std::string>& recent, const std::string& current) {
+        PruneRecentSounds(recent);
 
         SendMessageA(comboBox, CB_RESETCONTENT, 0, 0);
-        SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)emptyLabel);
+        SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)"None");
 
         LRESULT selectedIndex = 0;
-        for (const auto& source : recentSources) {
+
+        for (const auto& bundled : SoundCatalog::All) {
+            const LRESULT index = SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)bundled.Title);
+            if (current == bundled.Key) {
+                selectedIndex = index;
+            }
+        }
+
+        for (const auto& source : recent) {
             const auto fileName = std::filesystem::path(source).filename().string();
-            const LRESULT itemIndex = SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)fileName.c_str());
-            if (source == currentSource) {
-                selectedIndex = itemIndex;
+            const LRESULT index = SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)fileName.c_str());
+            if (current == source) {
+                selectedIndex = index;
             }
         }
 
         SendMessageA(comboBox, CB_SETCURSEL, selectedIndex, 0);
     }
 
-    /// Maps the current selection back to the full source path. Empty means "no source picked".
-    inline std::string ResolveSourceFromComboBox(HWND comboBox, const std::set<std::string>& recentSources) {
-        const LRESULT selectedIndex = SendMessageA(comboBox, CB_GETCURSEL, 0, 0);
-        if (selectedIndex <= 0 || static_cast<size_t>(selectedIndex) > recentSources.size()) {
+    /// Maps the current selection back to a catalog key or a file path. Empty means None.
+    inline std::string ResolveSound(HWND comboBox, const std::set<std::string>& recent) {
+        const LRESULT selected = SendMessageA(comboBox, CB_GETCURSEL, 0, 0);
+        constexpr LRESULT bundledCount = static_cast<LRESULT>(std::size(SoundCatalog::All));
+
+        if (selected <= 0) {
             return {};
         }
 
-        auto it = recentSources.begin();
-        std::advance(it, selectedIndex - 1);
+        if (selected <= bundledCount) {
+            return SoundCatalog::All[selected - 1].Key;
+        }
+
+        const auto fileIndex = static_cast<size_t>(selected - bundledCount - 1);
+        if (fileIndex >= recent.size()) {
+            return {};
+        }
+
+        auto it = recent.begin();
+        std::advance(it, fileIndex);
         return *it;
     }
 }

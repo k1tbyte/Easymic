@@ -11,21 +11,9 @@
 #include <vector>
 
 #include "AppConfig.hpp"
+#include "ActionDialog.hpp"
 #include "Event.hpp"
 
-
-/// Actions with fixed behaviour. The names double as config keys, so they must stay stable.
-namespace BuiltInAction {
-    inline constexpr const char* ToggleMute      = "Toggle mute";
-    inline constexpr const char* PushToTalk      = "Push to talk";
-    inline constexpr const char* MicVolumeUp     = "Mic volume up";
-    inline constexpr const char* MicVolumeDown   = "Mic volume down";
-    inline constexpr const char* ToggleBellSound = "Toggle bell sound";
-
-    inline constexpr std::array All = {
-        ToggleMute, PushToTalk, MicVolumeUp, MicVolumeDown, ToggleBellSound
-    };
-}
 
 /// One row of the actions table, built-in or custom.
 struct ActionRow {
@@ -68,18 +56,9 @@ public:
     void Hide() override;
 
     void SetActionRows(const std::vector<ActionRow>& rows);
-    void SetHotkeyCellValue(int index, LPCSTR value);
-    void SetHotkeySectionTitle(const wchar_t* title);
 
-    /**
-     * @brief Modal editor for a custom action.
-     * @param action in/out, prefilled when editing an existing one
-     * @param allowDelete shows the Delete button
-     * @param deleted set when the user pressed Delete
-     * @return true when the action must be saved
-     */
-    bool ShowActionDialog(CustomAction& action, std::set<std::string>& recentSounds,
-                          bool allowDelete, bool& deleted);
+    /// Modal editor for any action. @return true when the action must be saved.
+    bool ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds);
 
     Event<>& OnExit = _onExit;
     Event<>& OnApply = _onApply;
