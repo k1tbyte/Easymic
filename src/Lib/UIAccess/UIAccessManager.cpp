@@ -8,7 +8,8 @@
 #include <tlhelp32.h>
 
 #include "definitions.h"
-#include "Utils.hpp"
+#include "Injection.hpp"
+#include "Process.hpp"
 
 
 struct ShellcodeWindowCreateParams {
@@ -111,7 +112,7 @@ BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
 #else
     SIZE_T codeSize = (SIZE_T) WindowCreateRemoteThreadFuncEnd - (SIZE_T) WindowCreateRemoteThreadFunc;
 #endif
-    return Utils::InjectShellcode(pid, params, (PVOID)WindowCreateRemoteThreadFunc, codeSize, false);
+    return InjectShellcode(pid, params, (PVOID)WindowCreateRemoteThreadFunc, codeSize, false);
 }
 
 bool IsUiAccessProcess(HANDLE hProcess) {
@@ -217,7 +218,7 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
     }
 
     hwnd = GetWindowsByTitle(uiAccessPids, key);
-    std::wstring processName = Utils::GetProcessNameByHWND(hwnd);
+    std::wstring processName = Process::GetNameByHWND(hwnd);
     LOG_INFO("[UIAccess] Using window from: %ls", processName.c_str());
 
     return hwnd;
@@ -240,7 +241,7 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
 #else
     SIZE_T codeSize = (SIZE_T) AffinityRemoteThreadFuncEnd - (SIZE_T) AffinityRemoteThreadFunc;
 #endif
-    const auto result = Utils::InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
+    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
     LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
              affinity, pid, result ? "Success" : "Failure");
 

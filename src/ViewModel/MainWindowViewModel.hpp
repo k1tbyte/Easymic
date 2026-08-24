@@ -17,7 +17,7 @@
 #include "MainWindow/MainWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
 
-#include "Utils.hpp"
+#include "Resource.hpp"
 #include "CommandRunner.hpp"
 
 class AudioManager;
@@ -46,11 +46,22 @@ private:
 
     AudioManager &_audio;
     AppConfig &_cfg;
+    // Shared icons from LoadIcon - never DestroyIcon'd
     HICON mutedIcon = nullptr;
     HICON unmutedIcon = nullptr;
     HICON activeIcon = nullptr;
 
-    HICON iconToDisplay = nullptr;
+    // Darkened copies for a light taskbar - owned, unlike the shared originals above.
+    // The indicator itself always draws the bright ones: it has its own dark background.
+    HICON mutedTrayIcon = nullptr;
+    HICON unmutedTrayIcon = nullptr;
+    bool isTaskbarLight = false;
+
+    // The HICON -> Bitmap conversion is expensive, and only these three are ever drawn
+    std::unique_ptr<Bitmap> mutedBitmap;
+    std::unique_ptr<Bitmap> unmutedBitmap;
+    std::unique_ptr<Bitmap> activeBitmap;
+    Bitmap* bitmapToDisplay = nullptr;
 
     Resource muteSound;
     Resource unmuteSound;
@@ -64,50 +75,23 @@ private:
     int peakMeterPhase = 0;
 
 
-    const std::function<void()> HotkeyToggleMute = [this] {
-        _audio.CaptureDevice()->ToggleMute();
-    };
-
-    const std::function<void()> HotkeyMutePushToTalk = [this] {
-        _audio.CaptureDevice()->SetMute(true);
-    };
-
-    const std::function<void()> HotkeyUnmutePushToTalk = [this] {
-        _audio.CaptureDevice()->SetMute(false);
-    };
-
-    const std::function<void()> HotkeyVolumeUp = [this] {
+    void ShiftMicVolume(const int delta) const {
         const auto &mic = *_audio.CaptureDevice();
-        BYTE currentVolume = mic.GetVolumePercent();
-        mic.SetVolumePercent(std::min<BYTE>(currentVolume + 10, 100));
-    };
-
-    const std::function<void()> HotkeyVolumeDown = [this] {
-        const auto &mic = *_audio.CaptureDevice();
-        BYTE currentVolume = mic.GetVolumePercent();
-        mic.SetVolumePercent(std::max<BYTE>(currentVolume - 10, 0));
-    };
-
-    const std::function<void()> HotkeyToggleBell = [this] {
-        ToggleBellSound();
-    };
+        mic.SetVolumePercent(static_cast<BYTE>(std::clamp(mic.GetVolumePercent() + delta, 0, 100)));
+    }
 
     std::unordered_map<std::string, HotkeyManager::HotkeyBinding> hotkeyHandlers = {
-        {
-            BuiltInAction::ToggleMute, {HotkeyToggleMute}
-        },
+        {BuiltInAction::ToggleMute, {[this] { _audio.CaptureDevice()->ToggleMute(); }}},
         {
             BuiltInAction::PushToTalk, {
-                .onPress = HotkeyUnmutePushToTalk,
-                .onRelease = HotkeyMutePushToTalk
+                .onPress   = [this] { _audio.CaptureDevice()->SetMute(false); },
+                .onRelease = [this] { _audio.CaptureDevice()->SetMute(true); }
             }
         },
-        {BuiltInAction::MicVolumeUp, {HotkeyVolumeUp}},
-        {BuiltInAction::MicVolumeDown, {HotkeyVolumeDown}},
-        {BuiltInAction::ToggleBellSound, {HotkeyToggleBell}}
+        {BuiltInAction::MicVolumeUp, {[this] { ShiftMicVolume(10); }}},
+        {BuiltInAction::MicVolumeDown, {[this] { ShiftMicVolume(-10); }}},
+        {BuiltInAction::ToggleBellSound, {[this] { ToggleBellSound(); }}}
     };
-
-    std::unordered_map<uint64_t, HotkeyManager::HotkeyBinding> activeHotkeys;
 
 public:
     MainWindowViewModel(
@@ -126,8 +110,24 @@ private:
             _view->SetShadowHwnd(nullptr);
         }
         _audio.StopWatchingForCaptureSessions();
-        HotkeyManager::Dispose();
-        HotkeyManager::ClearHotkeys();
+        HotkeyManager::Dispose(); // also drops every registered hotkey
+    }
+
+    /// Darkened copies are built once, on the first switch to a light taskbar.
+    void ApplyTrayTheme() {
+        isTaskbarLight = TrayIconTheme::IsLightTaskbar();
+
+        if (isTaskbarLight && !mutedTrayIcon) {
+            mutedTrayIcon = TrayIconTheme::Darken(mutedIcon);
+            unmutedTrayIcon = TrayIconTheme::Darken(unmutedIcon);
+        }
+    }
+
+    void RefreshTrayIcon() const {
+        const bool muted = !hasCaptureDevice || captureDeviceMuted;
+        HICON themed = isTaskbarLight ? (muted ? mutedTrayIcon : unmutedTrayIcon) : nullptr;
+
+        _view->UpdateTrayIcon(themed ? themed : (muted ? mutedIcon : unmutedIcon));
     }
 
     void KillPeakMeter() {
@@ -164,47 +164,48 @@ private:
         _audio.WatchForCaptureSessions();
         HotkeyManager::ClearHotkeys();
 
-#ifdef NDEBUG
-        if (!_cfg.Hotkeys.empty() || !_cfg.CustomActions.empty()) {
-            for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
-                const auto handlerIt = hotkeyHandlers.find(actionTitle);
-                if (handlerIt != hotkeyHandlers.end()) {
-                    HotkeyManager::RegisterHotkey(
-                        mask,
-                        handlerIt->second
-                    );
-                }
+#ifndef EASYMIC_NO_GLOBAL_HOOKS
+        // A configured hotkey is not a registered one - an action can carry no combination and a
+        // built-in name no handler, and hooking the desktop for nothing is not free
+        bool registered = false;
+
+        for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
+            const auto handlerIt = hotkeyHandlers.find(actionTitle);
+            if (handlerIt != hotkeyHandlers.end()) {
+                registered |= HotkeyManager::RegisterHotkey(mask, handlerIt->second);
+            }
+        }
+
+        for (const auto& action : _cfg.CustomActions) {
+            if (!action.Hotkey || action.Command.empty()) {
+                continue;
             }
 
-            for (const auto& action : _cfg.CustomActions) {
-                if (!action.Hotkey || action.Command.empty()) {
-                    continue;
+            auto run = [command = action.Command, sound = action.Sound] {
+                if (!sound.empty()) {
+                    PlaySoundA(sound.c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
                 }
+                CommandRunner::Run(command);
+            };
+            registered |= HotkeyManager::RegisterHotkey(action.Hotkey, action.OnRelease
+                ? HotkeyManager::HotkeyBinding{.onRelease = run}
+                : HotkeyManager::HotkeyBinding{.onPress = run});
+        }
 
-                auto run = [command = action.Command, sound = action.Sound] {
-                    if (!sound.empty()) {
-                        PlaySoundA(sound.c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
-                    }
-                    CommandRunner::Run(command);
-                };
-                HotkeyManager::RegisterHotkey(action.Hotkey, action.OnRelease
-                    ? HotkeyManager::HotkeyBinding{.onRelease = run}
-                    : HotkeyManager::HotkeyBinding{.onPress = run});
-            }
-
+        if (registered) {
             HotkeyManager::Initialize();
         }
-#endif
+#endif // EASYMIC_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
 
         auto *hInst = _view->GetHInstance();
 
         unmuteSound = !_cfg.UnmuteSoundSource.empty() && std::filesystem::exists(_cfg.UnmuteSoundSource)
-                          ? Utils::LoadFileAsResource(_cfg.UnmuteSoundSource)
-                          : Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_UNMUTE), "WAVE");
+                          ? Resource::FromFile(_cfg.UnmuteSoundSource)
+                          : Resource::FromModule(hInst, MAKEINTRESOURCEA(IDR_UNMUTE), "WAVE");
 
         muteSound = !_cfg.MuteSoundSource.empty() && std::filesystem::exists(_cfg.MuteSoundSource)
-                        ? Utils::LoadFileAsResource(_cfg.MuteSoundSource)
-                        : Utils::LoadResource(hInst, MAKEINTRESOURCE(IDR_MUTE), "WAVE");
+                        ? Resource::FromFile(_cfg.MuteSoundSource)
+                        : Resource::FromModule(hInst, MAKEINTRESOURCEA(IDR_MUTE), "WAVE");
 
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             // Hide original window
@@ -247,7 +248,7 @@ private:
                 }
                 // DetachListeners();
                 SuspendActivity();
-                iconToDisplay = unmutedIcon;
+                bitmapToDisplay = unmutedBitmap.get();
                 _view->Invalidate();
                 _view->Show();
                 _settingsWindow = std::make_shared<SettingsWindow>(_view->GetHInstance());
@@ -268,7 +269,7 @@ private:
     }
 
     void OnRender(const RenderContext &ctx) {
-        if (!iconToDisplay) {
+        if (!bitmapToDisplay) {
             return;
         }
 
@@ -279,12 +280,11 @@ private:
         SolidBrush brush(Color(WND_BG_ALPHA, WND_BG_R, WND_BG_G, WND_BG_B));
         ctx.graphics->FillPath(&brush, &path);
 
-        Bitmap iconBitmap(iconToDisplay);
         const auto iconSize = _cfg.IndicatorSize;
 
-        ctx.graphics->DrawImage(&iconBitmap,
+        ctx.graphics->DrawImage(bitmapToDisplay,
                                 ctx.width / 2 - iconSize / 2,
-                                ctx.width / 2 - iconSize / 2,
+                                ctx.height / 2 - iconSize / 2,
                                 iconSize,
                                 iconSize
         );
@@ -295,15 +295,16 @@ private:
 
         if (!hasCaptureDevice) {
             _view->UpdateTrayTooltip(L"Easymic - No device");
-            iconToDisplay = nullptr;
-            _view->UpdateTrayIcon(mutedIcon);
+            bitmapToDisplay = nullptr;
+            RefreshTrayIcon();
             _view->Hide();
             return;
         }
 
-        iconToDisplay = captureDeviceMuted ? mutedIcon : nullptr;
-        _view->UpdateTrayIcon(captureDeviceMuted ? mutedIcon : unmutedIcon);
+        bitmapToDisplay = captureDeviceMuted ? mutedBitmap.get() : nullptr;
+        RefreshTrayIcon();
         _view->Invalidate();
+        SyncPeakMeter();
 
         constexpr auto bufferSize = 255;
 
@@ -343,11 +344,27 @@ private:
             return;
         }
 
-        if (_cfg.IndicatorState == IndicatorState::MutedOrTalk && !isPeakMeterActive) {
-            isPeakMeterActive = true;
-            SetTimer(_view->GetHandle(), ID_PEAK_TIMER, PEAK_TIMER_INTERVAL_MS, nullptr);
-        }
         _view->Show();
+        SyncPeakMeter();
+    }
+
+    /// Polling the peak meter costs a WASAPI call every tick, so it only runs while it can
+    /// change something: visible indicator, live device, and not muted.
+    void SyncPeakMeter() {
+        const bool wanted = _view->IsVisible() && hasCaptureDevice && !captureDeviceMuted
+                            && _cfg.IndicatorState == IndicatorState::MutedOrTalk;
+
+        if (wanted == isPeakMeterActive) {
+            return;
+        }
+
+        if (!wanted) {
+            KillPeakMeter();
+            return;
+        }
+
+        isPeakMeterActive = true;
+        SetTimer(_view->GetHandle(), ID_PEAK_TIMER, PEAK_TIMER_INTERVAL_MS, nullptr);
     }
 
     void AttachListeners() {
@@ -389,6 +406,12 @@ public:
         unmutedIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_UNMUTED));
         activeIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MIC_ACTIVE));
 
+        mutedBitmap = std::make_unique<Bitmap>(mutedIcon);
+        unmutedBitmap = std::make_unique<Bitmap>(unmutedIcon);
+        activeBitmap = std::make_unique<Bitmap>(activeIcon);
+
+        ApplyTrayTheme();
+
         AttachListeners();
         _view->CreateTrayIcon(nullptr, L"");
 
@@ -400,18 +423,23 @@ public:
             this->OnRender(context);
         });
 
+        _view->SetOnThemeChanged([this] {
+            ApplyTrayTheme();
+            RefreshTrayIcon();
+        });
+
         _view->SetTimerCallback([this](UINT_PTR timerId) {
             const auto peak = _audio.CaptureDevice()->GetPeak();
             if (peak > _cfg.IndicatorVolumeThreshold) {
                 if (!peakMeterPhase) {
                     OutputDebugStringA("The microphone has become active\n");
-                    iconToDisplay = activeIcon;
+                    bitmapToDisplay = activeBitmap.get();
                     peakMeterPhase = PEAK_METER_DEBOUNCE_PHASES;
                     _view->Invalidate();
                 }
             } else if (peakMeterPhase && (--peakMeterPhase) == 0) {
                 OutputDebugStringA("The microphone has become inactive\n");
-                iconToDisplay = captureDeviceMuted ? mutedIcon : nullptr;
+                bitmapToDisplay = captureDeviceMuted ? mutedBitmap.get() : nullptr;
                 _view->Invalidate();
             }
         });
@@ -420,14 +448,12 @@ public:
     }
 
     ~MainWindowViewModel() {
-        if (mutedIcon) {
-            DestroyIcon(mutedIcon);
+        // Only the darkened copies are ours - the originals come from LoadIcon and are shared
+        if (mutedTrayIcon) {
+            DestroyIcon(mutedTrayIcon);
         }
-        if (unmutedIcon) {
-            DestroyIcon(unmutedIcon);
-        }
-        if (activeIcon) {
-            DestroyIcon(activeIcon);
+        if (unmutedTrayIcon) {
+            DestroyIcon(unmutedTrayIcon);
         }
     }
 };

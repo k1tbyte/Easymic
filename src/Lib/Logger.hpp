@@ -1,11 +1,9 @@
 #ifndef EASYMIC_LOGGER_HPP
 #define EASYMIC_LOGGER_HPP
 
-#include <string>
-#include <mutex>
-#include <chrono>
 #include <cstdarg>
 #include <mutex>
+#include <string>
 #include "Event.hpp"
 
 /**
@@ -38,8 +36,7 @@ private:
     static std::once_flag initFlag_;
     static constexpr size_t MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 
-    static std::string GetTimestamp();
-    static std::string LevelToString(Level level);
+    static const char* LevelToString(Level level);
     static std::string FormatLogEntry(Level level, const std::string& message);
     static std::string FormatString(const char* format, va_list args);
     static void CheckLogFileSize();

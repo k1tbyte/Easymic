@@ -1,4 +1,5 @@
 #include "SettingsWindowViewModel.hpp"
+#include "HotkeyCapture.hpp"
 #include "HotkeyManager.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
@@ -20,7 +21,7 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
             InitializeSoundsSection(hWnd);
             break;
         case IDD_SETTINGS_HOTKEYS:
-            InitializeHotkeysSection(hWnd);
+            RefreshActionRows();
             break;
         case IDD_SETTINGS_ABOUT:
             InitializeAboutSection(hWnd);
@@ -32,7 +33,7 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
 
 void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) {
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTOSTART), BM_SETCHECK, 
-                Utils::IsInAutoStartup(APP_NAME), 0);
+                Registry::IsInAutoStartup(APP_NAME), 0);
 
     // Skip UAC checkbox - only enable if running as admin
     HWND hSkipUAC = GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC);
@@ -61,9 +62,9 @@ void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) {
     SendMessage(hCombo, CB_SETCURSEL, (WPARAM)_cfg.IndicatorState, 0);
 
     // Setup trackbars
-    Utils::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR),
+    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR),
                        1, MAKELONG(10, 32), _cfg.IndicatorSize);
-    Utils::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
+    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
                        1, MAKELONG(0, 100), static_cast<int>(_cfg.IndicatorVolumeThreshold * 100));
 }
 
@@ -71,26 +72,22 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) {
     // Initialize volume trackbars with proper fallback values
     int micVolume = (_cfg.MicVolume == -1) ? 
                     _audioManager.CaptureDevice()->GetVolumePercent() : _cfg.MicVolume;
-    Utils::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
+    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
                        1, MAKELONG(0, 100), micVolume);
 
     int bellVolume = (_cfg.BellVolume == -1) ? 
                      _audioManager.PlaybackDevice()->GetSimpleVolumePercent() : _cfg.BellVolume;
-    Utils::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
+    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
                        1, MAKELONG(0, 100), bellVolume);
 
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME), BM_SETCHECK, 
                 _cfg.IsMicKeepVolume, 0);
 
     // Setup sound combo boxes
-    UpdateSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, 
-                       _cfg.MuteSoundRecentSources, _cfg.MuteSoundSource);
-    UpdateSoundComboBox(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, 
-                       _cfg.UnmuteSoundRecentSources, _cfg.UnmuteSoundSource);
-}
-
-void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) {
-    RefreshActionRows();
+    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
+                                           _cfg.MuteSoundRecentSources, _cfg.MuteSoundSource);
+    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
+                                           _cfg.UnmuteSoundRecentSources, _cfg.UnmuteSoundSource);
 }
 
 void SettingsWindowViewModel::RefreshActionRows() const {
@@ -138,7 +135,7 @@ void SettingsWindowViewModel::ClearHotkey(uint64_t mask, int exceptCustomIndex) 
     }
 }
 
-void SettingsWindowViewModel::HandleActionActivated(HWND hWnd, int rowIndex) {
+void SettingsWindowViewModel::HandleActionActivated(int rowIndex) {
     const int builtInCount = static_cast<int>(BuiltInAction::All.size());
 
     if (rowIndex < builtInCount) {
@@ -173,19 +170,20 @@ void SettingsWindowViewModel::HandleActionActivated(HWND hWnd, int rowIndex) {
 
 void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
     currentAboutHwnd_ = hWnd;
-    
-    // Set dynamic version information
-    std::string version = "Version " + g_AppVersion.GetFullFormat();
-    SetWindowTextA(GetDlgItem(hWnd, IDC_ABOUT_VERSION_INFO), version.c_str());
-    
-    // Make GitHub link look like a hyperlink (underlined)
-    HWND hGithubLink = GetDlgItem(hWnd, IDC_ABOUT_GITHUB_LINK);
-    HFONT hFont = CreateFont(
-        -11, 0, 0, 0, FW_NORMAL, FALSE, TRUE, FALSE, // TRUE for underline
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, TEXT("Ms Shell Dlg"));
-    SendMessage(hGithubLink, WM_SETFONT, (WPARAM)hFont, TRUE);
-    
+
+    SetDlgItemTextA(hWnd, IDC_ABOUT_VERSION_INFO, ("Version " + g_AppVersion.GetFullFormat()).c_str());
+
+    // Underlined copy of the dialog font, so the link scales with the rest of the page.
+    // Created once: the page is destroyed and rebuilt on every visit to this category.
+    if (!linkFont_) {
+        LOGFONTW logFont{};
+        GetObjectW((HFONT)SendMessage(hWnd, WM_GETFONT, 0, 0), sizeof(logFont), &logFont);
+        logFont.lfUnderline = TRUE;
+        linkFont_ = CreateFontIndirectW(&logFont);
+    }
+
+    SendMessage(GetDlgItem(hWnd, IDC_ABOUT_GITHUB_LINK), WM_SETFONT, (WPARAM)linkFont_, TRUE);
+
     SetupLogDisplay(hWnd);
 }
 
@@ -252,14 +250,14 @@ void SettingsWindowViewModel::UpdateLogDisplay(const std::string& formattedEntry
 void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
     switch (buttonId) {
         case IDC_SETTINGS_AUTOSTART:
-            if (Utils::IsInAutoStartup(APP_NAME)) {
-                Utils::RemoveFromAutoStartup(APP_NAME);
+            if (Registry::IsInAutoStartup(APP_NAME)) {
+                Registry::RemoveFromAutoStartup(APP_NAME);
             } else {
-                Utils::AddToAutoStartup(APP_NAME);
+                Registry::AddToAutoStartup(APP_NAME);
             }
             break;
         case IDC_SETTINGS_SKIP_UAC: {
-            bool skipUACRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
+            bool skipUACRequested = DialogControls::IsChecked(hWnd, buttonId);
 
             if (!UAC::IsElevated()) {
                 // Show message and request elevation
@@ -305,7 +303,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             break;
         }
         case IDC_SETTINGS_UPDATES_ENABLED: {
-            _cfg.IsUpdatesEnabled = Utils::IsCheckboxCheck(hWnd, buttonId);
+            _cfg.IsUpdatesEnabled = DialogControls::IsChecked(hWnd, buttonId);
 
             // Disable auto-update if updates are disabled
             if (!_cfg.IsUpdatesEnabled) {
@@ -318,13 +316,13 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             break;
         }
         case IDC_SETTINGS_AUTO_UPDATE_ENABLED:
-            _cfg.IsAutoUpdateEnabled = Utils::IsCheckboxCheck(hWnd, buttonId);
+            _cfg.IsAutoUpdateEnabled = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_INDICATOR_CAPTURE:
-            _cfg.ExcludeFromCapture = Utils::IsCheckboxCheck(hWnd, buttonId);
+            _cfg.ExcludeFromCapture = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_INDICATOR_ON_TOP: {
-            bool onTopRequested = Utils::IsCheckboxCheck(hWnd, buttonId);
+            bool onTopRequested = DialogControls::IsChecked(hWnd, buttonId);
 
             // Check if we need admin rights for "On top of all windows"
             if (onTopRequested && !UAC::IsElevated()) {
@@ -351,10 +349,10 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             break;
         }
         case IDC_SETTINGS_INDICATOR_HIDE_INACTIVE:
-            _cfg.HideWhenInactive = Utils::IsCheckboxCheck(hWnd, buttonId);
+            _cfg.HideWhenInactive = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
-            _cfg.IsMicKeepVolume = Utils::IsCheckboxCheck(hWnd, buttonId);
+            _cfg.IsMicKeepVolume = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
             HandleSoundFileBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file",
@@ -409,22 +407,15 @@ void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, in
     }
 }
 
-void SettingsWindowViewModel::UpdateSoundComboBox(HWND hWnd, int comboBoxId, 
-                                                 const std::set<std::string>& sources, 
-                                                 const std::string& current) {
-    Utils::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), sources, current);
-}
-
-void SettingsWindowViewModel::HandleSoundSourceSelection(HWND hWnd, int comboBoxId, 
-                                                        std::string& configSource, 
+void SettingsWindowViewModel::HandleSoundSourceSelection(HWND hWnd, int comboBoxId,
+                                                        std::string& configSource,
                                                         std::set<std::string>& recentSources) {
-    HWND comboBox = GetDlgItem(hWnd, comboBoxId);
-    configSource = Utils::ResolveSourceFromComboBox(comboBox, recentSources);
+    configSource = DialogControls::ResolveSourceFromComboBox(GetDlgItem(hWnd, comboBoxId), recentSources);
 
-    // Nothing resolved while an entry was selected means the file is gone
-    if (configSource.empty() && SendMessage(comboBox, CB_GETCURSEL, 0, 0) > 0) {
-        Utils::CleanupInvalidSources(recentSources);
-        UpdateSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
+    // The file went missing after the list was built
+    if (!configSource.empty() && !DialogControls::DoesFileExist(configSource)) {
+        configSource.clear();
+        DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), recentSources, configSource);
     }
 }
 
@@ -437,47 +428,33 @@ bool SettingsWindowViewModel::HandleSoundFileBrowse(HWND hWnd, int comboBoxId, c
     }
     
     configSource = selectedFile;
-    Utils::AddToRecentSources(recentSources, selectedFile);
-    UpdateSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
+    DialogControls::AddToRecentSources(recentSources, selectedFile);
+    DialogControls::PopulateSourceComboBox(GetDlgItem(hWnd, comboBoxId), recentSources, configSource);
     return true;
 }
 
 void SettingsWindowViewModel::HandleHotkeyBinding(int rowIndex, const std::string& actionName) {
-    static uint64_t _prevSequenceMask = 0;
-
-    if (_prevSequenceMask > 0) {
-        return;
-    }
-
-    HotkeyManager::Initialize();
     _view->SetHotkeySectionTitle(L"Press desired key combination or ESC to clear...");
 
-    HotkeyManager::BindStart([this, rowIndex, actionName](
-        uint8_t vkCode,
-        Keys::State state,
-        uint64_t sequenceMask,
-        const std::string& hotkeyName) {
+    const bool started = HotkeyCapture::Start(_view->GetHandle(),
+        [this, rowIndex](const std::string& hotkeyName) {
+            _view->SetHotkeyCellValue(rowIndex, hotkeyName.c_str());
+        },
+        [this, actionName](const uint64_t mask) {
+            if (mask) {
+                ClearHotkey(mask, -1);
+                _cfg.Hotkeys[actionName] = mask;
+            } else {
+                _cfg.Hotkeys.erase(actionName);
+            }
 
-        if (state != Keys::State::KEY_RELEASED) {
-            _prevSequenceMask = sequenceMask;
-            this->_view->SetHotkeyCellValue(rowIndex, hotkeyName.c_str());
-            return;
-        }
+            _view->SetHotkeySectionTitle(nullptr);
+            RefreshActionRows();
+        });
 
-        if (vkCode == VK_ESCAPE && sequenceMask == 0) {
-            _prevSequenceMask = 0;
-            _cfg.Hotkeys.erase(actionName);
-        } else if (_prevSequenceMask > 0) {
-            ClearHotkey(_prevSequenceMask, -1);
-            _cfg.Hotkeys[actionName] = _prevSequenceMask;
-        }
-
-        HotkeyManager::BindStop();
-        HotkeyManager::Dispose();
-        this->_view->SetHotkeySectionTitle(nullptr);
-        _prevSequenceMask = 0;
-        RefreshActionRows();
-    });
+    if (!started) {
+        _view->SetHotkeySectionTitle(nullptr);
+    }
 }
 
 void SettingsWindowViewModel::Init() {
@@ -502,8 +479,8 @@ void SettingsWindowViewModel::Init() {
         HandleSectionChange(hWnd, sectionId);
     };
 
-    _view->OnActionActivated = [this](HWND hWnd, int rowIndex) {
-        HandleActionActivated(hWnd, rowIndex);
+    _view->OnActionActivated = [this](int rowIndex) {
+        HandleActionActivated(rowIndex);
     };
 
     _view->OnApply += [this]() {

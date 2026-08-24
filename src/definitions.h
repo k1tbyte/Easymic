@@ -21,10 +21,11 @@ using Microsoft::WRL::ComPtr;
 #define GITHUB_OWNER DEV_NAME
 #define GITHUB_REPO REPO_NAME 
 
+/// A COM failure in the audio layer is not fatal - the app stays up, just without that device.
 #define CHECK_HR(hr, msg) \
     if (FAILED(hr)) { \
-        printf("%s FAILED: 0x%08lX\n", msg, hr); \
-        throw std::runtime_error(msg); \
+        LOG_ERROR("%s: 0x%08lX", msg, hr); \
+        return false; \
     }
 
 #define LOGGING_ENABLED 0

@@ -3,6 +3,7 @@
 
 #include "../Core/BaseWindow.hpp"
 #include "../Components/TrayIcon.hpp"
+#include "../Components/TrayIconTheme.hpp"
 #include "../Components/GdiRenderer.hpp"
 #include "../Components/LayeredWindow.hpp"
 #include <memory>
@@ -16,6 +17,7 @@ public:
     using OnTrayMenuCallback = std::function<void(UINT_PTR commandId)>;
     using OnCloseCallback = std::function<void()>;
     using OnTimerCallback = std::function<void(UINT_PTR timerId)>;
+    using OnThemeChangedCallback = std::function<void()>;
 
     static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
     static constexpr auto Style = WS_POPUP | WS_DISABLED;
@@ -26,7 +28,7 @@ public:
     };
 
     explicit MainWindow(HINSTANCE hInstance, AppConfig& appConfig);
-    ~MainWindow() override;
+    ~MainWindow() override = default;
 
     bool Initialize(WindowConfig config);
 
@@ -70,6 +72,11 @@ public:
         _onTimer = std::move(callback);
     }
 
+    /// Fires when the user switches between the light and dark system theme.
+    void SetOnThemeChanged(OnThemeChangedCallback callback) {
+        _onThemeChanged = std::move(callback);
+    }
+
 private:
     bool RegisterWindowClass(const WindowConfig& config) const;
     void SetupMessageHandlers();
@@ -93,9 +100,10 @@ private:
     OnTrayMenuCallback _onTrayMenu;
     OnCloseCallback _onClose;
     OnTimerCallback _onTimer;
+    OnThemeChangedCallback _onThemeChanged;
     GDIRenderer::RenderCallback _onRender;
 
-    // Resources
+    // Not owned: LoadIcon returns shared icons, the view model keeps them alive
     HICON currentIcon_ = nullptr;
     std::wstring _currentTooltip;
 

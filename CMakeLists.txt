@@ -109,6 +109,19 @@ elseif(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE
         /MANIFEST:NO
     )
+
+    if(IS_RELEASE)
+        # /Gw + /OPT:REF drop unreferenced data and code, /OPT:ICF folds the identical
+        # std::function and template instantiations.
+        # /GL + /LTCG measured 10 KB larger here - cross-object inlining beats the size win.
+        target_compile_options(${PROJECT_NAME} PRIVATE /Gw)
+        target_link_options(${PROJECT_NAME} PRIVATE /OPT:REF /OPT:ICF)
+    endif()
+endif()
+
+if(IS_DEBUG)
+    # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint
+    target_compile_definitions(${PROJECT_NAME} PRIVATE EASYMIC_NO_GLOBAL_HOOKS)
 endif()
 
 if(IS_RELEASE AND ENABLE_UPX_COMPRESSION)

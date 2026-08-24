@@ -1,11 +1,8 @@
 #include "Logger.hpp"
+#include <cstdio>
 #include <filesystem>
-#include <iomanip>
-#include <windows.h>
 #include <fstream>
-#include <sstream>
-
-#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
 
 std::string Logger::logFilePath_;
 std::mutex Logger::logMutex_;
@@ -15,54 +12,37 @@ Event<> Logger::OnLogCleared;
 
 
 void Logger::Initialize() {
-    std::call_once(initFlag_, []() {
+    std::call_once(initFlag_, [] {
         wchar_t modulePath[MAX_PATH];
         if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
             return;
         }
 
-        const std::filesystem::path logPath = std::filesystem::path(modulePath).parent_path() / L"easymic.log";
-
-        std::lock_guard<std::mutex> lock(logMutex_);
-        logFilePath_ = logPath.string();
-
-        std::filesystem::create_directories(logPath.parent_path());
-
+        std::lock_guard lock(logMutex_);
+        logFilePath_ = (std::filesystem::path(modulePath).parent_path() / L"easymic.log").string();
         CheckLogFileSize();
     });
 }
 
 void Logger::CheckLogFileSize() {
-    if (!std::filesystem::exists(logFilePath_)) {
-        return;
-    }
-    
-    try {
-        size_t fileSize = std::filesystem::file_size(logFilePath_);
-        if (fileSize > MAX_LOG_SIZE) {
-            // Simply delete the file and start fresh
-            std::filesystem::remove(logFilePath_);
-        }
-    } catch (...) {
-        // Ignore errors
+    std::error_code ec;
+    if (std::filesystem::file_size(logFilePath_, ec) > MAX_LOG_SIZE) {
+        std::filesystem::remove(logFilePath_, ec);
     }
 }
 
 std::string Logger::FormatString(const char* format, va_list args) {
     va_list argsCopy;
     va_copy(argsCopy, args);
-    
-    int size = vsnprintf(nullptr, 0, format, argsCopy);
+    const int size = vsnprintf(nullptr, 0, format, argsCopy);
     va_end(argsCopy);
-    
+
     if (size < 0) {
         return "Format error";
     }
-    
-    std::string result(size + 1, '\0');
-    vsnprintf(&result[0], size + 1, format, args);
-    result.resize(size);
-    
+
+    std::string result(size, '\0');
+    vsnprintf(result.data(), size + 1, format, args);
     return result;
 }
 
@@ -72,16 +52,15 @@ void Logger::LogImpl(Level level, const std::string& message) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::string formattedEntry = FormatLogEntry(level, message);
-    
-    std::ofstream logFile(logFilePath_, std::ios::app);
-    if (logFile.is_open()) {
+    std::lock_guard lock(logMutex_);
+
+    const std::string formattedEntry = FormatLogEntry(level, message);
+
+    // Text mode on purpose: the log ends up in an edit control that wants CRLF
+    if (std::ofstream logFile(logFilePath_, std::ios::app); logFile.is_open()) {
         logFile << formattedEntry << std::endl;
-        logFile.close();
     }
-    
+
     OnLogAdded(level, message, formattedEntry);
 }
 
@@ -90,7 +69,7 @@ void Logger::Log(Level level, const char* format, ...) {
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
-    
+
     LogImpl(level, message);
 }
 
@@ -99,7 +78,7 @@ void Logger::Info(const char* format, ...) {
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
-    
+
     LogImpl(Level::Info, message);
 }
 
@@ -108,7 +87,7 @@ void Logger::Warning(const char* format, ...) {
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
-    
+
     LogImpl(Level::Warning, message);
 }
 
@@ -117,30 +96,33 @@ void Logger::Error(const char* format, ...) {
     va_start(args, format);
     std::string message = FormatString(format, args);
     va_end(args);
-    
+
     LogImpl(Level::Error, message);
 }
 
 std::string Logger::GetLogText() {
     Initialize();
     if (logFilePath_.empty()) {
-        return "";
+        return {};
     }
-    
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::ostringstream result;
-    std::ifstream logFile(logFilePath_);
+
+    std::lock_guard lock(logMutex_);
+
+    // Binary: the file already holds the CRLF the edit control expects
+    std::ifstream logFile(logFilePath_, std::ios::binary | std::ios::ate);
     if (!logFile.is_open()) {
-        return "";
+        return {};
     }
-    
-    std::string line;
-    while (std::getline(logFile, line)) {
-        result << line << "\r\n";
+
+    const auto size = logFile.tellg();
+    if (size <= 0) {
+        return {};
     }
-    
-    return result.str();
+
+    std::string text(size, '\0');
+    logFile.seekg(0, std::ios::beg);
+    logFile.read(text.data(), size);
+    return text;
 }
 
 void Logger::ClearLog() {
@@ -148,42 +130,28 @@ void Logger::ClearLog() {
     if (logFilePath_.empty()) {
         return;
     }
-    
-    std::lock_guard<std::mutex> lock(logMutex_);
-    
-    std::ofstream logFile(logFilePath_, std::ios::trunc);
-    if (logFile.is_open()) {
-        logFile.close();
+
+    {
+        std::lock_guard lock(logMutex_);
+        std::ofstream logFile(logFilePath_, std::ios::trunc);
     }
-    
-    // Write clear message
-    std::string formattedEntry = FormatLogEntry(Level::Info, "Log cleared");
-    std::ofstream reopenFile(logFilePath_, std::ios::app);
-    if (reopenFile.is_open()) {
-        reopenFile << formattedEntry << std::endl;
-        reopenFile.close();
-    }
-    
+
+    LogImpl(Level::Info, "Log cleared");
     OnLogCleared();
 }
 
 std::string Logger::FormatLogEntry(Level level, const std::string& message) {
-    return "[" + GetTimestamp() + "] [" + LevelToString(level) + "] " + message;
+    SYSTEMTIME time;
+    GetLocalTime(&time);
+
+    char header[32];
+    snprintf(header, sizeof(header), "[%04u-%02u-%02u %02u:%02u] [%s] ",
+             time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, LevelToString(level));
+
+    return header + message;
 }
 
-std::string Logger::GetTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
-    
-    struct tm timeInfo;
-    localtime_s(&timeInfo, &time_t);
-    
-    std::ostringstream result;
-    result << std::put_time(&timeInfo, "%Y-%m-%d %H:%M");
-    return result.str();
-}
-
-std::string Logger::LevelToString(Level level) {
+const char* Logger::LevelToString(Level level) {
     switch (level) {
         case Level::Info:    return "INFO";
         case Level::Warning: return "WARN";

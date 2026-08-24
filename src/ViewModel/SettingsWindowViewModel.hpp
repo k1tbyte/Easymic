@@ -7,7 +7,8 @@
 
 #include "AudioManager.hpp"
 #include "Audio/AudioFileValidator.hpp"
-#include "Utils.hpp"
+#include "Lib/Registry.hpp"
+#include "SettingsWindow/DialogControls.hpp"
 #include "ViewModel.hpp"
 #include "SettingsWindow/SettingsWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
@@ -26,6 +27,7 @@ private:
     int logAddedSubscriptionId_ = -1;
     int logClearedSubscriptionId_ = -1;
     HWND currentAboutHwnd_ = nullptr;
+    HFONT linkFont_ = nullptr;
 
     constexpr static const char* IndicatorStates[] = {
         "Hidden", "Muted", "Muted or talking"
@@ -35,7 +37,6 @@ private:
     void InitializeGeneralSection(HWND hWnd);
     void InitializeIndicatorSection(HWND hWnd);
     void InitializeSoundsSection(HWND hWnd);
-    void InitializeHotkeysSection(HWND hWnd);
     void RefreshActionRows() const;
     void ClearHotkey(uint64_t mask, int exceptCustomIndex);
     void InitializeAboutSection(HWND hWnd);
@@ -45,7 +46,6 @@ private:
     void UpdateLogDisplay(const std::string& formattedEntry);
     
     // Sound file handling
-    void UpdateSoundComboBox(HWND hWnd, int comboBoxId, const std::set<std::string>& sources, const std::string& current);
     void HandleSoundSourceSelection(HWND hWnd, int comboBoxId, std::string& configSource, std::set<std::string>& recentSources);
     bool HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource, std::set<std::string>& recentSources);
 
@@ -58,13 +58,16 @@ public:
     
     ~SettingsWindowViewModel() {
         CleanupLogDisplay();
+        if (linkFont_) {
+            DeleteObject(linkFont_);
+        }
     }
 
     void HandleSectionChange(HWND hWnd, int sectionId);
     void HandleButtonClick(HWND hWnd, int buttonId);
     void HandleComboBoxChange(HWND hWnd, int comboBoxId);
     void HandleTrackbarChange(HWND hWnd, int trackbarId, int value);
-    void HandleActionActivated(HWND hWnd, int rowIndex);
+    void HandleActionActivated(int rowIndex);
     void HandleHotkeyBinding(int rowIndex, const std::string& actionName);
     
     void Init() override;

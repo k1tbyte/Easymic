@@ -3,7 +3,7 @@
 
 #include <windows.h>
 #include <gdiplus.h>
-#include <memory>
+#include <functional>
 
 #pragma comment(lib, "gdiplus.lib")
 
@@ -20,7 +20,7 @@ namespace GDIRenderer {
 
     using RenderCallback = std::function<void(RenderContext&)>;
 
-    static void CreateRoundedRectPath(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& rect, float radius) {
+    inline void CreateRoundedRectPath(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& rect, float radius) {
         float diameter = radius * 2.0f;
 
         // Top-left

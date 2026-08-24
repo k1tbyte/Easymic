@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <deque>
 #include "Win32Hook.hpp"
+#include "definitions.h"
 
 /*#define KEYLOG(x, ...) \
     printf("[HotkeyManager] " x "\n", __VA_ARGS__)*/
@@ -353,7 +354,7 @@ namespace  HotkeyManager {
     }
 
     void _onKeyRelease(const uint8_t vkCode) {
-
+        // The action fires on the mask that was still complete when the key went up
         if (!_onBindingCallback) {
             _raiseAction(Keys::State::KEY_RELEASED, vkCode);
         }
@@ -364,10 +365,8 @@ namespace  HotkeyManager {
             const uint8_t modifiers = _sequenceMask & 0xFF;
             const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
 
-            // If the last pressed key is released, delete it and move the other keys to the right.\
-            // 1. Delete the second byte by shifting all bytes above it by one byte to the right.
-            // Shift bytes 2-7 in place of bytes 1-6
-            // 2. Save modifier byte
+            // Releasing the newest key drops its byte: shift bytes 2-7 down one, keep the
+            // modifier byte. Releasing anything else leaves modifiers only.
             _sequenceMask = lastKeyPressed == vkCode ? (((_sequenceMask >> 16) << 8) | modifiers) : modifiers;
         }
 
@@ -375,10 +374,7 @@ namespace  HotkeyManager {
 
         if (_onBindingCallback) {
             _onBindingCallback(vkCode, Keys::State::KEY_RELEASED, _sequenceMask, GetHotkeyName(_sequenceMask));
-            // Skip hotkey handling if in binding mode
-            return;
         }
-
     }
 
     void _onKeyPress(const uint8_t vkCode) {
@@ -560,9 +556,9 @@ namespace  HotkeyManager {
         return _hotkeys.erase(keysMask) > 0;
     }
 
-    void Initialize() {
+    bool Initialize() {
         if (_keyboardHook || _mouseHook) {
-            throw std::runtime_error("HotkeyManager already initialized");
+            return false;
         }
 
         _actionStop = false;
@@ -574,10 +570,17 @@ namespace  HotkeyManager {
             _keyboardHook = nullptr;
             _mouseHook = nullptr;
             _stopWorker();
-            throw std::runtime_error("HotkeyManager: SetWindowsHookEx failed");
+            LOG_ERROR("SetWindowsHookEx failed: 0x%08lX", GetLastError());
+            return false;
         }
+
+        return true;
     }
 
+
+    bool IsHooked() {
+        return _keyboardHook != nullptr;
+    }
 
     void ClearHotkeys() {
         _hotkeys.clear();

@@ -27,6 +27,11 @@
 //////////////////////////////////////////////////////////////////////////////
 
 
+#define IDD_SETTINGS_MAIN                           150
+#define IDC_SETTINGS_TREE                           151
+#define IDC_SETTINGS_GROUPBOX                       152
+#define IDC_SETTINGS_VERSION                        153
+
 #define IDD_SETTINGS_GENERAL                        201
 #define IDC_SETTINGS_AUTOSTART                      202
 #define IDC_SETTINGS_SKIP_UAC                       203

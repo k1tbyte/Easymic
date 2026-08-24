@@ -1,9 +1,9 @@
 #include "MainWindow.hpp"
 
-#include "Utils.hpp"
 #include "../../Resources/Resource.h"
 
-#define PADDING 2
+// The indicator draws the icon at IndicatorSize with the same amount of padding around it
+#define INDICATOR_SCALE 2
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance)
@@ -11,18 +11,12 @@ MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
 {
 }
 
-MainWindow::~MainWindow() {
-    if (currentIcon_) {
-        DestroyIcon(currentIcon_);
-    }
-}
-
 std::shared_ptr<BaseWindow> MainWindow::SetWidth(LONG width) {
-    return BaseWindow::SetWidth(width * PADDING);
+    return BaseWindow::SetWidth(width * INDICATOR_SCALE);
 }
 
 std::shared_ptr<BaseWindow> MainWindow::SetHeight(LONG height) {
-    return BaseWindow::SetHeight(height * PADDING);
+    return BaseWindow::SetHeight(height * INDICATOR_SCALE);
 }
 
 bool MainWindow::Initialize(WindowConfig config) {
@@ -119,6 +113,14 @@ void MainWindow::SetupMessageHandlers() {
 
     RegisterMessageHandler(WM_EXITSIZEMOVE, [this](WPARAM wp, LPARAM lp) {
         return OnExitSizeMove(wp, lp);
+    });
+
+    // Broadcast to every top-level window when the light/dark theme is switched
+    RegisterMessageHandler(WM_SETTINGCHANGE, [this](WPARAM wp, LPARAM lp) {
+        if (_onThemeChanged && TrayIconTheme::IsColorSetChange(lp)) {
+            _onThemeChanged();
+        }
+        return 0;
     });
 
     // Restoring tray icon on Explorer restart
