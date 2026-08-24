@@ -55,6 +55,15 @@
 #define IDC_HOTKEYS_TITLE                           403
 
 
+#define IDD_ACTION_EDIT                              451
+#define IDC_ACTION_NAME                              452
+#define IDC_ACTION_COMMAND                           453
+#define IDC_ACTION_HOTKEY                            454
+#define IDC_ACTION_ON_RELEASE                        455
+#define IDC_ACTION_DELETE                            456
+#define IDC_ACTION_SOUND                             457
+#define IDC_ACTION_SOUND_BROWSE                      458
+
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502
 #define IDC_ABOUT_GITHUB_LINK                        503
