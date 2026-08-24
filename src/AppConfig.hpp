@@ -54,7 +54,9 @@ struct AppConfig {
     static void Save(const AppConfig& config)
     {
 #ifdef CONFIG_ENABLED
-        glz::write_file_beve(config, GetConfigPath(), std::string{});
+        if (const auto ec = glz::write_file_beve(config, GetConfigPath(), std::string{})) {
+            LOG_ERROR("Config save failed: %s", glz::format_error(ec).c_str());
+        }
 #endif // CONFIG_ENABLED
     }
 
@@ -66,7 +68,11 @@ struct AppConfig {
     {
         AppConfig config{};
 #ifdef CONFIG_ENABLED
-        glz::read_file_beve(config, GetConfigPath(), std::string{});
+        // Missing file is the normal first-run case, everything else means a broken config
+        if (const auto ec = glz::read_file_beve(config, GetConfigPath(), std::string{});
+            ec && ec.ec != glz::error_code::file_open_failure) {
+            LOG_ERROR("Config load failed: %s", glz::format_error(ec).c_str());
+        }
 #endif // CONFIG_ENABLED
         return config;
     }
