@@ -21,21 +21,12 @@ void Logger::Initialize() {
             return;
         }
 
-        std::wstring wPath(modulePath);
-        std::string logPath(wPath.begin(), wPath.end());
-
-        size_t pos = logPath.find_last_of("\\");
-        if (pos != std::string::npos) {
-            logPath = logPath.substr(0, pos + 1) + "easymic.log";
-        } else {
-            logPath = "easymic.log";
-        }
+        const std::filesystem::path logPath = std::filesystem::path(modulePath).parent_path() / L"easymic.log";
 
         std::lock_guard<std::mutex> lock(logMutex_);
-        logFilePath_ = logPath;
+        logFilePath_ = logPath.string();
 
-        std::filesystem::path path(logPath);
-        std::filesystem::create_directories(path.parent_path());
+        std::filesystem::create_directories(logPath.parent_path());
 
         CheckLogFileSize();
     });

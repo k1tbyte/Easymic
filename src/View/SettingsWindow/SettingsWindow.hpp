@@ -36,8 +36,8 @@ public:
     int ButtonHeight()     const { return Scale(23, dpi_); }
 
     // Control IDs
-    static constexpr int ID_TREEVIEW = 1001;
-    static constexpr int ID_GROUPBOX = 1002;
+    static constexpr UINT_PTR ID_TREEVIEW = 1001;
+    static constexpr UINT_PTR ID_GROUPBOX = 1002;
 
     using OnButtonClickCallback = std::function<void(HWND hWnd, int buttonId)>;
     using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId)>;
