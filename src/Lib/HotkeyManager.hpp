@@ -79,7 +79,11 @@ namespace HotkeyManager {
     bool UnregisterHotkey(uint64_t keysMask);
     void BindStart(const BindingCallback& callback);
     void BindStop();
-    void Initialize();
+    /// False when the hooks are already up or the OS refused them - never throws, it is called
+    /// from inside Win32 callbacks.
+    bool Initialize();
+    /// True while the low-level hooks are installed.
+    bool IsHooked();
     void ClearHotkeys();
     void Dispose();
 

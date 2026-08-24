@@ -17,12 +17,16 @@
 #include "EventHandlers/SessionStateEventsHandler.hpp"
 #include "Event.hpp"
 
+#ifdef _DEBUG
 #define LOG_SESSION(message, ...) \
     printf("[AUDIO SESSION] (Registered: %zu | Active: %d) -> " message "\n", \
         audioSessions.size(), \
         _activeSessionsCount.load(), \
         ##__VA_ARGS__ \
     );
+#else
+#define LOG_SESSION(message, ...)
+#endif
 
 #ifdef __GNUC__
 __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64)
@@ -77,16 +81,18 @@ public:
     Event<bool, float> *OnDeviceStateChanged;
     Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> *OnSessionPropertyChanged;
 
-    void Init(const ComPtr<IMMDeviceEnumerator> &enumerator, const EDataFlow dataFlow, const ERole role) {
+    /// False when the endpoint is missing or a COM call failed - the controller then stays idle
+    /// and the app runs on without that device.
+    bool Init(const ComPtr<IMMDeviceEnumerator> &enumerator, const EDataFlow dataFlow, const ERole role) {
         if (!enumerator || _isInitialized) {
-            return;
+            return false;
         }
 
         auto result = enumerator->GetDefaultAudioEndpoint(dataFlow, role, &device);
 
         // Any device not found
         if (result != S_OK) {
-            return;
+            return false;
         }
 
         PROPERTYKEY key{};
@@ -144,8 +150,8 @@ public:
         volumeEndpoint->GetMute(&_isMuted);
         volumeEndpoint->GetMasterVolumeLevelScalar(&_volumeLevel);
 
-
         _isInitialized = true;
+        return true;
     }
 
     bool IsInitialized() const {

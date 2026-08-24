@@ -6,8 +6,10 @@
 #include <shellapi.h>
 #include <string>
 #include <thread>
+#include <unordered_set>
 
-#include "Utils.hpp"
+#include "Process.hpp"
+#include "Str.hpp"
 #include "definitions.h"
 
 /**
@@ -19,6 +21,19 @@
 namespace CommandRunner {
 
     namespace Detail {
+        /// CP_ACP, not UTF-8: the command was typed into an ANSI edit control like every other
+        /// string in the app, so a Cyrillic path would come back mangled from a UTF-8 decode.
+        inline std::wstring ToWide(const std::string& text) {
+            const int size = MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, nullptr, 0);
+            if (size <= 1) {
+                return {};
+            }
+
+            std::wstring result(size - 1, L'\0');
+            MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, result.data(), size);
+            return result;
+        }
+
         inline bool IsExistingFile(const std::wstring& path) {
             const DWORD attributes = GetFileAttributesW(path.c_str());
             return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
@@ -28,7 +43,7 @@ namespace CommandRunner {
         inline void Split(const std::wstring& command, std::wstring& file, std::wstring& params) {
             size_t end;
 
-            if (command.front() == L'"') {
+            if (command.starts_with(L'"')) {
                 end = command.find(L'"', 1);
                 file = command.substr(1, end == std::wstring::npos ? std::wstring::npos : end - 1);
                 end = end == std::wstring::npos ? command.size() : end + 1;
@@ -58,6 +73,8 @@ namespace CommandRunner {
 
         struct WindowSearch {
             const std::wstring& imagePath;
+            /// One image-path lookup per process instead of one per window on every pass
+            std::unordered_set<DWORD> checked;
             HWND result = nullptr;
         };
 
@@ -69,7 +86,13 @@ namespace CommandRunner {
                 return TRUE;
             }
 
-            if (_wcsicmp(Utils::GetProcessNameByHWND(window).c_str(), search->imagePath.c_str()) != 0) {
+            DWORD processId = 0;
+            GetWindowThreadProcessId(window, &processId);
+            if (!search->checked.insert(processId).second) {
+                return TRUE;
+            }
+
+            if (_wcsicmp(Process::GetNameByHWND(window).c_str(), search->imagePath.c_str()) != 0) {
                 return TRUE;
             }
 
@@ -89,15 +112,20 @@ namespace CommandRunner {
             constexpr int AttemptCount = 20;
             constexpr int AttemptDelayMs = 100;
 
-            HWND window = nullptr;
-            for (int attempt = 0; attempt < AttemptCount && !window; attempt++) {
-                Sleep(AttemptDelayMs);
+            // Kept across passes: an already inspected process is only interesting again once it
+            // opens the window we are waiting for, and a fresh instance brings a fresh pid
+            WindowSearch search{imagePath};
 
-                WindowSearch search{imagePath};
+            for (int attempt = 0; attempt < AttemptCount && !search.result; attempt++) {
+                // An already running app answers on the first pass - it should not pay the delay
+                if (attempt) {
+                    Sleep(AttemptDelayMs);
+                }
+
                 EnumWindows(FindMainWindow, reinterpret_cast<LPARAM>(&search));
-                window = search.result;
             }
 
+            const HWND window = search.result;
             if (!window || window == GetForegroundWindow()) {
                 return;
             }
@@ -128,10 +156,11 @@ namespace CommandRunner {
             CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
             std::wstring file, params;
-            Detail::Split(Utils::Utf8ToWide(command), file, params);
+            Detail::Split(Detail::ToWide(command), file, params);
 
             SHELLEXECUTEINFOW info{sizeof(info)};
-            info.fMask = SEE_MASK_FLAG_NO_UI;
+            // NOASYNC is required when the calling thread exits right after - this one does
+            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
             info.lpFile = file.c_str();
             info.lpParameters = params.empty() ? nullptr : params.c_str();
             info.nShow = SW_SHOWNORMAL;

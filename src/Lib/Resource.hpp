@@ -1,66 +1,69 @@
 #ifndef EASYMIC_RESOURCE_HPP
 #define EASYMIC_RESOURCE_HPP
 
+#include <fstream>
 #include <memory>
+#include <string>
 #include <windows.h>
 
-// RAII Resource wrapper for automatic memory management
+/// Either a heap buffer we own (file) or a pointer into the module image (embedded resource).
 class Resource {
-private:
-    std::unique_ptr<BYTE[]> _ownedBuffer;  // For file-loaded resources
-    BYTE* _rawBuffer = nullptr;            // For embedded resources
-    DWORD _fileSize = 0;
-    bool _ownsMemory = false;
+    std::unique_ptr<BYTE[]> _owned;
+    BYTE* _buffer = nullptr;
+    DWORD _size = 0;
 
 public:
     Resource() = default;
 
-    // Constructor for file-loaded resources (owns memory)
     Resource(std::unique_ptr<BYTE[]> buffer, DWORD size)
-        : _ownedBuffer(std::move(buffer)), _fileSize(size), _ownsMemory(true) {}
+        : _owned(std::move(buffer)), _buffer(_owned.get()), _size(size) {}
 
-    // Constructor for embedded resources (doesn't own memory)
     Resource(BYTE* buffer, DWORD size)
-        : _rawBuffer(buffer), _fileSize(size), _ownsMemory(false) {}
+        : _buffer(buffer), _size(size) {}
 
-    BYTE* buffer() const {
-        return _ownsMemory ? _ownedBuffer.get() : _rawBuffer;
-    }
-
-    DWORD fileSize() const { return _fileSize; }
-
-    bool empty() const {
-        return (_ownsMemory ? _ownedBuffer == nullptr : _rawBuffer == nullptr) || _fileSize == 0;
-    }
-
-    // Move constructor and assignment
-    Resource(Resource&& other) noexcept
-        : _ownedBuffer(std::move(other._ownedBuffer)),
-          _rawBuffer(other._rawBuffer),
-          _fileSize(other._fileSize),
-          _ownsMemory(other._ownsMemory) {
-        other._rawBuffer = nullptr;
-        other._fileSize = 0;
-        other._ownsMemory = false;
-    }
-
-    Resource& operator=(Resource&& other) noexcept {
-        if (this != &other) {
-            _ownedBuffer = std::move(other._ownedBuffer);
-            _rawBuffer = other._rawBuffer;
-            _fileSize = other._fileSize;
-            _ownsMemory = other._ownsMemory;
-
-            other._rawBuffer = nullptr;
-            other._fileSize = 0;
-            other._ownsMemory = false;
-        }
-        return *this;
-    }
-
-    // Delete copy operations
+    Resource(Resource&&) noexcept = default;
+    Resource& operator=(Resource&&) noexcept = default;
     Resource(const Resource&) = delete;
     Resource& operator=(const Resource&) = delete;
+
+    BYTE* buffer() const { return _buffer; }
+    DWORD fileSize() const { return _size; }
+    bool empty() const { return !_buffer || !_size; }
+
+    /// Embedded resource - the module image owns the memory, so nothing is copied.
+    static Resource FromModule(HINSTANCE hInst, LPCSTR name, LPCSTR type) {
+        HRSRC info = FindResourceA(hInst, name, type);
+        if (!info) {
+            return {};
+        }
+
+        HGLOBAL handle = ::LoadResource(hInst, info);
+        if (!handle) {
+            return {};
+        }
+
+        return {static_cast<BYTE*>(LockResource(handle)), SizeofResource(hInst, info)};
+    }
+
+    static Resource FromFile(const std::string& filePath) {
+        std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            return {};
+        }
+
+        const auto size = file.tellg();
+        if (size <= 0) {
+            return {};
+        }
+
+        file.seekg(0, std::ios::beg);
+        auto buffer = std::make_unique<BYTE[]>(size);
+        if (!file.read(reinterpret_cast<char*>(buffer.get()), size)) {
+            return {};
+        }
+
+        return {std::move(buffer), static_cast<DWORD>(size)};
+    }
 };
 
 #endif //EASYMIC_RESOURCE_HPP

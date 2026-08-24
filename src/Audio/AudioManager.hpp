@@ -8,50 +8,46 @@
 
 #include <future>
 #include <mutex>
-#include <typeinfo>
 #include "EventHandlers/AudioDeviceEventsHandler.hpp"
 #include "AudioDeviceController.hpp"
 
 class AudioManager {
 
-    std::shared_ptr<AudioDeviceController> _captureDevice = std::make_shared<AudioDeviceController>();
-    std::shared_ptr<AudioDeviceController> _playbackDevice = std::make_shared<AudioDeviceController>();
+    /// Capture and playback differ only by data flow - everything else is the same machinery.
+    struct Endpoint {
+        explicit Endpoint(const EDataFlow dataFlow) : flow(dataFlow) {}
 
+        EDataFlow flow;
+        std::shared_ptr<AudioDeviceController> device = std::make_shared<AudioDeviceController>();
+        Event<> defaultChanged;
+        Event<bool, float> stateChanged;
+        Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> sessionPropertyChanged;
+        std::atomic<bool> reinitPending = false;
+        std::atomic<bool> watching = false;
+        std::future<void> reinitTask;
+    };
+
+    Endpoint _capture{eCapture};
+    Endpoint _playback{eRender};
 
     ComPtr<IMMDeviceEnumerator> deviceEnumerator;
     ComPtr<AudioDeviceEventsHandler> deviceHandler;
 
-
-    Event<> _defaultCaptureChanged;
-    Event<> _defaultPlaybackChanged;
-    Event<bool, float> _captureStateChanged;
-    Event<bool, float> _playbackStateChanged;
-    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _captureSessionPropertyChanged;
-    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _playbackSessionPropertyChanged;
-
-    std::atomic<bool> _captureReinitPending = false;
-    std::atomic<bool> _playbackReinitPending = false;
-    std::future<void> _captureReinitTask;
-    std::future<void> _playbackReinitTask;
-
     mutable std::mutex _deviceMutex;
-    std::atomic<bool> _captureWatching = false;
-    std::atomic<bool> _playbackWatching = false;
 
 public:
 
-     IEvent<>& OnDefaultCaptureChanged = _defaultCaptureChanged;
-     IEvent<>& OnDefaultPlaybackChanged = _defaultPlaybackChanged;
-     IEvent<bool, float>& OnCaptureStateChanged = _captureStateChanged;
-     IEvent<bool, float>& OnPlaybackStateChanged = _playbackStateChanged;
-     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnCaptureSessionPropertyChanged = _captureSessionPropertyChanged;
-     IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnPlaybackSessionPropertyChanged = _playbackSessionPropertyChanged;
+    IEvent<>& OnDefaultCaptureChanged = _capture.defaultChanged;
+    IEvent<>& OnDefaultPlaybackChanged = _playback.defaultChanged;
+    IEvent<bool, float>& OnCaptureStateChanged = _capture.stateChanged;
+    IEvent<bool, float>& OnPlaybackStateChanged = _playback.stateChanged;
+    IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnCaptureSessionPropertyChanged = _capture.sessionPropertyChanged;
+    IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnPlaybackSessionPropertyChanged = _playback.sessionPropertyChanged;
 
-
-
-    void Init() {
+    /// False when COM refused to hand out the enumerator - the app then runs without audio control.
+    bool Init() {
         if (deviceEnumerator) {
-            return;
+            return true;
         }
 
         auto result = CoCreateInstance(
@@ -67,8 +63,9 @@ public:
         result = deviceEnumerator->RegisterEndpointNotificationCallback(deviceHandler.Get());
         CHECK_HR(result, "Failed to register endpoint notification callback");
 
-        _initCaptureDeviceController();
-        _initPlaybackDeviceController();
+        _initEndpoint(_capture);
+        _initEndpoint(_playback);
+        return true;
     }
 
     void Cleanup() {
@@ -80,29 +77,10 @@ public:
         deviceEnumerator.Reset();
     }
 
-    void WatchForCaptureSessions() {
-        _captureWatching = true;
-        std::lock_guard lock(_deviceMutex);
-        if (_captureDevice) { _captureDevice->WatchForSessions(); }
-    }
-
-    void WatchForPlaybackSessions() {
-        _playbackWatching = true;
-        std::lock_guard lock(_deviceMutex);
-        if (_playbackDevice) { _playbackDevice->WatchForSessions(); }
-    }
-
-    void StopWatchingForCaptureSessions() {
-        _captureWatching = false;
-        std::lock_guard lock(_deviceMutex);
-        if (_captureDevice) { _captureDevice->StopWatchingForSessions(); }
-    }
-
-    void StopWatchingForPlaybackSessions() {
-        _playbackWatching = false;
-        std::lock_guard lock(_deviceMutex);
-        if (_playbackDevice) { _playbackDevice->StopWatchingForSessions(); }
-    }
+    void WatchForCaptureSessions() { _setWatching(_capture, true); }
+    void WatchForPlaybackSessions() { _setWatching(_playback, true); }
+    void StopWatchingForCaptureSessions() { _setWatching(_capture, false); }
+    void StopWatchingForPlaybackSessions() { _setWatching(_playback, false); }
 
     bool IsInitialized() const {
         return deviceEnumerator != nullptr;
@@ -110,53 +88,48 @@ public:
 
     std::shared_ptr<AudioDeviceController> CaptureDevice() const {
         std::lock_guard lock(_deviceMutex);
-        return _captureDevice;
+        return _capture.device;
     }
 
     std::shared_ptr<AudioDeviceController> PlaybackDevice() const {
         std::lock_guard lock(_deviceMutex);
-        return _playbackDevice;
+        return _playback.device;
     }
 
-
     ~AudioManager() {
-        if (_captureReinitTask.valid()) {
-            _captureReinitTask.wait();
-        }
-        if (_playbackReinitTask.valid()) {
-            _playbackReinitTask.wait();
+        for (Endpoint* endpoint : {&_capture, &_playback}) {
+            if (endpoint->reinitTask.valid()) {
+                endpoint->reinitTask.wait();
+            }
         }
         Cleanup();
     }
 
 private:
 
-    void _initCaptureDeviceController() {
+    void _initEndpoint(Endpoint& endpoint) {
         auto newDevice = std::make_shared<AudioDeviceController>();
-        newDevice->OnDeviceStateChanged     = &this->_captureStateChanged;
-        newDevice->OnSessionPropertyChanged = &this->_captureSessionPropertyChanged;
-        newDevice->Init(deviceEnumerator, EDataFlow::eCapture, ERole::eCommunications);
+        newDevice->OnDeviceStateChanged     = &endpoint.stateChanged;
+        newDevice->OnSessionPropertyChanged = &endpoint.sessionPropertyChanged;
+        newDevice->Init(deviceEnumerator, endpoint.flow, ERole::eCommunications);
 
-        if (_captureWatching) {
+        if (endpoint.watching) {
             newDevice->WatchForSessions();
         }
 
         std::lock_guard lock(_deviceMutex);
-        _captureDevice = std::move(newDevice);
+        endpoint.device = std::move(newDevice);
     }
 
-    void _initPlaybackDeviceController() {
-        auto newDevice = std::make_shared<AudioDeviceController>();
-        newDevice->OnDeviceStateChanged     = &this->_playbackStateChanged;
-        newDevice->OnSessionPropertyChanged = &this->_playbackSessionPropertyChanged;
-        newDevice->Init(deviceEnumerator, EDataFlow::eRender, ERole::eCommunications);
+    void _setWatching(Endpoint& endpoint, const bool watching) {
+        endpoint.watching = watching;
+        std::lock_guard lock(_deviceMutex);
 
-        if (_playbackWatching) {
-            newDevice->WatchForSessions();
+        if (!endpoint.device) {
+            return;
         }
 
-        std::lock_guard lock(_deviceMutex);
-        _playbackDevice = std::move(newDevice);
+        watching ? endpoint.device->WatchForSessions() : endpoint.device->StopWatchingForSessions();
     }
 
     const std::function<void(EDataFlow, ERole, LPCWSTR)> _handleDeviceChanged = [this](EDataFlow flow, ERole role, LPCWSTR) {
@@ -164,37 +137,18 @@ private:
             return;
         }
 
-        if (flow == EDataFlow::eCapture) {
-            if (_captureReinitPending.exchange(true)) {
-                return;
-            }
-
-            _captureReinitTask = std::async(std::launch::async, [this]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                try {
-                    _initCaptureDeviceController();
-                    _defaultCaptureChanged();
-                } catch (const std::exception& e) {
-                    LOG_ERROR("Capture device reinit failed: %s", e.what());
-                }
-                _captureReinitPending = false;
-            });
-        } else if (flow == EDataFlow::eRender) {
-            if (_playbackReinitPending.exchange(true)) {
-                return;
-            }
-
-            _playbackReinitTask = std::async(std::launch::async, [this]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                try {
-                    _initPlaybackDeviceController();
-                    _defaultPlaybackChanged();
-                } catch (const std::exception& e) {
-                    LOG_ERROR("Playback device reinit failed: %s", e.what());
-                }
-                _playbackReinitPending = false;
-            });
+        Endpoint* endpoint = flow == eCapture ? &_capture : flow == eRender ? &_playback : nullptr;
+        if (!endpoint || endpoint->reinitPending.exchange(true)) {
+            return;
         }
+
+        endpoint->reinitTask = std::async(std::launch::async, [this, endpoint] {
+            // Windows announces the new default before it can actually be activated
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            _initEndpoint(*endpoint);
+            endpoint->defaultChanged();
+            endpoint->reinitPending = false;
+        });
     };
 
 };

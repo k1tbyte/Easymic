@@ -7,78 +7,114 @@
 
 #include <windows.h>
 #include <gdiplus.h>
-#include <memory>
 #include "GdiRenderer.hpp"
 
 #pragma comment(lib, "gdiplus.lib")
 
-/**
- * @brief Rendering to layered window
- * @param hwnd Window handle
- * @param width Width
- * @param height Height
- * @param renderFunc Drawing callback
- */
-
 namespace GDIRenderer {
-    static void RenderLayeredWindow(HWND hwnd, int width, int height, const POINT &windowPos, const RenderCallback &renderFunc) {
+
+    /**
+     * @brief Back buffer for the layered indicator.
+     *
+     * There is exactly one such window and its size only changes from the settings trackbar, so
+     * the DC and the DIB section are built once instead of on every WM_PAINT.
+     */
+    class LayeredSurface {
+        HDC _dc = nullptr;
+        HBITMAP _bitmap = nullptr;
+        HGDIOBJ _previous = nullptr;
+        int _width = 0;
+        int _height = 0;
+
+    public:
+        HDC Get(HDC screenDC, const int width, const int height) {
+            if (_dc && _width == width && _height == height) {
+                return _dc;
+            }
+
+            Release();
+
+            BITMAPINFO info = {};
+            info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            info.bmiHeader.biWidth = width;
+            info.bmiHeader.biHeight = -height; // Top-down
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+
+            void* bits = nullptr;
+            _bitmap = CreateDIBSection(screenDC, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+            if (!_bitmap) {
+                return nullptr;
+            }
+
+            _dc = CreateCompatibleDC(screenDC);
+            if (!_dc) {
+                DeleteObject(_bitmap);
+                _bitmap = nullptr;
+                return nullptr;
+            }
+
+            _previous = SelectObject(_dc, _bitmap);
+            _width = width;
+            _height = height;
+            return _dc;
+        }
+
+        void Release() {
+            if (_dc) {
+                SelectObject(_dc, _previous);
+                DeleteDC(_dc);
+                _dc = nullptr;
+            }
+            if (_bitmap) {
+                DeleteObject(_bitmap);
+                _bitmap = nullptr;
+            }
+            _width = _height = 0;
+        }
+
+        ~LayeredSurface() { Release(); }
+    };
+
+    /**
+     * @brief Draws through the callback and pushes the result to the layered window.
+     */
+    inline void RenderLayeredWindow(HWND hwnd, int width, int height, const POINT& windowPos,
+                                    const RenderCallback& renderFunc) {
         if (!hwnd || !renderFunc) {
             return;
         }
 
-        HDC hdcScreen = GetDC(hwnd);
-        if (!hdcScreen) {
+        HDC screenDC = GetDC(hwnd);
+        if (!screenDC) {
             return;
         }
 
-        HDC hdcMem = CreateCompatibleDC(hdcScreen);
-        if (!hdcMem) {
-            ReleaseDC(hwnd, hdcScreen);
+        static LayeredSurface surface;
+        HDC memoryDC = surface.Get(screenDC, width, height);
+        if (!memoryDC) {
+            ReleaseDC(hwnd, screenDC);
             return;
         }
 
-        // Create 32-bit bitmap with alpha channel
-        BITMAPINFO bmi = {};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = width;
-        bmi.bmiHeader.biHeight = -height; // Top-down
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
-
-        void *pvBits = nullptr;
-        HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pvBits, nullptr, 0);
-        if (!hBitmap) {
-            DeleteDC(hdcMem);
-            ReleaseDC(hwnd, hdcScreen);
-            return;
-        }
-
-        HBITMAP hOldBitmap = static_cast<HBITMAP>(SelectObject(hdcMem, hBitmap));
-
-        // Configure GDI+ Graphics
-        Gdiplus::Graphics graphics(hdcMem);
+        Gdiplus::Graphics graphics(memoryDC);
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
         graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
 
-        // Invoke callback to draw
         RenderContext ctx{&graphics, width, height};
         renderFunc(ctx);
 
-        POINT ptSrc = {0, 0};
-        POINT ptDst = windowPos;
-        SIZE sizeWnd = {width, height};
+        POINT source = {0, 0};
+        POINT destination = windowPos;
+        SIZE size = {width, height};
         BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
 
-        UpdateLayeredWindow(hwnd, hdcScreen, &ptDst, &sizeWnd, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+        UpdateLayeredWindow(hwnd, screenDC, &destination, &size, memoryDC, &source, 0, &blend, ULW_ALPHA);
 
-        // Cleanup
-        SelectObject(hdcMem, hOldBitmap);
-        DeleteObject(hBitmap);
-        DeleteDC(hdcMem);
-        ReleaseDC(hwnd, hdcScreen);
+        ReleaseDC(hwnd, screenDC);
     }
 }
 

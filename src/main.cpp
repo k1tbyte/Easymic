@@ -31,7 +31,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    AppConfig config = AppConfig::Load();
+    // Static: the update thread and the statics below hold references to it and outlive WinMain
+    static AppConfig config = AppConfig::Load();
 
     if (config.IsSkipUACEnabled && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
         if (UAC::RunWithSkipUAC()) {
@@ -78,8 +79,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     static auto manager = AudioManager();
-    manager.Init();
-    LOG_INFO("AudioManager initialized successfully");
+    if (!manager.Init()) {
+        LOG_ERROR("AudioManager failed to initialize - continuing without audio control");
+    }
 
     static auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
     mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);

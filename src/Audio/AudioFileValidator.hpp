@@ -5,9 +5,11 @@
 #ifndef EASYMIC_AUDIOFILEVALIDATOR_HPP
 #define EASYMIC_AUDIOFILEVALIDATOR_HPP
 
-#include <windows.h>
-#include <string>
+#include <cstddef>
+#include <cstring>
 #include <fstream>
+#include <string>
+#include <windows.h>
 
 struct WavValidationResult {
     bool isValid = false;
@@ -44,21 +46,19 @@ public:
     static bool PickValidWavFile(HWND hWnd, const char* title, std::string& result);
 
 private:
+    /// "fmt " chunk payload plus the size of the "data" chunk found for it.
     struct WavHeader {
-        char riff[4];           // "RIFF"
-        uint32_t fileSize;      // File size - 8
-        char wave[4];           // "WAVE"
-        char fmt[4];            // "fmt "
-        uint32_t fmtSize;       // Format chunk size
         uint16_t audioFormat;   // Audio format (1 = PCM)
         uint16_t channels;      // Number of channels
         uint32_t sampleRate;    // Sample rate
         uint32_t byteRate;      // Byte rate
         uint16_t blockAlign;    // Block align
         uint16_t bitsPerSample; // Bits per sample
-        char data[4];           // "data"
         uint32_t dataSize;      // Data chunk size
     };
+
+    // The first six fields are read as one 16 byte block straight out of the "fmt " chunk
+    static_assert(offsetof(WavHeader, bitsPerSample) == 14);
 
     static bool ReadWavHeader(std::ifstream& file, WavHeader& header);
     static bool ValidateWavHeader(const WavHeader& header);
@@ -139,32 +139,52 @@ inline bool AudioFileValidator::PickValidWavFile(HWND hWnd, const char* title, s
     return true;
 }
 
+/**
+ * @brief Walks the RIFF chunk list for "fmt " and "data".
+ *
+ * They are not at fixed offsets: ffmpeg and Audacity happily emit LIST or fact chunks in
+ * between, and reading a fixed 44-byte header there yields a garbage duration.
+ */
 inline bool AudioFileValidator::ReadWavHeader(std::ifstream& file, WavHeader& header) {
-    file.read(reinterpret_cast<char*>(&header), sizeof(WavHeader));
-    return file.gcount() == sizeof(WavHeader);
+    char riff[4], wave[4];
+    uint32_t riffSize;
+
+    file.read(riff, 4);
+    file.read(reinterpret_cast<char*>(&riffSize), 4);
+    file.read(wave, 4);
+
+    if (!file || strncmp(riff, "RIFF", 4) != 0 || strncmp(wave, "WAVE", 4) != 0) {
+        return false;
+    }
+
+    bool hasFormat = false;
+    header.dataSize = 0;
+
+    while (file) {
+        char id[4];
+        uint32_t size;
+        file.read(id, 4);
+        file.read(reinterpret_cast<char*>(&size), 4);
+        if (!file) {
+            break;
+        }
+
+        if (strncmp(id, "fmt ", 4) == 0 && size >= 16) {
+            file.read(reinterpret_cast<char*>(&header.audioFormat), 16);
+            hasFormat = file.good();
+            size -= 16;
+        } else if (strncmp(id, "data", 4) == 0) {
+            header.dataSize = size;
+            break; // Everything past the samples is metadata
+        }
+
+        file.seekg(size + (size & 1), std::ios::cur); // Chunks are word aligned
+    }
+
+    return hasFormat && header.dataSize > 0;
 }
 
 inline bool AudioFileValidator::ValidateWavHeader(const WavHeader& header) {
-    // Check RIFF signature
-    if (strncmp(header.riff, "RIFF", 4) != 0) {
-        return false;
-    }
-
-    // Check WAVE signature
-    if (strncmp(header.wave, "WAVE", 4) != 0) {
-        return false;
-    }
-
-    // Check fmt signature
-    if (strncmp(header.fmt, "fmt ", 4) != 0) {
-        return false;
-    }
-
-    /*// Check data signature
-    if (strncmp(header.data, "data", 4) != 0) {
-        return false;
-    }*/
-
     // Check audio format (PCM = 1)
     if (header.audioFormat != 1) {
         return false;
