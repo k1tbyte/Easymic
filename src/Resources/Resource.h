@@ -14,6 +14,9 @@
 // Sounds
 #define IDR_MUTE            18
 #define IDR_UNMUTE		    19
+#define IDR_TICK            20
+#define IDR_ENABLE          21
+#define IDR_DISABLE         22
 
 // Menus
 #define IDR_TRAY_MENU	    100
@@ -68,6 +71,9 @@
 #define IDC_ACTION_DELETE                            456
 #define IDC_ACTION_SOUND                             457
 #define IDC_ACTION_SOUND_BROWSE                      458
+#define IDC_ACTION_NAME_LABEL                        459
+#define IDC_ACTION_COMMAND_LABEL                     460
+#define IDC_ACTION_SOUND_LABEL                       461
 
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502

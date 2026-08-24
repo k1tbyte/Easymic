@@ -15,6 +15,9 @@ IDI_MIC_ACTIVE     ICON                    "mic-active.ico"
 
 IDR_MUTE           WAVE                    "mute.wav"
 IDR_UNMUTE         WAVE                    "unmute.wav"
+IDR_TICK           WAVE                    "tick.wav"
+IDR_ENABLE         WAVE                    "enable.wav"
+IDR_DISABLE        WAVE                    "disable.wav"
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -122,13 +125,13 @@ STYLE DS_MODALFRAME | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Action"
 FONT 8, "Ms Shell Dlg"
 {
-    LTEXT           "Name", IDC_STATIC, 8, 11, 40, 10
+    LTEXT           "Name", IDC_ACTION_NAME_LABEL, 8, 11, 40, 10
     EDITTEXT        IDC_ACTION_NAME, 50, 9, 182, 13, ES_AUTOHSCROLL
-    LTEXT           "Command", IDC_STATIC, 8, 31, 40, 10
+    LTEXT           "Command", IDC_ACTION_COMMAND_LABEL, 8, 31, 40, 10
     EDITTEXT        IDC_ACTION_COMMAND, 50, 29, 182, 13, ES_AUTOHSCROLL
     LTEXT           "Hotkey", IDC_STATIC, 8, 51, 40, 10
     PUSHBUTTON      "Click to bind", IDC_ACTION_HOTKEY, 50, 48, 182, 14
-    LTEXT           "Sound", IDC_STATIC, 8, 70, 40, 10
+    LTEXT           "Sound", IDC_ACTION_SOUND_LABEL, 8, 70, 40, 10
     COMBOBOX        IDC_ACTION_SOUND, 50, 68, 164, 70, CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL
     PUSHBUTTON      "...", IDC_ACTION_SOUND_BROWSE, 216, 68, 16, 13
     CONTROL         "Trigger on release", IDC_ACTION_ON_RELEASE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 50, 88, 182, 10

@@ -1,7 +1,6 @@
 #ifndef EASYMIC_RESOURCE_HPP
 #define EASYMIC_RESOURCE_HPP
 
-#include <fstream>
 #include <memory>
 #include <string>
 #include <windows.h>
@@ -45,25 +44,6 @@ public:
         return {static_cast<BYTE*>(LockResource(handle)), SizeofResource(hInst, info)};
     }
 
-    static Resource FromFile(const std::string& filePath) {
-        std::ifstream file(filePath, std::ios::binary | std::ios::ate);
-        if (!file.is_open()) {
-            return {};
-        }
-
-        const auto size = file.tellg();
-        if (size <= 0) {
-            return {};
-        }
-
-        file.seekg(0, std::ios::beg);
-        auto buffer = std::make_unique<BYTE[]>(size);
-        if (!file.read(reinterpret_cast<char*>(buffer.get()), size)) {
-            return {};
-        }
-
-        return {std::move(buffer), static_cast<DWORD>(size)};
-    }
 };
 
 #endif //EASYMIC_RESOURCE_HPP

@@ -6,7 +6,6 @@
 #define EASYMIC_MAINWINDOWVIEWMODEL_HPP
 
 
-#include <filesystem>
 
 #include "HotkeyManager.hpp"
 #include "RateLimiter.hpp"
@@ -17,7 +16,7 @@
 #include "MainWindow/MainWindow.hpp"
 #include "View/Core/BaseWindow.hpp"
 
-#include "Resource.hpp"
+#include "SoundCatalog.hpp"
 #include "CommandRunner.hpp"
 
 class AudioManager;
@@ -63,9 +62,6 @@ private:
     std::unique_ptr<Bitmap> activeBitmap;
     Bitmap* bitmapToDisplay = nullptr;
 
-    Resource muteSound;
-    Resource unmuteSound;
-
     bool hasCaptureDevice = false;
     bool captureDeviceMuted = false;
     float captureDeviceVolume = -1.0f;
@@ -80,18 +76,29 @@ private:
         mic.SetVolumePercent(static_cast<BYTE>(std::clamp(mic.GetVolumePercent() + delta, 0, 100)));
     }
 
-    std::unordered_map<std::string, HotkeyManager::HotkeyBinding> hotkeyHandlers = {
-        {BuiltInAction::ToggleMute, {[this] { _audio.CaptureDevice()->ToggleMute(); }}},
-        {
-            BuiltInAction::PushToTalk, {
-                .onPress   = [this] { _audio.CaptureDevice()->SetMute(false); },
-                .onRelease = [this] { _audio.CaptureDevice()->SetMute(true); }
-            }
-        },
-        {BuiltInAction::MicVolumeUp, {[this] { ShiftMicVolume(10); }}},
-        {BuiltInAction::MicVolumeDown, {[this] { ShiftMicVolume(-10); }}},
-        {BuiltInAction::ToggleBellSound, {[this] { ToggleBellSound(); }}}
+    /// What each built-in id actually does. BuiltInActions::All describes how it is configured.
+    std::unordered_map<std::string, std::function<void()>> builtInHandlers = {
+        {"Toggle mute",       [this] { _audio.CaptureDevice()->ToggleMute(); }},
+        {"Push to talk",      [this] { _audio.CaptureDevice()->SetMute(false); }},
+        {"Mic volume up",     [this] { ShiftMicVolume(10); }},
+        {"Mic volume down",   [this] { ShiftMicVolume(-10); }},
+        {"Toggle bell sound", [this] { ToggleBellSound(); }}
     };
+
+    /// Push to talk is the one action that needs the key going up as well.
+    const std::function<void()> releasePushToTalk = [this] { _audio.CaptureDevice()->SetMute(true); };
+
+    /// Wraps an action so it announces itself first. Runs on the hotkey worker, never in the hook.
+    std::function<void()> WithSound(std::function<void()> handler, const std::string& sound) const {
+        if (sound.empty()) {
+            return handler;
+        }
+
+        return [handler = std::move(handler), sound, hInstance = _view->GetHInstance()] {
+            SoundCatalog::Play(hInstance, sound);
+            handler();
+        };
+    }
 
 public:
     MainWindowViewModel(
@@ -169,11 +176,23 @@ private:
         // built-in name no handler, and hooking the desktop for nothing is not free
         bool registered = false;
 
-        for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
-            const auto handlerIt = hotkeyHandlers.find(actionTitle);
-            if (handlerIt != hotkeyHandlers.end()) {
-                registered |= HotkeyManager::RegisterHotkey(mask, handlerIt->second);
+        for (const auto& builtIn : BuiltInActions::All) {
+            const auto configured = _cfg.Actions.find(builtIn.Id);
+            const auto handler = builtInHandlers.find(builtIn.Id);
+
+            if (configured == _cfg.Actions.end() || !configured->second.Hotkey
+                || handler == builtInHandlers.end()) {
+                continue;
             }
+
+            const ActionBinding& binding = configured->second;
+            auto run = WithSound(handler->second, binding.Sound);
+
+            registered |= HotkeyManager::RegisterHotkey(binding.Hotkey,
+                builtIn.HoldOnly ? HotkeyManager::HotkeyBinding{.onPress = std::move(run),
+                                                                .onRelease = releasePushToTalk}
+                : binding.OnRelease ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run)}
+                                    : HotkeyManager::HotkeyBinding{.onPress = std::move(run)});
         }
 
         for (const auto& action : _cfg.CustomActions) {
@@ -181,31 +200,16 @@ private:
                 continue;
             }
 
-            auto run = [command = action.Command, sound = action.Sound] {
-                if (!sound.empty()) {
-                    PlaySoundA(sound.c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
-                }
-                CommandRunner::Run(command);
-            };
+            auto run = WithSound([command = action.Command] { CommandRunner::Run(command); }, action.Sound);
             registered |= HotkeyManager::RegisterHotkey(action.Hotkey, action.OnRelease
-                ? HotkeyManager::HotkeyBinding{.onRelease = run}
-                : HotkeyManager::HotkeyBinding{.onPress = run});
+                ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run)}
+                : HotkeyManager::HotkeyBinding{.onPress = std::move(run)});
         }
 
         if (registered) {
             HotkeyManager::Initialize();
         }
 #endif // EASYMIC_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
-
-        auto *hInst = _view->GetHInstance();
-
-        unmuteSound = !_cfg.UnmuteSoundSource.empty() && std::filesystem::exists(_cfg.UnmuteSoundSource)
-                          ? Resource::FromFile(_cfg.UnmuteSoundSource)
-                          : Resource::FromModule(hInst, MAKEINTRESOURCEA(IDR_UNMUTE), "WAVE");
-
-        muteSound = !_cfg.MuteSoundSource.empty() && std::filesystem::exists(_cfg.MuteSoundSource)
-                        ? Resource::FromFile(_cfg.MuteSoundSource)
-                        : Resource::FromModule(hInst, MAKEINTRESOURCEA(IDR_MUTE), "WAVE");
 
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             // Hide original window
@@ -314,15 +318,10 @@ private:
                  mic.GetVolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
+        // Mic state feedback: fires for a mute from anywhere, not just from our own hotkey
         if (!silent && _cfg.BellVolume > 0) {
-            const auto &soundResource = captureDeviceMuted ? muteSound : unmuteSound;
-            if (!soundResource.empty()) {
-                PlaySoundA(
-                    (LPCSTR) soundResource.buffer(),
-                    nullptr,
-                    SND_ASYNC | SND_MEMORY
-                );
-            }
+            SoundCatalog::Play(_view->GetHInstance(),
+                               captureDeviceMuted ? _cfg.MuteSoundSource : _cfg.UnmuteSoundSource);
         }
     }
 

@@ -7,7 +7,6 @@
 #include "DialogControls.hpp"
 #include "UACService.hpp"
 #include "../../Resources/Resource.h"
-#include "../../Lib/HotkeyCapture.hpp"
 #include "../../Lib/Version.hpp"
 
 namespace {
@@ -201,9 +200,6 @@ INT_PTR CALLBACK SettingsWindow::SettingsDialogProc(HWND hwnd, UINT message, WPA
         case WM_CTLCOLORSTATIC: return window->OnCtlColorStatic(wParam, lParam);
         case WM_CLOSE:          window->Close(); return TRUE;
         case WM_DESTROY:        return window->OnDestroy();
-        case HotkeyCapture::WM_CAPTURE_DONE:
-            HotkeyCapture::Finish();
-            return TRUE;
         default:                return FALSE;
     }
 }
@@ -266,8 +262,6 @@ INT_PTR SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
 }
 
 INT_PTR SettingsWindow::OnDestroy() {
-    HotkeyCapture::Cancel();
-
     WindowRegistry::Instance().Unregister(hwnd_);
     hwnd_ = nullptr;
     hwndTreeView_ = nullptr;
@@ -386,32 +380,8 @@ void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) {
     LayoutActionColumns(hwndList);
 }
 
-bool SettingsWindow::ShowActionDialog(CustomAction& action, std::set<std::string>& recentSounds,
-                                      const bool allowDelete, bool& deleted) {
-    return ActionDialog::Show(hInstance_, hwnd_, action, recentSounds, allowDelete, deleted);
-}
-
-void SettingsWindow::SetHotkeyCellValue(int index, LPCSTR value) {
-    HWND hwndList = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_LIST);
-    if (!hwndList) {
-        return;
-    }
-
-    LVITEMA lvi = {};
-    lvi.iItem = index;
-    lvi.iSubItem = 1; // Hotkey column
-    lvi.mask = LVIF_TEXT;
-    lvi.pszText = const_cast<LPSTR>(value);
-
-    SendMessageA(hwndList, LVM_SETITEMA, 0, (LPARAM)&lvi);
-}
-
-void SettingsWindow::SetHotkeySectionTitle(const wchar_t* title) {
-    HWND hwndTitle = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_TITLE);
-    if (!hwndTitle) {
-        return;
-    }
-    SetWindowTextW(hwndTitle, title == nullptr ? L"Double-click to set up a hotkey:" : title);
+bool SettingsWindow::ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds) {
+    return ActionDialog::Show(hInstance_, hwnd_, action, recentSounds);
 }
 
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
