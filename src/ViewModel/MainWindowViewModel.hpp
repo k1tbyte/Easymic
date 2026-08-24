@@ -18,6 +18,7 @@
 #include "View/Core/BaseWindow.hpp"
 
 #include "Utils.hpp"
+#include "CommandRunner.hpp"
 
 class AudioManager;
 
@@ -93,17 +94,17 @@ private:
 
     std::unordered_map<std::string, HotkeyManager::HotkeyBinding> hotkeyHandlers = {
         {
-            HotkeyTitles.ToggleMute, {HotkeyToggleMute}
+            BuiltInAction::ToggleMute, {HotkeyToggleMute}
         },
         {
-            HotkeyTitles.PushToTalk, {
+            BuiltInAction::PushToTalk, {
                 .onPress = HotkeyUnmutePushToTalk,
                 .onRelease = HotkeyMutePushToTalk
             }
         },
-        {HotkeyTitles.MicVolumeUp, {HotkeyVolumeUp}},
-        {HotkeyTitles.MicVolumeDown, {HotkeyVolumeDown}},
-        {HotkeyTitles.ToggleBellSound, {HotkeyToggleBell}}
+        {BuiltInAction::MicVolumeUp, {HotkeyVolumeUp}},
+        {BuiltInAction::MicVolumeDown, {HotkeyVolumeDown}},
+        {BuiltInAction::ToggleBellSound, {HotkeyToggleBell}}
     };
 
     std::unordered_map<uint64_t, HotkeyManager::HotkeyBinding> activeHotkeys;
@@ -164,7 +165,7 @@ private:
         HotkeyManager::ClearHotkeys();
 
 #ifdef NDEBUG
-        if (!_cfg.Hotkeys.empty()) {
+        if (!_cfg.Hotkeys.empty() || !_cfg.CustomActions.empty()) {
             for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
                 const auto handlerIt = hotkeyHandlers.find(actionTitle);
                 if (handlerIt != hotkeyHandlers.end()) {
@@ -174,6 +175,23 @@ private:
                     );
                 }
             }
+
+            for (const auto& action : _cfg.CustomActions) {
+                if (!action.Hotkey || action.Command.empty()) {
+                    continue;
+                }
+
+                auto run = [command = action.Command, sound = action.Sound] {
+                    if (!sound.empty()) {
+                        PlaySoundA(sound.c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
+                    }
+                    CommandRunner::Run(command);
+                };
+                HotkeyManager::RegisterHotkey(action.Hotkey, action.OnRelease
+                    ? HotkeyManager::HotkeyBinding{.onRelease = run}
+                    : HotkeyManager::HotkeyBinding{.onPress = run});
+            }
+
             HotkeyManager::Initialize();
         }
 #endif

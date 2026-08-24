@@ -3,21 +3,37 @@
 
 #include "../Core/BaseWindow.hpp"
 #include "Resources/Resource.h"
+#include <array>
 #include <commctrl.h>
 #include <functional>
+#include <set>
+#include <string>
+#include <vector>
 
+#include "AppConfig.hpp"
 #include "Event.hpp"
 
 
-#pragma pack(push, 1)
-static inline struct  {
-    const char* ToggleMute = "Toggle mute";
-    const char* PushToTalk = "Push to talk";
-    const char* MicVolumeUp = "Mic volume up";
-    const char* MicVolumeDown = "Mic volume down";
-    const char* ToggleBellSound = "Toggle bell sound";
-} HotkeyTitles;
-#pragma pack(pop)
+/// Actions with fixed behaviour. The names double as config keys, so they must stay stable.
+namespace BuiltInAction {
+    inline constexpr const char* ToggleMute      = "Toggle mute";
+    inline constexpr const char* PushToTalk      = "Push to talk";
+    inline constexpr const char* MicVolumeUp     = "Mic volume up";
+    inline constexpr const char* MicVolumeDown   = "Mic volume down";
+    inline constexpr const char* ToggleBellSound = "Toggle bell sound";
+
+    inline constexpr std::array All = {
+        ToggleMute, PushToTalk, MicVolumeUp, MicVolumeDown, ToggleBellSound
+    };
+}
+
+/// One row of the actions table, built-in or custom.
+struct ActionRow {
+    std::string Name;
+    std::string Hotkey;
+    std::string Command;
+    bool IsCustom = false;
+};
 
 /**
  * @brief Settings window with TreeView sidebar navigation
@@ -43,7 +59,7 @@ public:
     using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId)>;
     using OnTrackbarChangeCallback = std::function<void(HWND hWnd, int trackbarId, int value)>;
     using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
-    using OnHotkeyListChangeCallback = std::function<void(HWND hWnd, int listId, LPCSTR itemText)>;
+    using OnActionActivatedCallback = std::function<void(HWND hWnd, int rowIndex)>;
 
     struct Config {
         HWND parentHwnd = nullptr;
@@ -63,9 +79,20 @@ public:
     void Hide() override;
 
     void SetActiveCategory(int categoryId);
+    void SetActionRows(const std::vector<ActionRow>& rows);
     void SetHotkeyCellValue(int index, LPCSTR value);
     void SetHotkeySectionTitle(const wchar_t* title);
-    void ResetHotkeyCellValue(LPCSTR actionTitle);
+    bool IsCustomActionRow(int index) const;
+
+    /**
+     * @brief Modal editor for a custom action.
+     * @param action in/out, prefilled when editing an existing one
+     * @param allowDelete shows the Delete button
+     * @param deleted set when the user pressed Delete
+     * @return true when the action must be saved
+     */
+    bool ShowActionDialog(CustomAction& action, std::set<std::string>& recentSounds,
+                          bool allowDelete, bool& deleted);
 
     Event<>& OnExit = _onExit;
     Event<>& OnApply = _onApply;
@@ -73,7 +100,7 @@ public:
     OnComboBoxChangeCallback OnComboBoxChange = nullptr;
     OnTrackbarChangeCallback OnTrackbarChange = nullptr;
     OnSectionChangeCallback OnSectionChange = nullptr;
-    OnHotkeyListChangeCallback OnHotkeyListChange = nullptr;
+    OnActionActivatedCallback OnActionActivated = nullptr;
 
     /*LRESULT HandleMessage (UINT message, WPARAM wParam, LPARAM lParam) override {
         if (const auto it = messageHandlers_.find(message); it != messageHandlers_.end()) {
@@ -126,6 +153,7 @@ private:
     HFONT hVersionFont_ = nullptr;
     HFONT hGroupBoxFont_ = nullptr;
     int currentCategoryId_ = -1;
+    std::vector<bool> customRows_;
 
 
     static const CategoryItem categories_[];

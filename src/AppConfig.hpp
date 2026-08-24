@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <set>
 #include <windows.h>
 #include "definitions.h"
@@ -18,6 +19,20 @@ enum class IndicatorState {
     Hidden,
     Muted,
     MutedOrTalk,
+};
+
+/**
+ * @brief User defined action: a shell command bound to a hotkey.
+ * Built-in actions live in AppConfig::Hotkeys instead - they carry fixed behaviour.
+ */
+struct CustomAction {
+    std::string Name;
+    std::string Command;
+    std::string Sound;
+    uint64_t Hotkey  = 0;
+    bool OnRelease   = false;
+
+    bool operator==(const CustomAction&) const = default;
 };
 
 struct AppConfig {
@@ -40,6 +55,8 @@ struct AppConfig {
     bool HideWhenInactive          = true;
     std::set<std::string> SkippedVersions;
     std::unordered_map<std::string , uint64_t> Hotkeys;
+    std::vector<CustomAction> CustomActions;
+    std::set<std::string> ActionSoundRecentSources;
     std::set<std::string> UnmuteSoundRecentSources;
     std::set<std::string> MuteSoundRecentSources;
     std::set<std::string> UnmuteIconRecentSources;

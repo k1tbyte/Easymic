@@ -7,10 +7,155 @@
 
 #include "UACService.hpp"
 #include "../../Resources/Resource.h"
+#include "../../Audio/AudioFileValidator.hpp"
+#include "../../Lib/HotkeyManager.hpp"
+#include "../../Lib/Utils.hpp"
 #include "../../Lib/Version.hpp"
 
 // Forward declaration
-static void InitializeHotkeysList(HWND hwndList, UINT dpi);
+static void InitializeActionsList(HWND hwndList);
+
+namespace {
+    /// Desaturated on purpose - it marks the row type, it is not a status
+    constexpr COLORREF CustomActionRowColor = RGB(237, 246, 237);
+
+    struct ActionDialogState {
+        CustomAction* action = nullptr;
+        std::set<std::string>* recentSounds = nullptr;
+        bool allowDelete = false;
+        bool deleted = false;
+        uint64_t mask = 0;
+        uint64_t captured = 0;
+        bool capturing = false;
+    };
+
+    void SetHotkeyButtonText(HWND dialog, const uint64_t mask) {
+        SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY,
+                        mask ? HotkeyManager::GetHotkeyName(mask).c_str() : "Click to bind");
+    }
+
+    void StopCapture(ActionDialogState& state) {
+        if (!state.capturing) {
+            return;
+        }
+
+        state.capturing = false;
+        HotkeyManager::BindStop();
+        HotkeyManager::Dispose();
+    }
+
+    void StartCapture(HWND dialog, ActionDialogState& state) {
+        if (state.capturing) {
+            return;
+        }
+
+        state.capturing = true;
+        state.captured = 0;
+        HotkeyManager::Initialize();
+        SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, "Press desired key combination or ESC to clear...");
+
+        HotkeyManager::BindStart([dialog, &state](uint8_t vkCode, Keys::State keyState,
+                                                  uint64_t sequenceMask, const std::string& hotkeyName) {
+            if (keyState != Keys::State::KEY_RELEASED) {
+                state.captured = sequenceMask;
+                SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, hotkeyName.c_str());
+                return;
+            }
+
+            // The key that activated the button was pressed before the hooks existed - only its
+            // release arrives here, and it must not end the capture before anything was typed
+            if (state.captured == 0 && vkCode != VK_ESCAPE) {
+                return;
+            }
+
+            if (vkCode == VK_ESCAPE && sequenceMask == 0) {
+                state.captured = 0;
+            }
+
+            state.mask = state.captured;
+            StopCapture(state);
+            SetHotkeyButtonText(dialog, state.mask);
+        });
+    }
+
+    INT_PTR CALLBACK ActionDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
+        auto* state = reinterpret_cast<ActionDialogState*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
+
+        switch (message) {
+            case WM_INITDIALOG: {
+                state = reinterpret_cast<ActionDialogState*>(lParam);
+                SetWindowLongPtrW(dialog, GWLP_USERDATA, lParam);
+
+                SetDlgItemTextA(dialog, IDC_ACTION_NAME, state->action->Name.c_str());
+                SetDlgItemTextA(dialog, IDC_ACTION_COMMAND, state->action->Command.c_str());
+                CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, state->action->OnRelease ? BST_CHECKED : BST_UNCHECKED);
+                SetHotkeyButtonText(dialog, state->mask);
+                Utils::PopulateSourceComboBox(GetDlgItem(dialog, IDC_ACTION_SOUND),
+                                              *state->recentSounds, state->action->Sound, "None");
+                ShowWindow(GetDlgItem(dialog, IDC_ACTION_DELETE), state->allowDelete ? SW_SHOW : SW_HIDE);
+                Utils::CenterWindowOnScreen(dialog);
+                return TRUE;
+            }
+            case WM_COMMAND: {
+                if (!state) {
+                    break;
+                }
+
+                switch (LOWORD(wParam)) {
+                    case IDC_ACTION_HOTKEY:
+                        StartCapture(dialog, *state);
+                        return TRUE;
+
+                    case IDC_ACTION_SOUND_BROWSE: {
+                        std::string selected;
+                        if (AudioFileValidator::PickValidWavFile(dialog, "Select action sound file", selected)) {
+                            Utils::AddToRecentSources(*state->recentSounds, selected);
+                            Utils::PopulateSourceComboBox(GetDlgItem(dialog, IDC_ACTION_SOUND),
+                                                          *state->recentSounds, selected, "None");
+                        }
+                        return TRUE;
+                    }
+
+                    case IDC_ACTION_DELETE:
+                        StopCapture(*state);
+                        state->deleted = true;
+                        EndDialog(dialog, TRUE);
+                        return TRUE;
+
+                    case IDOK: {
+                        StopCapture(*state);
+
+                        char buffer[512];
+                        GetDlgItemTextA(dialog, IDC_ACTION_NAME, buffer, sizeof(buffer));
+                        state->action->Name = buffer;
+                        GetDlgItemTextA(dialog, IDC_ACTION_COMMAND, buffer, sizeof(buffer));
+                        state->action->Command = buffer;
+                        state->action->OnRelease = IsDlgButtonChecked(dialog, IDC_ACTION_ON_RELEASE) == BST_CHECKED;
+                        state->action->Hotkey = state->mask;
+                        state->action->Sound = Utils::ResolveSourceFromComboBox(
+                            GetDlgItem(dialog, IDC_ACTION_SOUND), *state->recentSounds);
+
+                        if (state->action->Name.empty() || state->action->Command.empty()) {
+                            MessageBoxW(dialog, L"Name and command are required.", L"Action", MB_OK | MB_ICONWARNING);
+                            return TRUE;
+                        }
+
+                        EndDialog(dialog, TRUE);
+                        return TRUE;
+                    }
+
+                    case IDCANCEL:
+                        StopCapture(*state);
+                        EndDialog(dialog, FALSE);
+                        return TRUE;
+                }
+                break;
+            }
+        }
+
+        return FALSE;
+    }
+}
 
 const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
@@ -502,6 +647,52 @@ void SettingsWindow::SetActiveCategory(int categoryId) {
     }
 }
 
+void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) {
+    HWND hwndList = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_LIST);
+    if (!hwndList) {
+        return;
+    }
+
+    SendMessage(hwndList, LVM_DELETEALLITEMS, 0, 0);
+    customRows_.clear();
+
+    LVITEMA lvi = {};
+    lvi.mask = LVIF_TEXT;
+
+    for (const auto& row : rows) {
+        const char* cells[] = {row.Name.c_str(), row.Hotkey.c_str(), row.Command.c_str()};
+
+        lvi.iItem = static_cast<int>(customRows_.size());
+        lvi.iSubItem = 0;
+        lvi.pszText = const_cast<LPSTR>(cells[0]);
+        const int itemIndex = SendMessageA(hwndList, LVM_INSERTITEMA, 0, (LPARAM)&lvi);
+
+        for (int column = 1; column < static_cast<int>(std::size(cells)); column++) {
+            lvi.iItem = itemIndex;
+            lvi.iSubItem = column;
+            lvi.pszText = const_cast<LPSTR>(cells[column]);
+            SendMessageA(hwndList, LVM_SETITEMTEXTA, itemIndex, (LPARAM)&lvi);
+        }
+
+        customRows_.push_back(row.IsCustom);
+    }
+}
+
+bool SettingsWindow::IsCustomActionRow(int index) const {
+    return index >= 0 && index < static_cast<int>(customRows_.size()) && customRows_[index];
+}
+
+bool SettingsWindow::ShowActionDialog(CustomAction& action, std::set<std::string>& recentSounds,
+                                     const bool allowDelete, bool& deleted) {
+    ActionDialogState state{.action = &action, .recentSounds = &recentSounds,
+                            .allowDelete = allowDelete, .mask = action.Hotkey};
+
+    const INT_PTR result = DialogBoxParamW(hInstance_, MAKEINTRESOURCEW(IDD_ACTION_EDIT), hwnd_,
+                                           ActionDialogProc, reinterpret_cast<LPARAM>(&state));
+    deleted = state.deleted;
+    return result == TRUE;
+}
+
 void SettingsWindow::SetHotkeyCellValue(int index, LPCSTR value) {
     HWND hwndList = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_LIST);
     if (!hwndList) {
@@ -523,17 +714,6 @@ void SettingsWindow::SetHotkeySectionTitle(const wchar_t *title) {
         return;
     }
     SetWindowTextW(hwndTitle, title == nullptr ? L"Double-click to set up a hotkey:" : title);
-}
-
-void SettingsWindow::ResetHotkeyCellValue(LPCSTR actionTitle) {
-    const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
-
-    for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
-        if (strcmp(hotkeyPtr[i], actionTitle) == 0) {
-            SetHotkeyCellValue(i, "");
-            return;
-        }
-    }
 }
 
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
@@ -573,10 +753,7 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
             settingsWindow = reinterpret_cast<SettingsWindow*>(lParam);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(settingsWindow));
             // Initialize ListView for hotkeys dialog
-            if (GetDlgItem(hwnd, IDC_HOTKEYS_LIST)) {
-                const UINT dpi = settingsWindow ? GetDpiForWindow(settingsWindow->GetHandle()) : GetDpiForSystem();
-                ::InitializeHotkeysList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST), dpi);
-            }
+            ::InitializeActionsList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST));
             break;
         case WM_COMMAND: {
             if (!settingsWindow) { break; }
@@ -610,10 +787,25 @@ static LRESULT CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, 
                 switch (pnmh->code) {
                     case NM_DBLCLK: {
                         LPNMITEMACTIVATE pnmia = (LPNMITEMACTIVATE)lParam;
-                        if (pnmia->iItem != -1 && settingsWindow->OnHotkeyListChange) {
-                            settingsWindow->OnHotkeyListChange(hwnd, pnmia->iItem, reinterpret_cast<char**>(&HotkeyTitles)[pnmia->iItem]);
+                        if (pnmia->iItem != -1 && settingsWindow->OnActionActivated) {
+                            settingsWindow->OnActionActivated(hwnd, pnmia->iItem);
                         }
                         break;
+                    }
+                    case NM_CUSTOMDRAW: {
+                        // Tint custom action rows so they stand apart from the built-in ones
+                        auto* draw = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
+                        LRESULT result = CDRF_DODEFAULT;
+
+                        if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
+                            result = CDRF_NOTIFYITEMDRAW;
+                        } else if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT &&
+                                   settingsWindow->IsCustomActionRow(static_cast<int>(draw->nmcd.dwItemSpec))) {
+                            draw->clrTextBk = CustomActionRowColor;
+                        }
+
+                        SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, result);
+                        return TRUE;
                     }
                 }
             }
@@ -667,49 +859,36 @@ void SettingsWindow::UpdateGroupBoxLayout() {
                SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-static void InitializeHotkeysList(HWND hwndList, UINT dpi) {
+static void InitializeActionsList(HWND hwndList) {
     if (!hwndList) {
         return;
     }
 
-    // Enable full row selection and grid lines
-    DWORD dwExStyle = LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES;
-    SendMessage(hwndList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, dwExStyle);
+    SendMessage(hwndList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0,
+                LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_LABELTIP);
 
-    // Add columns
+    // Columns share the client width: no horizontal scrolling, long commands get ellipsized
+    // and hovering unfolds the full text
+    RECT clientRect;
+    GetClientRect(hwndList, &clientRect);
+    const int available = clientRect.right - GetSystemMetrics(SM_CXVSCROLL);
+
+    const struct { const wchar_t* title; int percent; } columns[] = {
+        {L"Action", 34},
+        {L"Hotkey", 30},
+        {L"Command", 0},  // takes what is left
+    };
+
     LVCOLUMNW lvc = {};
     lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+    int used = 0;
 
-    // First column - Action name
-    lvc.iSubItem = 0;
-    lvc.cxMin = MulDiv(100, static_cast<int>(dpi), 96);
-    lvc.pszText = const_cast<wchar_t*>(L"Action");
-    lvc.cx = MulDiv(120, static_cast<int>(dpi), 96);
-    SendMessage(hwndList, LVM_INSERTCOLUMNW, 0, (LPARAM)&lvc);
-
-    // Second column - Key combination
-    lvc.iSubItem = 1;
-    lvc.pszText = const_cast<wchar_t*>(L"Key Combination");
-    lvc.cx = MulDiv(130, static_cast<int>(dpi), 96);
-    SendMessage(hwndList, LVM_INSERTCOLUMNW, 1, (LPARAM)&lvc);
-
-    // Add sample data for UI demonstration
-    LVITEMA lvi = {};
-    lvi.mask = LVIF_TEXT;
-
-    const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
-
-    for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
-        lvi.iItem = i;
-        lvi.iSubItem = 0;
-        lvi.pszText = hotkeyPtr[i];
-        int itemIndex = SendMessageA(hwndList, LVM_INSERTITEMA, 0, (LPARAM)&lvi);
-
-        lvi.iItem = itemIndex;
-        lvi.iSubItem = 1;
-        lvi.pszText = (char*)"";
-        SendMessageA(hwndList, LVM_SETITEMTEXTA, itemIndex, (LPARAM)&lvi);
-        /*printf("Hotkey title: %s\n", title);*/
+    for (int i = 0; i < static_cast<int>(std::size(columns)); i++) {
+        lvc.iSubItem = i;
+        lvc.pszText = const_cast<wchar_t*>(columns[i].title);
+        lvc.cx = columns[i].percent ? available * columns[i].percent / 100 : available - used;
+        used += lvc.cx;
+        SendMessage(hwndList, LVM_INSERTCOLUMNW, i, (LPARAM)&lvc);
     }
 }
 

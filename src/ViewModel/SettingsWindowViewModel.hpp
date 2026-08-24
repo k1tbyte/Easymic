@@ -36,6 +36,8 @@ private:
     void InitializeIndicatorSection(HWND hWnd);
     void InitializeSoundsSection(HWND hWnd);
     void InitializeHotkeysSection(HWND hWnd);
+    void RefreshActionRows() const;
+    void ClearHotkey(uint64_t mask, int exceptCustomIndex);
     void InitializeAboutSection(HWND hWnd);
     
     void SetupLogDisplay(HWND hWnd);
@@ -43,7 +45,6 @@ private:
     void UpdateLogDisplay(const std::string& formattedEntry);
     
     // Sound file handling
-    bool SelectSoundFile(HWND hWnd, const char* title, std::string& result);
     void UpdateSoundComboBox(HWND hWnd, int comboBoxId, const std::set<std::string>& sources, const std::string& current);
     void HandleSoundSourceSelection(HWND hWnd, int comboBoxId, std::string& configSource, std::set<std::string>& recentSources);
     bool HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource, std::set<std::string>& recentSources);
@@ -63,7 +64,8 @@ public:
     void HandleButtonClick(HWND hWnd, int buttonId);
     void HandleComboBoxChange(HWND hWnd, int comboBoxId);
     void HandleTrackbarChange(HWND hWnd, int trackbarId, int value);
-    void HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) const;
+    void HandleActionActivated(HWND hWnd, int rowIndex);
+    void HandleHotkeyBinding(int rowIndex, const std::string& actionName);
     
     void Init() override;
 };

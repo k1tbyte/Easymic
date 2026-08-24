@@ -123,12 +123,13 @@ namespace Utils {
     }
 
 // Sound ComboBox management functions
-    static void PopulateSourceComboBox(HWND comboBox, const std::set<std::string>& recentSources, const std::string& currentSource = "") {
+    /// @param emptyLabel first entry, meaning "no source picked" - a built-in sound or none at all
+    static void PopulateSourceComboBox(HWND comboBox, const std::set<std::string>& recentSources,
+                                       const std::string& currentSource = "", const char* emptyLabel = "Default") {
         // Clear existing items
         SendMessage(comboBox, CB_RESETCONTENT, 0, 0);
 
-        // Always add "Default" as first item
-        SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)"Default");
+        SendMessage(comboBox, CB_ADDSTRING, 0, (LPARAM)emptyLabel);
 
         int selectedIndex = 0;
         int itemIndex = 1;
@@ -160,19 +161,21 @@ namespace Utils {
         }
     }
 
-    static std::string GetSelectedSoundSource(HWND comboBox) {
-        int selectedIndex = SendMessage(comboBox, CB_GETCURSEL, 0, 0);
-        if (selectedIndex == 0 || selectedIndex == CB_ERR) {
-            return "";  // Default selected or error
+    /// Maps a combo selection back to the full source path. Empty means "Default".
+    static std::string ResolveSourceFromComboBox(HWND comboBox, const std::set<std::string>& recentSources) {
+        const int selectedIndex = SendMessage(comboBox, CB_GETCURSEL, 0, 0);
+        if (selectedIndex <= 0 || selectedIndex == CB_ERR) {
+            return {};
         }
 
-        char buffer[MAX_PATH];
-        int length = SendMessage(comboBox, CB_GETLBTEXT, selectedIndex, (LPARAM)buffer);
-        if (length == CB_ERR) {
-            return "";
+        int index = 1;
+        for (const auto& source : recentSources) {
+            if (DoesFileExist(source) && index++ == selectedIndex) {
+                return source;
+            }
         }
 
-        return std::string(buffer, length);
+        return {};
     }
 
     static void AddToRecentSources(std::set<std::string>& recentSources, const std::string& source, size_t maxItems = 10) {
@@ -195,6 +198,18 @@ namespace Utils {
 
         std::string result(size - 1, '\0');
         WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], size, nullptr, nullptr);
+
+        return result;
+    }
+
+    static std::wstring Utf8ToWide(const std::string& str) {
+        if (str.empty()) return {};
+
+        int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+        if (size <= 0) return {};
+
+        std::wstring result(size - 1, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], size);
 
         return result;
     }
@@ -241,32 +256,29 @@ namespace Utils {
         return hThread != nullptr;
     }
 
-    static std::string GetProcessNameByHWND(HWND hwnd) {
+    static std::wstring GetProcessNameByHWND(HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) {
-            return "";
+            return {};
         }
 
         DWORD processId = 0;
         GetWindowThreadProcessId(hwnd, &processId);
 
         if (processId == 0) {
-            return "";
+            return {};
         }
 
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-        if (hProcess == NULL) {
-            return "";
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+        if (hProcess == nullptr) {
+            return {};
         }
 
-        char processName[MAX_PATH] = "<unknown>";
-
+        wchar_t processName[MAX_PATH] = {};
         DWORD size = MAX_PATH;
-        if (QueryFullProcessImageNameA(hProcess, 0, processName, &size)) {
-            return std::string(processName);
-        }
-
+        const bool ok = QueryFullProcessImageNameW(hProcess, 0, processName, &size);
         CloseHandle(hProcess);
-        return std::string(processName);
+
+        return ok ? std::wstring(processName, size) : std::wstring{};
     }
 
 }

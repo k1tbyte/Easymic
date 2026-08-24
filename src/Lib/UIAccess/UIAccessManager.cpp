@@ -217,8 +217,8 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
     }
 
     hwnd = GetWindowsByTitle(uiAccessPids, key);
-    std::string processName = Utils::GetProcessNameByHWND(hwnd);
-    LOG_INFO("[UIAccess] Using window from: %s", processName.c_str());
+    std::wstring processName = Utils::GetProcessNameByHWND(hwnd);
+    LOG_INFO("[UIAccess] Using window from: %ls", processName.c_str());
 
     return hwnd;
 }

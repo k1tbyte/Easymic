@@ -90,14 +90,85 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) {
 }
 
 void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) {
-    const auto *hotkeyPtr = reinterpret_cast<char**>(&HotkeyTitles);
-    for (int i = 0; i < sizeof(HotkeyTitles) / sizeof(char*); i++) {
-        const auto& title = hotkeyPtr[i];
-        auto it = _cfg.Hotkeys.find(std::string(title));
-        if (it != _cfg.Hotkeys.end()) {
-            _view->SetHotkeyCellValue(i, HotkeyManager::GetHotkeyName(it->second).c_str());
+    RefreshActionRows();
+}
+
+void SettingsWindowViewModel::RefreshActionRows() const {
+    std::vector<ActionRow> rows;
+    rows.reserve(BuiltInAction::All.size() + _cfg.CustomActions.size() + 1);
+
+    for (const auto* name : BuiltInAction::All) {
+        const auto it = _cfg.Hotkeys.find(name);
+        rows.push_back({
+            .Name = name,
+            .Hotkey = it != _cfg.Hotkeys.end() ? HotkeyManager::GetHotkeyName(it->second) : "",
+        });
+    }
+
+    for (const auto& action : _cfg.CustomActions) {
+        std::string hotkey = action.Hotkey ? HotkeyManager::GetHotkeyName(action.Hotkey) : "";
+        if (action.OnRelease && !hotkey.empty()) {
+            hotkey += " (release)";
+        }
+
+        rows.push_back({
+            .Name = action.Name,
+            .Hotkey = std::move(hotkey),
+            .Command = action.Command,
+            .IsCustom = true
+        });
+    }
+
+    rows.push_back({.Name = "+ Add action..."});
+    _view->SetActionRows(rows);
+}
+
+/// Frees a combination from every other action - one hotkey drives one action.
+void SettingsWindowViewModel::ClearHotkey(uint64_t mask, int exceptCustomIndex) {
+    if (!mask) {
+        return;
+    }
+
+    std::erase_if(_cfg.Hotkeys, [mask](const auto& entry) { return entry.second == mask; });
+
+    for (int i = 0; i < static_cast<int>(_cfg.CustomActions.size()); i++) {
+        if (i != exceptCustomIndex && _cfg.CustomActions[i].Hotkey == mask) {
+            _cfg.CustomActions[i].Hotkey = 0;
         }
     }
+}
+
+void SettingsWindowViewModel::HandleActionActivated(HWND hWnd, int rowIndex) {
+    const int builtInCount = static_cast<int>(BuiltInAction::All.size());
+
+    if (rowIndex < builtInCount) {
+        HandleHotkeyBinding(rowIndex, BuiltInAction::All[rowIndex]);
+        return;
+    }
+
+    const int customIndex = rowIndex - builtInCount;
+    const bool isExisting = customIndex < static_cast<int>(_cfg.CustomActions.size());
+
+    CustomAction action = isExisting ? _cfg.CustomActions[customIndex] : CustomAction{};
+    bool deleted = false;
+
+    if (!_view->ShowActionDialog(action, _cfg.ActionSoundRecentSources, isExisting, deleted)) {
+        return;
+    }
+
+    if (deleted) {
+        _cfg.CustomActions.erase(_cfg.CustomActions.begin() + customIndex);
+    } else {
+        ClearHotkey(action.Hotkey, isExisting ? customIndex : -1);
+
+        if (isExisting) {
+            _cfg.CustomActions[customIndex] = action;
+        } else {
+            _cfg.CustomActions.push_back(action);
+        }
+    }
+
+    RefreshActionRows();
 }
 
 void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
@@ -338,23 +409,6 @@ void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, in
     }
 }
 
-bool SettingsWindowViewModel::SelectSoundFile(HWND hWnd, const char* title, std::string& result) {
-    std::string selectedFile = AudioFileValidator::ShowWavFileDialog(hWnd, title);
-    if (selectedFile.empty()) {
-        return false;
-    }
-
-    WavValidationResult validation = AudioFileValidator::ValidateWavFile(selectedFile, 3.0f);
-    if (!validation.isValid) {
-        std::string errorMsg = "Invalid WAV file: " + validation.errorMessage;
-        MessageBoxA(hWnd, errorMsg.c_str(), "File Validation Error", MB_OK | MB_ICONERROR);
-        return false;
-    }
-
-    result = selectedFile;
-    return true;
-}
-
 void SettingsWindowViewModel::UpdateSoundComboBox(HWND hWnd, int comboBoxId, 
                                                  const std::set<std::string>& sources, 
                                                  const std::string& current) {
@@ -364,35 +418,21 @@ void SettingsWindowViewModel::UpdateSoundComboBox(HWND hWnd, int comboBoxId,
 void SettingsWindowViewModel::HandleSoundSourceSelection(HWND hWnd, int comboBoxId, 
                                                         std::string& configSource, 
                                                         std::set<std::string>& recentSources) {
-    int selectedIndex = SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0);
+    HWND comboBox = GetDlgItem(hWnd, comboBoxId);
+    configSource = Utils::ResolveSourceFromComboBox(comboBox, recentSources);
 
-    if (selectedIndex == 0 || selectedIndex == CB_ERR) {
-        configSource.clear();
-        return;
+    // Nothing resolved while an entry was selected means the file is gone
+    if (configSource.empty() && SendMessage(comboBox, CB_GETCURSEL, 0, 0) > 0) {
+        Utils::CleanupInvalidSources(recentSources);
+        UpdateSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
     }
-
-    std::vector<std::string> validSources;
-    for (const auto& source : recentSources) {
-        if (Utils::DoesFileExist(source)) {
-            validSources.push_back(source);
-        }
-    }
-
-    if (selectedIndex - 1 < validSources.size()) {
-        configSource = validSources[selectedIndex - 1];
-        return;
-    }
-    
-    configSource.clear();
-    Utils::CleanupInvalidSources(recentSources);
-    UpdateSoundComboBox(hWnd, comboBoxId, recentSources, configSource);
 }
 
 bool SettingsWindowViewModel::HandleSoundFileBrowse(HWND hWnd, int comboBoxId, const char* title, 
                                                    std::string& configSource, 
                                                    std::set<std::string>& recentSources) {
     std::string selectedFile;
-    if (!SelectSoundFile(this->_view->GetHandle(), title, selectedFile)) {
+    if (!AudioFileValidator::PickValidWavFile(this->_view->GetHandle(), title, selectedFile)) {
         return false;
     }
     
@@ -402,17 +442,17 @@ bool SettingsWindowViewModel::HandleSoundFileBrowse(HWND hWnd, int comboBoxId, c
     return true;
 }
 
-void SettingsWindowViewModel::HandleHotkeyBinding(HWND hWnd, int index, LPCSTR itemText) const {
+void SettingsWindowViewModel::HandleHotkeyBinding(int rowIndex, const std::string& actionName) {
     static uint64_t _prevSequenceMask = 0;
 
     if (_prevSequenceMask > 0) {
         return;
     }
-    
+
     HotkeyManager::Initialize();
     _view->SetHotkeySectionTitle(L"Press desired key combination or ESC to clear...");
 
-    HotkeyManager::BindStart([this, index, itemText](
+    HotkeyManager::BindStart([this, rowIndex, actionName](
         uint8_t vkCode,
         Keys::State state,
         uint64_t sequenceMask,
@@ -420,29 +460,23 @@ void SettingsWindowViewModel::HandleHotkeyBinding(HWND hWnd, int index, LPCSTR i
 
         if (state != Keys::State::KEY_RELEASED) {
             _prevSequenceMask = sequenceMask;
-            this->_view->SetHotkeyCellValue(index, hotkeyName.c_str());
+            this->_view->SetHotkeyCellValue(rowIndex, hotkeyName.c_str());
             return;
         }
 
         if (vkCode == VK_ESCAPE && sequenceMask == 0) {
             _prevSequenceMask = 0;
-            _cfg.Hotkeys.erase(std::string(itemText));
+            _cfg.Hotkeys.erase(actionName);
         } else if (_prevSequenceMask > 0) {
-            for (const auto& [actionTitle, mask] : _cfg.Hotkeys) {
-                if (mask == _prevSequenceMask) {
-                    _view->ResetHotkeyCellValue(actionTitle.c_str());
-                    _cfg.Hotkeys.erase(actionTitle);
-                    break;
-                }
-            }
-            _cfg.Hotkeys[std::string(itemText)] = _prevSequenceMask;
+            ClearHotkey(_prevSequenceMask, -1);
+            _cfg.Hotkeys[actionName] = _prevSequenceMask;
         }
 
         HotkeyManager::BindStop();
         HotkeyManager::Dispose();
-        this->_view->SetHotkeyCellValue(index, HotkeyManager::GetHotkeyName(_prevSequenceMask).c_str());
         this->_view->SetHotkeySectionTitle(nullptr);
         _prevSequenceMask = 0;
+        RefreshActionRows();
     });
 }
 
@@ -468,8 +502,8 @@ void SettingsWindowViewModel::Init() {
         HandleSectionChange(hWnd, sectionId);
     };
 
-    _view->OnHotkeyListChange = [this](HWND hWnd, int index, LPCSTR itemText) {
-        HandleHotkeyBinding(hWnd, index, itemText);
+    _view->OnActionActivated = [this](HWND hWnd, int rowIndex) {
+        HandleActionActivated(hWnd, rowIndex);
     };
 
     _view->OnApply += [this]() {

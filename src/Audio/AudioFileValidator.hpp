@@ -36,6 +36,13 @@ public:
      */
     static std::string ShowWavFileDialog(HWND hWnd, const char* title = "Select WAV File");
 
+    /**
+     * Picks a WAV file and validates it, reporting the reason to the user when it is rejected
+     * @param result receives the file path on success
+     * @return false when cancelled or invalid
+     */
+    static bool PickValidWavFile(HWND hWnd, const char* title, std::string& result);
+
 private:
     struct WavHeader {
         char riff[4];           // "RIFF"
@@ -114,6 +121,22 @@ inline std::string AudioFileValidator::ShowWavFileDialog(HWND hWnd, const char* 
         return std::string(szFile);
     }
     return "";
+}
+
+inline bool AudioFileValidator::PickValidWavFile(HWND hWnd, const char* title, std::string& result) {
+    const std::string selectedFile = ShowWavFileDialog(hWnd, title);
+    if (selectedFile.empty()) {
+        return false;
+    }
+
+    if (const WavValidationResult validation = ValidateWavFile(selectedFile); !validation.isValid) {
+        MessageBoxA(hWnd, ("Invalid WAV file: " + validation.errorMessage).c_str(),
+                    "File Validation Error", MB_OK | MB_ICONERROR);
+        return false;
+    }
+
+    result = selectedFile;
+    return true;
 }
 
 inline bool AudioFileValidator::ReadWavHeader(std::ifstream& file, WavHeader& header) {
