@@ -7,11 +7,11 @@
 
 #include "AppConfig.hpp"
 #include "CommandRunner.hpp"
+#include "HotkeyManager.hpp"
 #include "MainWindow/MainWindow.hpp"
-#include "NotificationTokens.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
-#include "HotkeyManager.hpp"
+#include "Tokens.hpp"
 
 /**
  * @brief What an action says and plays when it fires.
@@ -58,10 +58,10 @@ public:
             return {};
         }
 
-        auto resolved = Str::Replace(source, NotificationTokens::Name, name);
-        return resolved.find(NotificationTokens::Key) == std::string::npos
+        auto resolved = Str::Replace(source, Tokens::Name, name);
+        return resolved.find(Tokens::Key) == std::string::npos
                    ? resolved
-                   : Str::Replace(std::move(resolved), NotificationTokens::Key,
+                   : Str::Replace(std::move(resolved), Tokens::Key,
                                   HotkeyManager::GetHotkeyName(hotkey));
     }
 
@@ -83,10 +83,16 @@ public:
         };
     }
 
-    /// {stdout} in the text is what asks for the output, so it also picks how the command is run.
+    /**
+     * @brief Turns a custom action into the call that launches it.
+     *
+     * {stdout} in the text is what asks for the output, so it also picks how the command is run.
+     * The foreground is read here, on the worker, because {dir} in the command means the window
+     * the user was looking at when they pressed the key - and not the one we are about to open.
+     */
     std::function<void()> ForCommand(const std::string& command, const std::string& text) const {
-        if (!text.contains(NotificationTokens::Stdout)) {
-            return [command] { CommandRunner::Run(command); };
+        if (!text.contains(Tokens::Stdout)) {
+            return [command] { CommandRunner::Run(command, GetForegroundWindow()); };
         }
 
         return [this, command, text] {
@@ -94,10 +100,10 @@ public:
             // not safe to touch from the command thread that answers later
             const std::string resolved = _cfg.NotificationsEnabled ? ExpandState(text) : std::string{};
 
-            CommandRunner::RunCaptured(command,
+            CommandRunner::RunCaptured(command, GetForegroundWindow(),
                 [target = _target, resolved](const std::string& output) {
                     MainWindow::PostNotification(target,
-                        Str::Utf8ToWide(Str::Replace(resolved, NotificationTokens::Stdout, output)));
+                        Str::Utf8ToWide(Str::Replace(resolved, Tokens::Stdout, output)));
                 });
         };
     }
@@ -109,9 +115,9 @@ private:
             return text;
         }
 
-        auto expanded = Str::Replace(text, NotificationTokens::Volume,
+        auto expanded = Str::Replace(text, Tokens::Volume,
                                      std::to_string(_volumePercent.load()));
-        return Str::Replace(std::move(expanded), NotificationTokens::Bell,
+        return Str::Replace(std::move(expanded), Tokens::Bell,
                             _bellEnabled ? "on" : "off");
     }
 

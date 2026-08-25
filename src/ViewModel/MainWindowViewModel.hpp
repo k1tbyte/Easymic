@@ -205,7 +205,7 @@ private:
 
             // A captured command announces itself when it is done, so the wrapper must not do it too
             auto run = _feedback.Wrap(_feedback.ForCommand(action.Command, text), action.Sound,
-                                      text.contains(NotificationTokens::Stdout) ? std::string{} : text);
+                                      text.contains(Tokens::Stdout) ? std::string{} : text);
 
             registered |= RegisterAction(action.Hotkey, std::move(run), action.OnRelease, false);
         }
