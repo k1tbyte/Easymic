@@ -135,6 +135,13 @@
             _shadowHwnd = hwnd;
         }
 
+        /**
+         * @brief Register handler for specific message
+         */
+        void RegisterMessageHandler(UINT message, MessageHandler handler) {
+            messageHandlers_[message] = std::move(handler);
+        }
+
     protected:
         BaseWindow(HINSTANCE hInstance) : hInstance_(hInstance) {}
 
@@ -164,13 +171,6 @@
             }
 
             return DefWindowProcW(hwnd_, message, wParam, lParam);
-        }
-
-        /**
-         * @brief Register handler for specific message
-         */
-        void RegisterMessageHandler(UINT message, MessageHandler handler) {
-            messageHandlers_[message] = std::move(handler);
         }
 
         /**

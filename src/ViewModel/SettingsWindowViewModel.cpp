@@ -51,6 +51,8 @@ void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) {
                 _cfg.OnTopExclusive, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_HIDE_INACTIVE), BM_SETCHECK,
                 _cfg.HideWhenInactive, 0);
+    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_NOTIFICATIONS), BM_SETCHECK,
+                _cfg.NotificationsEnabled, 0);
 
     // Setup indicator state combo box
     HWND hCombo = GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_COMBO);
@@ -164,8 +166,12 @@ void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
         // An unconfigured action starts from the table default, so saving it as is keeps the
         // behaviour the user was promised by the list
         .Sound = isConfigured ? it->second.Sound : builtIn.DefaultSound,
+        // The box always shows what will actually appear on screen, table default included
+        .Notification = isConfigured && !it->second.Notification.empty() ? it->second.Notification
+                                                                        : builtIn.DefaultNotification,
         .Hotkey = isConfigured ? it->second.Hotkey : 0,
         .OnRelease = isConfigured && it->second.OnRelease,
+        .ShowNotification = !isConfigured || it->second.ShowNotification,
         .HasSound = builtIn.HasSound,
         .HoldOnly = builtIn.HoldOnly,
     };
@@ -175,7 +181,9 @@ void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
     }
 
     ClearHotkey(edit.Hotkey, builtIn.Id, -1);
-    _cfg.Actions[builtIn.Id] = {.Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease, .Sound = edit.Sound};
+    _cfg.Actions[builtIn.Id] = {.Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease,
+                                .Sound = edit.Sound, .Notification = edit.Notification,
+                                .ShowNotification = edit.ShowNotification};
 }
 
 void SettingsWindowViewModel::EditCustomAction(int customIndex) {
@@ -187,8 +195,12 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
         .Name = stored.Name,
         .Command = stored.Command,
         .Sound = stored.Sound,
+        // The box always shows what will actually appear on screen, template included
+        .Notification = stored.Notification.empty() ? BuiltInActions::DefaultNotification
+                                                    : stored.Notification,
         .Hotkey = stored.Hotkey,
         .OnRelease = stored.OnRelease,
+        .ShowNotification = stored.ShowNotification,
         .IsCustom = true,
         .AllowDelete = isExisting,
     };
@@ -205,7 +217,8 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
     ClearHotkey(edit.Hotkey, {}, isExisting ? customIndex : -1);
 
     const CustomAction action{.Name = edit.Name, .Command = edit.Command, .Sound = edit.Sound,
-                              .Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease};
+                              .Notification = edit.Notification, .Hotkey = edit.Hotkey,
+                              .OnRelease = edit.OnRelease, .ShowNotification = edit.ShowNotification};
 
     if (isExisting) {
         _cfg.CustomActions[customIndex] = action;
@@ -217,7 +230,7 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
 void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
     currentAboutHwnd_ = hWnd;
 
-    SetDlgItemTextA(hWnd, IDC_ABOUT_VERSION_INFO, ("Version " + g_AppVersion.GetFullFormat()).c_str());
+    SetDlgItemTextW(hWnd, IDC_ABOUT_VERSION_INFO, Str::Utf8ToWide("Version " + g_AppVersion.GetFullFormat()).c_str());
 
     // Underlined copy of the dialog font, so the link scales with the rest of the page.
     // Created once: the page is destroyed and rebuilt on every visit to this category.
@@ -240,11 +253,10 @@ void SettingsWindowViewModel::SetupLogDisplay(HWND hWnd) {
     CleanupLogDisplay();
     
     // Load existing log content
-    std::string logText = Logger::GetLogText();
-    SetWindowTextA(hLogEdit, logText.c_str());
-    
+    SetWindowTextW(hLogEdit, Str::Utf8ToWide(Logger::GetLogText()).c_str());
+
     // Scroll to bottom
-    int textLength = GetWindowTextLengthA(hLogEdit);
+    int textLength = GetWindowTextLengthW(hLogEdit);
     SendMessage(hLogEdit, EM_SETSEL, textLength, textLength);
     SendMessage(hLogEdit, EM_SCROLLCARET, 0, 0);
     
@@ -257,8 +269,7 @@ void SettingsWindowViewModel::SetupLogDisplay(HWND hWnd) {
         if (currentAboutHwnd_) {
             HWND hLogEdit = GetDlgItem(currentAboutHwnd_, IDC_ABOUT_LOG_LIST);
             if (hLogEdit) {
-                std::string logText = Logger::GetLogText();
-                SetWindowTextA(hLogEdit, logText.c_str());
+                SetWindowTextW(hLogEdit, Str::Utf8ToWide(Logger::GetLogText()).c_str());
             }
         }
     };
@@ -281,14 +292,14 @@ void SettingsWindowViewModel::UpdateLogDisplay(const std::string& formattedEntry
     HWND hLogEdit = GetDlgItem(currentAboutHwnd_, IDC_ABOUT_LOG_LIST);
     if (!hLogEdit) return;
     
-    int textLength = GetWindowTextLengthA(hLogEdit);
+    int textLength = GetWindowTextLengthW(hLogEdit);
     SendMessage(hLogEdit, EM_SETSEL, textLength, textLength);
-    
-    std::string newLine = (textLength > 0 ? "\r\n" : "") + formattedEntry;
+
+    const std::wstring newLine = Str::Utf8ToWide((textLength > 0 ? "\r\n" : "") + formattedEntry);
     SendMessage(hLogEdit, EM_REPLACESEL, FALSE, (LPARAM)newLine.c_str());
-    
+
     // Scroll to bottom
-    textLength = GetWindowTextLengthA(hLogEdit);
+    textLength = GetWindowTextLengthW(hLogEdit);
     SendMessage(hLogEdit, EM_SETSEL, textLength, textLength);
     SendMessage(hLogEdit, EM_SCROLLCARET, 0, 0);
 }
@@ -307,9 +318,9 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
 
             if (!UAC::IsElevated()) {
                 // Show message and request elevation
-                int result = MessageBoxA(hWnd,
-                    "Administrator privileges are required to configure UAC bypass.\nWould you like to restart the application as administrator?",
-                    "Administrator Required",
+                int result = MessageBoxW(hWnd,
+                    L"Administrator privileges are required to configure UAC bypass.\nWould you like to restart the application as administrator?",
+                    L"Administrator Required",
                     MB_YESNO | MB_ICONQUESTION);
 
                 if (result == IDYES) {
@@ -331,12 +342,12 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             if (skipUACRequested) {
                 success = UAC::EnableSkipUAC();
                 if (!success) {
-                    MessageBoxA(hWnd, "Failed to create UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
+                    MessageBoxW(hWnd, L"Failed to create UAC bypass task.", L"Error", MB_OK | MB_ICONERROR);
                 }
             } else {
                 success = UAC::DisableSkipUAC();
                 if (!success) {
-                    MessageBoxA(hWnd, "Failed to remove UAC bypass task.", "Error", MB_OK | MB_ICONERROR);
+                    MessageBoxW(hWnd, L"Failed to remove UAC bypass task.", L"Error", MB_OK | MB_ICONERROR);
                 }
             }
 
@@ -373,9 +384,9 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             // Check if we need admin rights for "On top of all windows"
             if (onTopRequested && !UAC::IsElevated()) {
                 // Show message and request elevation
-                int result = MessageBoxA(hWnd,
-                    "Administrator privileges are required for 'On top of all windows' feature.\nWould you like to restart the application as administrator?",
-                    "Administrator Required",
+                int result = MessageBoxW(hWnd,
+                    L"Administrator privileges are required for 'On top of all windows' feature.\nWould you like to restart the application as administrator?",
+                    L"Administrator Required",
                     MB_YESNO | MB_ICONQUESTION);
 
                 if (result == IDYES) {
@@ -397,6 +408,9 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
         case IDC_SETTINGS_INDICATOR_HIDE_INACTIVE:
             _cfg.HideWhenInactive = DialogControls::IsChecked(hWnd, buttonId);
             break;
+        case IDC_SETTINGS_INDICATOR_NOTIFICATIONS:
+            _cfg.NotificationsEnabled = DialogControls::IsChecked(hWnd, buttonId);
+            break;
         case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
             _cfg.IsMicKeepVolume = DialogControls::IsChecked(hWnd, buttonId);
             break;
@@ -408,7 +422,7 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             break;
         case IDC_ABOUT_GITHUB_LINK:
             // Open GitHub link
-            ShellExecuteA(nullptr, "open", REPO_URL, nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"open", Str::Utf8ToWide(REPO_URL).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             break;
     }
 }
@@ -433,11 +447,7 @@ void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, in
     switch (trackbarId) {
         case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
             _cfg.IndicatorSize = static_cast<BYTE>(value);
-            MainWnd->UpdateRect()
-                ->SetWidth(value)
-                ->SetHeight(value)
-                ->RefreshPos(nullptr)
-                ->Invalidate();
+            MainWnd->Relayout();
             break;
         case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
             _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;

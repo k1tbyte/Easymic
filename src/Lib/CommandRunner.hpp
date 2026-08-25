@@ -3,6 +3,7 @@
 
 #include <windows.h>
 
+#include <functional>
 #include <shellapi.h>
 #include <string>
 #include <thread>
@@ -21,19 +22,6 @@
 namespace CommandRunner {
 
     namespace Detail {
-        /// CP_ACP, not UTF-8: the command was typed into an ANSI edit control like every other
-        /// string in the app, so a Cyrillic path would come back mangled from a UTF-8 decode.
-        inline std::wstring ToWide(const std::string& text) {
-            const int size = MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, nullptr, 0);
-            if (size <= 1) {
-                return {};
-            }
-
-            std::wstring result(size - 1, L'\0');
-            MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, result.data(), size);
-            return result;
-        }
-
         inline bool IsExistingFile(const std::wstring& path) {
             const DWORD attributes = GetFileAttributesW(path.c_str());
             return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
@@ -69,6 +57,134 @@ namespace CommandRunner {
             const size_t paramStart = end < command.size() ? command.find_first_not_of(L' ', end)
                                                            : std::wstring::npos;
             params = paramStart == std::wstring::npos ? std::wstring{} : command.substr(paramStart);
+        }
+
+        /// Console tools are split between UTF-8 and the OEM page, and nothing announces which.
+        /// Valid UTF-8 is taken at its word, anything else can only be OEM.
+        inline std::string ToUtf8(const std::string& consoleOutput) {
+            if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, consoleOutput.c_str(), -1,
+                                    nullptr, 0) > 0) {
+                return consoleOutput;
+            }
+
+            const int size = MultiByteToWideChar(CP_OEMCP, 0, consoleOutput.c_str(), -1, nullptr, 0);
+            if (size <= 1) {
+                return {};
+            }
+
+            std::wstring wide(size - 1, L'\0');
+            MultiByteToWideChar(CP_OEMCP, 0, consoleOutput.c_str(), -1, wide.data(), size);
+            return Str::WideToUtf8(wide);
+        }
+
+        /// A pill is one line - newlines would be drawn as boxes, so they become spaces
+        inline std::string Flatten(std::string text, const size_t limit) {
+            for (char& character : text) {
+                if (character == '\r' || character == '\n' || character == '\t') {
+                    character = ' ';
+                }
+            }
+
+            const size_t first = text.find_first_not_of(' ');
+            const size_t last = text.find_last_not_of(' ');
+            text = first == std::string::npos ? std::string{} : text.substr(first, last - first + 1);
+
+            return text.size() > limit ? text.substr(0, limit) + "..." : text;
+        }
+
+        /**
+         * @brief Runs the command line through cmd and pipes its output back.
+         *
+         * Through the interpreter, not ShellExecute: a pipe needs CreateProcess, which cannot run a
+         * .bat, resolve a PATH name or understand a redirection on its own. cmd gives all of that
+         * back, which is also what someone writing a command to read output from expects.
+         * What it does not give back is the shell namespace - a URL or a document opens nothing.
+         *
+         * /d skips whatever AutoRun is configured to print into every shell, /s makes cmd strip
+         * exactly the wrapping quotes and take the rest verbatim.
+         */
+        inline std::string Capture(const std::wstring& command) {
+            constexpr DWORD TimeoutMs = 10000;
+            constexpr size_t OutputLimit = 4096;
+            constexpr DWORD PollMs = 20;
+
+            SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
+            HANDLE readEnd = nullptr;
+            HANDLE writeEnd = nullptr;
+            if (!CreatePipe(&readEnd, &writeEnd, &attributes, 0)) {
+                return {};
+            }
+
+            SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+            // STARTF_USESTDHANDLES means all three, and a command that reads stdin has to meet an
+            // end of file rather than an invalid handle
+            HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                     &attributes, OPEN_EXISTING, 0, nullptr);
+
+            STARTUPINFOW startup{sizeof(startup)};
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = nul;
+            startup.hStdOutput = writeEnd;
+            startup.hStdError = writeEnd;
+
+            std::wstring line = L"cmd.exe /d /s /c \"" + command + L"\"";
+
+            PROCESS_INFORMATION process{};
+            // CreateProcess may write into the command line, so it cannot be a read-only buffer
+            const BOOL started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+                                                CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+            // Our own copies have to go, or the read end never sees EOF
+            CloseHandle(writeEnd);
+            if (nul != INVALID_HANDLE_VALUE) {
+                CloseHandle(nul);
+            }
+
+            if (!started) {
+                CloseHandle(readEnd);
+                LOG_ERROR("Failed to capture output: 0x%08lX", GetLastError());
+                return {};
+            }
+
+            std::string output;
+            char buffer[512];
+            const ULONGLONG deadline = GetTickCount64() + TimeoutMs;
+
+            // Polled rather than a blocking read: a child that leaks the pipe to a grandchild would
+            // otherwise hold this thread for as long as the app lives
+            while (GetTickCount64() < deadline && output.size() < OutputLimit) {
+                DWORD available = 0;
+                if (!PeekNamedPipe(readEnd, nullptr, 0, nullptr, &available, nullptr)) {
+                    break;
+                }
+
+                if (!available) {
+                    if (WaitForSingleObject(process.hProcess, PollMs) == WAIT_OBJECT_0) {
+                        // Exited, but whatever it wrote last is still sitting in the pipe
+                        if (!PeekNamedPipe(readEnd, nullptr, 0, nullptr, &available, nullptr) || !available) {
+                            break;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+
+                DWORD read = 0;
+                if (!ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) || !read) {
+                    break;
+                }
+                output.append(buffer, read);
+            }
+
+            if (WaitForSingleObject(process.hProcess, 0) != WAIT_OBJECT_0) {
+                TerminateProcess(process.hProcess, 1);
+            }
+
+            CloseHandle(readEnd);
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+
+            return Flatten(ToUtf8(output), 120);
         }
 
         struct WindowSearch {
@@ -156,7 +272,7 @@ namespace CommandRunner {
             CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
             std::wstring file, params;
-            Detail::Split(Detail::ToWide(command), file, params);
+            Detail::Split(Str::Utf8ToWide(command), file, params);
 
             SHELLEXECUTEINFOW info{sizeof(info)};
             // NOASYNC is required when the calling thread exits right after - this one does
@@ -172,6 +288,22 @@ namespace CommandRunner {
             }
 
             CoUninitialize();
+        }).detach();
+    }
+
+    /**
+     * @brief Runs the command and hands its output over once it has finished.
+     *
+     * The callback lands on this thread, not the caller's, and may be minutes late - it must not
+     * touch anything that can be gone by then.
+     */
+    inline void RunCaptured(const std::string& command, std::function<void(std::string)> onFinished) {
+        if (command.empty()) {
+            return;
+        }
+
+        std::thread([command, onFinished = std::move(onFinished)] {
+            onFinished(Detail::Capture(Str::Utf8ToWide(command)));
         }).detach();
     }
 }

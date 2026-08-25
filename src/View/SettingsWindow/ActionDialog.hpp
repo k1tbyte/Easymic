@@ -14,12 +14,14 @@
  * Everything else, including future ones like debounce, stays common to all of them.
  */
 struct ActionEdit {
-    std::string Title;    // dialog caption
-    std::string Name;     // custom only
-    std::string Command;  // custom only
-    std::string Sound;    // SoundCatalog key or file path, empty means none
+    std::string Title;        // dialog caption
+    std::string Name;         // custom only
+    std::string Command;      // custom only
+    std::string Sound;        // SoundCatalog key or file path, empty means none
+    std::string Notification; // overlay text, {token} aware
     uint64_t Hotkey = 0;
     bool OnRelease = false;
+    bool ShowNotification = true;
 
     bool IsCustom = false;    // shows the name and command rows
     bool HasSound = true;     // shows the sound row

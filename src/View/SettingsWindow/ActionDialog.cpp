@@ -1,6 +1,7 @@
 #include "ActionDialog.hpp"
 
 #include "DialogControls.hpp"
+#include "NotificationTokens.hpp"
 #include "Resources/Resource.h"
 #include "../../Audio/AudioFileValidator.hpp"
 #include "../../Lib/HotkeyCapture.hpp"
@@ -19,15 +20,20 @@ namespace {
     };
 
     void SetHotkeyButtonText(HWND dialog, const uint64_t mask) {
-        SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY,
-                        mask ? HotkeyManager::GetHotkeyName(mask).c_str() : "Click to bind");
+        SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY,
+                        mask ? Str::Utf8ToWide(HotkeyManager::GetHotkeyName(mask)).c_str()
+                             : L"Click to bind");
     }
 
-    /// GetDlgItemTextA needs a fixed buffer, and command lines outgrow any sane guess
-    std::string GetDlgItemString(HWND dialog, int controlId) {
+    /// GetDlgItemTextW needs a fixed buffer, and command lines outgrow any sane guess
+    std::wstring GetDlgItemWideString(HWND dialog, int controlId) {
         const HWND control = GetDlgItem(dialog, controlId);
-        std::string text(GetWindowTextLengthA(control), '\0');
-        const int copied = GetWindowTextA(control, text.data(), static_cast<int>(text.size()) + 1);
+        const int length = GetWindowTextLengthW(control);
+        if (length <= 0) {
+            return {};
+        }
+        std::wstring text(length, L'\0');
+        const int copied = GetWindowTextW(control, text.data(), length + 1);
         text.resize(copied);
         return text;
     }
@@ -48,11 +54,11 @@ namespace {
     }
 
     void StartCapture(HWND dialog, ActionEdit& action) {
-        SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, "Press desired key combination or ESC to clear...");
+        SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY, L"Press desired key combination or ESC to clear...");
 
         const bool started = HotkeyCapture::Start(dialog,
             [dialog](const std::string& hotkeyName) {
-                SetDlgItemTextA(dialog, IDC_ACTION_HOTKEY, hotkeyName.c_str());
+                SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY, Str::Utf8ToWide(hotkeyName).c_str());
             },
             [dialog, &action](const uint64_t mask) {
                 action.Hotkey = mask;
@@ -62,6 +68,46 @@ namespace {
         if (!started) {
             SetHotkeyButtonText(dialog, action.Hotkey);
         }
+    }
+
+    /// Offers the tokens with what they mean, and types the chosen one for the user.
+    void ShowTokenMenu(HWND dialog, const bool isCustom) {
+        HMENU menu = CreatePopupMenu();
+        if (!menu) {
+            return;
+        }
+
+        for (int i = 0; i < NotificationTokens::Count; i++) {
+            const auto& token = NotificationTokens::All[i];
+            if (token.CustomOnly && !isCustom) {
+                continue;
+            }
+
+            // The tab splits a menu item in two columns - the token, then what it stands for
+            AppendMenuW(menu, MF_STRING, i + 1,
+                        Str::Utf8ToWide(std::string{token.Text} + "\t" + token.Description).c_str());
+        }
+
+        RECT button;
+        GetWindowRect(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION_TOKENS), &button);
+
+        const int chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_NONOTIFY,
+                                          button.right, button.bottom, 0, dialog, nullptr);
+        DestroyMenu(menu);
+
+        if (!chosen) {
+            return;
+        }
+
+        const HWND edit = GetDlgItem(dialog, IDC_ACTION_NOTIFICATION);
+        SetFocus(edit);
+        SendMessageW(edit, EM_REPLACESEL, TRUE,
+                     reinterpret_cast<LPARAM>(Str::Utf8ToWide(NotificationTokens::All[chosen - 1].Text).c_str()));
+    }
+
+    void SetNotificationEnabled(HWND dialog, const bool enabled) {
+        EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION), enabled);
+        EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION_TOKENS), enabled);
     }
 
     void LayoutForAction(HWND dialog, const ActionEdit& action) {
@@ -91,9 +137,13 @@ namespace {
                 SetWindowLongPtrW(dialog, GWLP_USERDATA, lParam);
                 ActionEdit& action = *state->action;
 
-                SetWindowTextW(dialog, Str::ToWide(action.Title).c_str());
-                SetDlgItemTextA(dialog, IDC_ACTION_NAME, action.Name.c_str());
-                SetDlgItemTextA(dialog, IDC_ACTION_COMMAND, action.Command.c_str());
+                SetWindowTextW(dialog, Str::Utf8ToWide(action.Title).c_str());
+                SetDlgItemTextW(dialog, IDC_ACTION_NAME, Str::Utf8ToWide(action.Name).c_str());
+                SetDlgItemTextW(dialog, IDC_ACTION_COMMAND, Str::Utf8ToWide(action.Command).c_str());
+                SetDlgItemTextW(dialog, IDC_ACTION_NOTIFICATION, Str::Utf8ToWide(action.Notification).c_str());
+                CheckDlgButton(dialog, IDC_ACTION_NOTIFICATION_ENABLED,
+                               action.ShowNotification ? BST_CHECKED : BST_UNCHECKED);
+                SetNotificationEnabled(dialog, action.ShowNotification);
                 CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, action.OnRelease ? BST_CHECKED : BST_UNCHECKED);
                 SetHotkeyButtonText(dialog, action.Hotkey);
                 DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
@@ -135,6 +185,16 @@ namespace {
                         StartCapture(dialog, action);
                         return TRUE;
 
+                    // Turning it off keeps the text, so the wording survives until it is wanted again
+                    case IDC_ACTION_NOTIFICATION_ENABLED:
+                        SetNotificationEnabled(dialog,
+                            DialogControls::IsChecked(dialog, IDC_ACTION_NOTIFICATION_ENABLED));
+                        return TRUE;
+
+                    case IDC_ACTION_NOTIFICATION_TOKENS:
+                        ShowTokenMenu(dialog, action.IsCustom);
+                        return TRUE;
+
                     case IDC_ACTION_SOUND_BROWSE: {
                         std::string selected;
                         if (AudioFileValidator::PickValidWavFile(dialog, "Select action sound file", selected)) {
@@ -152,8 +212,8 @@ namespace {
 
                     case IDOK: {
                         if (action.IsCustom) {
-                            auto name = GetDlgItemString(dialog, IDC_ACTION_NAME);
-                            auto command = GetDlgItemString(dialog, IDC_ACTION_COMMAND);
+                            auto name = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NAME));
+                            auto command = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_COMMAND));
 
                             if (name.empty() || command.empty()) {
                                 MessageBoxW(dialog, L"Name and command are required.", L"Action",
@@ -171,6 +231,8 @@ namespace {
                                        ? DialogControls::ResolveSound(GetDlgItem(dialog, IDC_ACTION_SOUND),
                                                                       *state->recentSounds)
                                        : std::string{};
+                        action.ShowNotification = DialogControls::IsChecked(dialog, IDC_ACTION_NOTIFICATION_ENABLED);
+                        action.Notification = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NOTIFICATION));
 
                         EndDialog(dialog, TRUE);
                         return TRUE;

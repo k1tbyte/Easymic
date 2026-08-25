@@ -48,6 +48,7 @@
 #define IDC_SETTINGS_INDICATOR_CAPTURE              255
 #define IDC_SETTINGS_INDICATOR_ON_TOP               256
 #define IDC_SETTINGS_INDICATOR_HIDE_INACTIVE        257
+#define IDC_SETTINGS_INDICATOR_NOTIFICATIONS        258
 
 #define IDD_SETTINGS_SOUNDS                         301
 #define IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR     302
@@ -74,6 +75,10 @@
 #define IDC_ACTION_NAME_LABEL                        459
 #define IDC_ACTION_COMMAND_LABEL                     460
 #define IDC_ACTION_SOUND_LABEL                       461
+#define IDC_ACTION_NOTIFICATION_LABEL                462
+#define IDC_ACTION_NOTIFICATION                      463
+#define IDC_ACTION_NOTIFICATION_ENABLED              464
+#define IDC_ACTION_NOTIFICATION_TOKENS               465
 
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502

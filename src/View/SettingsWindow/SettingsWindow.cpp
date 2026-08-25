@@ -8,6 +8,7 @@
 #include "UACService.hpp"
 #include "../../Resources/Resource.h"
 #include "../../Lib/Version.hpp"
+#include "Str.hpp"
 
 namespace {
     /// Desaturated on purpose - it marks the row type, it is not a status
@@ -216,7 +217,7 @@ INT_PTR SettingsWindow::OnInitDialog() {
     SendMessageW(hwnd_, WM_SETICON, ICON_BIG, (LPARAM)icon);
     SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)icon);
 
-    SetDlgItemTextA(hwnd_, IDC_SETTINGS_VERSION, g_AppVersion.GetFullFormat().c_str());
+    SetDlgItemTextW(hwnd_, IDC_SETTINGS_VERSION, Str::Utf8ToWide(g_AppVersion.GetFullFormat()).c_str());
 
     // Hand cursor over the categories
     SetWindowSubclass(hwndTreeView_, TreeViewSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
@@ -356,24 +357,25 @@ void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) {
 
     SendMessage(hwndList, LVM_DELETEALLITEMS, 0, 0);
 
-    LVITEMA lvi = {};
+    LVITEMW lvi = {};
     lvi.mask = LVIF_TEXT | LVIF_PARAM;
     int index = 0;
 
     for (const auto& row : rows) {
-        const char* cells[] = {row.Name.c_str(), row.Hotkey.c_str(), row.Command.c_str()};
+        const std::wstring cells[] = {Str::Utf8ToWide(row.Name), Str::Utf8ToWide(row.Hotkey),
+                                      Str::Utf8ToWide(row.Command)};
 
         lvi.iItem = index++;
         lvi.iSubItem = 0;
         lvi.lParam = row.IsCustom; // the custom draw reads it back - no parallel array to keep in sync
-        lvi.pszText = const_cast<LPSTR>(cells[0]);
-        const int itemIndex = SendMessageA(hwndList, LVM_INSERTITEMA, 0, (LPARAM)&lvi);
+        lvi.pszText = const_cast<LPWSTR>(cells[0].c_str());
+        const int itemIndex = SendMessageW(hwndList, LVM_INSERTITEMW, 0, (LPARAM)&lvi);
 
         for (int column = 1; column < static_cast<int>(std::size(cells)); column++) {
             lvi.iItem = itemIndex;
             lvi.iSubItem = column;
-            lvi.pszText = const_cast<LPSTR>(cells[column]);
-            SendMessageA(hwndList, LVM_SETITEMTEXTA, itemIndex, (LPARAM)&lvi);
+            lvi.pszText = const_cast<LPWSTR>(cells[column].c_str());
+            SendMessageW(hwndList, LVM_SETITEMTEXTW, itemIndex, (LPARAM)&lvi);
         }
     }
 

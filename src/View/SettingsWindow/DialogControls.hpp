@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include "SoundCatalog.hpp"
+#include "Str.hpp"
 
 /// Small helpers shared by the settings pages and the action dialog.
 namespace DialogControls {
@@ -77,7 +78,7 @@ namespace DialogControls {
     }
 
     inline bool DoesFileExist(const std::string& filePath) {
-        const DWORD attributes = GetFileAttributesA(filePath.c_str());
+        const DWORD attributes = GetFileAttributesW(Str::Utf8ToWide(filePath).c_str());
         return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
     }
 
@@ -100,32 +101,34 @@ namespace DialogControls {
     inline void PopulateSoundCombo(HWND comboBox, std::set<std::string>& recent, const std::string& current) {
         PruneRecentSounds(recent);
 
-        SendMessageA(comboBox, CB_RESETCONTENT, 0, 0);
-        SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)"None");
+        SendMessageW(comboBox, CB_RESETCONTENT, 0, 0);
+        SendMessageW(comboBox, CB_ADDSTRING, 0, (LPARAM)L"None");
 
         LRESULT selectedIndex = 0;
 
         for (const auto& bundled : SoundCatalog::All) {
-            const LRESULT index = SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)bundled.Title);
+            const LRESULT index = SendMessageW(comboBox, CB_ADDSTRING, 0,
+                                               (LPARAM)Str::Utf8ToWide(bundled.Title).c_str());
             if (current == bundled.Key) {
                 selectedIndex = index;
             }
         }
 
         for (const auto& source : recent) {
-            const auto fileName = std::filesystem::path(source).filename().string();
-            const LRESULT index = SendMessageA(comboBox, CB_ADDSTRING, 0, (LPARAM)fileName.c_str());
+            const std::filesystem::path path{Str::Utf8ToWide(source)};
+            const LRESULT index = SendMessageW(comboBox, CB_ADDSTRING, 0,
+                                               (LPARAM)path.filename().c_str());
             if (current == source) {
                 selectedIndex = index;
             }
         }
 
-        SendMessageA(comboBox, CB_SETCURSEL, selectedIndex, 0);
+        SendMessageW(comboBox, CB_SETCURSEL, selectedIndex, 0);
     }
 
     /// Maps the current selection back to a catalog key or a file path. Empty means None.
     inline std::string ResolveSound(HWND comboBox, const std::set<std::string>& recent) {
-        const LRESULT selected = SendMessageA(comboBox, CB_GETCURSEL, 0, 0);
+        const LRESULT selected = SendMessageW(comboBox, CB_GETCURSEL, 0, 0);
         constexpr LRESULT bundledCount = static_cast<LRESULT>(std::size(SoundCatalog::All));
 
         if (selected <= 0) {

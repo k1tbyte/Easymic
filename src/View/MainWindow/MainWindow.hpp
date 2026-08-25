@@ -37,8 +37,6 @@ public:
     void UpdateTrayIcon(HICON icon);
     void UpdateTrayTooltip(const std::wstring& tooltip);
 
-    std::shared_ptr<BaseWindow> SetWidth(LONG width) override;
-    std::shared_ptr<BaseWindow> SetHeight(LONG height) override;
 
     // Callbacks
     void SetOnTrayClick(OnTrayClickCallback callback) { _onTrayClick = std::move(callback); }
@@ -73,6 +71,18 @@ public:
     }
 
     /// Fires when the user switches between the light and dark system theme.
+    /// Anything that changes what the indicator should look like - only the view model knows how
+    /// to lay it out, so callers say what happened instead of resizing the window themselves.
+    void SetOnRelayout(OnThemeChangedCallback callback) {
+        _onRelayout = std::move(callback);
+    }
+
+    void Relayout() const {
+        if (_onRelayout) {
+            _onRelayout();
+        }
+    }
+
     void SetOnThemeChanged(OnThemeChangedCallback callback) {
         _onThemeChanged = std::move(callback);
     }
@@ -101,6 +111,7 @@ private:
     OnCloseCallback _onClose;
     OnTimerCallback _onTimer;
     OnThemeChangedCallback _onThemeChanged;
+    OnThemeChangedCallback _onRelayout;
     GDIRenderer::RenderCallback _onRender;
 
     // Not owned: LoadIcon returns shared icons, the view model keeps them alive

@@ -35,8 +35,11 @@ file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
 add_executable(${PROJECT_NAME} #[[WIN32]])
 
 if(WIN32)
-    # Win10 API surface (GetDpiForWindow etc) - MinGW headers gate these behind _WIN32_WINNT
-    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+    # Win10 API surface (GetDpiForWindow etc) - MinGW headers gate these behind _WIN32_WINNT.
+    # UNICODE makes every unsuffixed Win32 call resolve to its W variant, so passing a narrow
+    # string to one stops compiling instead of silently going through the system codepage.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+            NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00 UNICODE _UNICODE)
 endif()
 
 

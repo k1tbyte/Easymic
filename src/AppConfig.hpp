@@ -31,6 +31,10 @@ struct ActionBinding {
     bool OnRelease  = false;
     /// SoundCatalog key or a file path, empty means silent.
     std::string Sound;
+    /// Overlay text shown when the action fires, {token} aware. Empty falls back to the built-in
+    /// table, so a config written before a default existed still gets one.
+    std::string Notification;
+    bool ShowNotification = true;
 
     bool operator==(const ActionBinding&) const = default;
 };
@@ -40,8 +44,10 @@ struct CustomAction {
     std::string Name;
     std::string Command;
     std::string Sound;
+    std::string Notification;
     uint64_t Hotkey  = 0;
     bool OnRelease   = false;
+    bool ShowNotification = true;
 
     bool operator==(const CustomAction&) const = default;
 };
@@ -64,6 +70,8 @@ struct AppConfig {
     bool IsAutoUpdateEnabled       = false;
     bool IsSkipUACEnabled          = false;
     bool HideWhenInactive          = true;
+    /// Master switch for the on-screen action notifications; per action, an empty text is the off.
+    bool NotificationsEnabled      = true;
     /// Bumped by Load once the migration for that revision has run. 0 means "written before
     /// migrations existed", which is why it must not default to the current revision.
     int32_t Version = 0;

@@ -14,6 +14,8 @@ struct BuiltInAction {
     const char* Title;
     /// SoundCatalog key prefilled when the action is configured for the first time.
     const char* DefaultSound;
+    /// Notification text prefilled the same way. Empty means the action stays silent on screen.
+    const char* DefaultNotification;
     /// False when the action needs no sound of its own - muting already has its own feedback.
     bool HasSound;
     /// Fires on press and release by design (push to talk), so "trigger on release" is meaningless.
@@ -22,12 +24,20 @@ struct BuiltInAction {
 
 namespace BuiltInActions {
 
+    /**
+     * @brief What a notification says. {name} and {key} are resolved when the hotkey is registered,
+     * {volume} and {bell} when it fires - see MainWindowViewModel.
+     */
+    inline constexpr char DefaultNotification[] = "{name} triggered";
+
     inline constexpr BuiltInAction All[] = {
-        {"Toggle mute",       "Toggle mute",       "",     false, false},
-        {"Push to talk",      "Push to talk",      "",     false, true },
-        {"Mic volume up",     "Mic volume up",     "Tick", true,  false},
-        {"Mic volume down",   "Mic volume down",   "Tick", true,  false},
-        {"Toggle bell sound", "Toggle bell sound", "Tick", true,  false},
+        // Push to talk says nothing: on a held key the text would flicker with every tap.
+        // Toggle mute says nothing about state either - the indicator icon already shows it.
+        {"Toggle mute",       "Toggle mute",       "",     DefaultNotification, false, false},
+        {"Push to talk",      "Push to talk",      "",     "",                  false, true },
+        {"Mic volume up",     "Mic volume up",     "Tick", "Mic {volume}%",     true,  false},
+        {"Mic volume down",   "Mic volume down",   "Tick", "Mic {volume}%",     true,  false},
+        {"Toggle bell sound", "Toggle bell sound", "Tick", "Bell {bell}",       true,  false},
     };
 
     inline constexpr int Count = static_cast<int>(std::size(All));
