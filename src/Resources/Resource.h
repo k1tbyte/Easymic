@@ -82,6 +82,7 @@
 #define IDC_ACTION_NOTIFICATION                      463
 #define IDC_ACTION_NOTIFICATION_ENABLED              464
 #define IDC_ACTION_NOTIFICATION_TOKENS               465
+#define IDC_ACTION_COMMAND_TOKENS                    466
 
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502

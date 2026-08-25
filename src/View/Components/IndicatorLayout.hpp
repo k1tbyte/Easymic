@@ -28,6 +28,15 @@ struct IndicatorLayout {
     static constexpr float CornerRadius = 10.0f;
     static constexpr int PillGap = 8;
 
+    // Text size and side padding are fractions of the pill height so both scale with the
+    // indicator. The floors stop a small indicator from scaling itself into illegible text
+    // wrapped in padding that costs more width than the glyphs do.
+    static constexpr float FontScale = 0.46f;
+    static constexpr float MinFontSize = 11.0f;
+    static constexpr float MaxFontSize = 24.0f;
+    static constexpr float PaddingScale = 0.25f;
+    static constexpr int MinPadding = 6;
+
     // Pill background (RGBA)
     static constexpr BYTE BgR = 24;
     static constexpr BYTE BgG = 27;
@@ -55,10 +64,11 @@ struct IndicatorLayout {
             return layout;
         }
 
-        layout.fontSize = std::clamp(static_cast<float>(layout.height) * 0.40f, 10.0f, 24.0f);
+        const auto pillHeight = static_cast<float>(layout.height);
+        layout.fontSize = std::clamp(pillHeight * FontScale, MinFontSize, MaxFontSize);
         layout.textX = micVisible ? layout.height + PillGap : 0;
 
-        const int padding = std::max(10, layout.height / 3);
+        const int padding = std::max(MinPadding, static_cast<int>(pillHeight * PaddingScale));
         layout.textWidth = std::max(layout.height, MeasureText(text, layout.MakeFont()) + padding * 2);
         layout.totalWidth = layout.textX + layout.textWidth;
         return layout;

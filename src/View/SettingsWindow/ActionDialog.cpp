@@ -1,7 +1,7 @@
 #include "ActionDialog.hpp"
 
 #include "DialogControls.hpp"
-#include "NotificationTokens.hpp"
+#include "Tokens.hpp"
 #include "Resources/Resource.h"
 #include "../../Audio/AudioFileValidator.hpp"
 #include "../../Lib/HotkeyCapture.hpp"
@@ -66,16 +66,17 @@ namespace {
         }
     }
 
-    /// Offers the tokens with what they mean, and types the chosen one for the user.
-    void ShowTokenMenu(HWND dialog, const bool isCustom) {
+    /// Offers the tokens a field accepts with what they mean, and types the chosen one for the user.
+    void ShowTokenMenu(HWND dialog, const int editId, const int buttonId, const unsigned field,
+                       const bool isCustom) {
         HMENU menu = CreatePopupMenu();
         if (!menu) {
             return;
         }
 
-        for (int i = 0; i < NotificationTokens::Count; i++) {
-            const auto& token = NotificationTokens::All[i];
-            if (token.CustomOnly && !isCustom) {
+        for (int i = 0; i < Tokens::Count; i++) {
+            const auto& token = Tokens::All[i];
+            if (!(token.Fields & field) || (token.CustomOnly && !isCustom)) {
                 continue;
             }
 
@@ -85,7 +86,7 @@ namespace {
         }
 
         RECT button;
-        GetWindowRect(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION_TOKENS), &button);
+        GetWindowRect(GetDlgItem(dialog, buttonId), &button);
 
         const int chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_NONOTIFY,
                                           button.right, button.bottom, 0, dialog, nullptr);
@@ -95,10 +96,10 @@ namespace {
             return;
         }
 
-        const HWND edit = GetDlgItem(dialog, IDC_ACTION_NOTIFICATION);
+        const HWND edit = GetDlgItem(dialog, editId);
         SetFocus(edit);
         SendMessageW(edit, EM_REPLACESEL, TRUE,
-                     reinterpret_cast<LPARAM>(Str::Utf8ToWide(NotificationTokens::All[chosen - 1].Text).c_str()));
+                     reinterpret_cast<LPARAM>(Str::Utf8ToWide(Tokens::All[chosen - 1].Text).c_str()));
     }
 
     void SetNotificationEnabled(HWND dialog, const bool enabled) {
@@ -108,7 +109,8 @@ namespace {
 
     void LayoutForAction(HWND dialog, const ActionEdit& action) {
         if (!action.IsCustom) {
-            DialogControls::CollapseRow(dialog, {IDC_ACTION_COMMAND_LABEL, IDC_ACTION_COMMAND});
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_COMMAND_LABEL, IDC_ACTION_COMMAND,
+                                                 IDC_ACTION_COMMAND_TOKENS});
             DialogControls::CollapseRow(dialog, {IDC_ACTION_NAME_LABEL, IDC_ACTION_NAME});
         }
 
@@ -194,7 +196,13 @@ namespace {
                         return TRUE;
 
                     case IDC_ACTION_NOTIFICATION_TOKENS:
-                        ShowTokenMenu(dialog, action.IsCustom);
+                        ShowTokenMenu(dialog, IDC_ACTION_NOTIFICATION, IDC_ACTION_NOTIFICATION_TOKENS,
+                                      Tokens::Notification, action.IsCustom);
+                        return TRUE;
+
+                    case IDC_ACTION_COMMAND_TOKENS:
+                        ShowTokenMenu(dialog, IDC_ACTION_COMMAND, IDC_ACTION_COMMAND_TOKENS,
+                                      Tokens::Command, action.IsCustom);
                         return TRUE;
 
                     case IDC_ACTION_SOUND_BROWSE: {

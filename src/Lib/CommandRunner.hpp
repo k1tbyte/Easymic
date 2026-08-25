@@ -8,7 +8,9 @@
 #include <string>
 #include <thread>
 
+#include "ShellContext.hpp"
 #include "Str.hpp"
+#include "Tokens.hpp"
 #include "definitions.h"
 
 /**
@@ -16,6 +18,10 @@
  *
  * Shell semantics on purpose: executables, shortcuts, folders, documents and URLs all work,
  * and a bare name is resolved through PATH. Shell builtins need an explicit "cmd /c ...".
+ *
+ * A command line may carry {dir}. It is resolved against the window handed in, so the caller
+ * reads the foreground at the moment the action fires - by the time the thread below starts,
+ * whatever we launch may already have taken it.
  */
 namespace CommandRunner {
 
@@ -47,6 +53,56 @@ namespace CommandRunner {
             const size_t paramStart = end < command.size() ? command.find_first_not_of(L' ', end)
                                                            : std::wstring::npos;
             params = paramStart == std::wstring::npos ? std::wstring{} : command.substr(paramStart);
+        }
+
+        /**
+         * @brief Puts a resolved value into the command line as a single argument.
+         *
+         * A path with a space would otherwise arrive as two, and a template that quoted the
+         * token itself must not get a second pair. Either way a trailing backslash is doubled
+         * first: sitting right before the closing quote it escapes it instead, which is how
+         * "C:\" reaches an argv parser as one unterminated argument.
+         */
+        inline std::string Quote(std::string value, const bool alreadyQuoted) {
+            if (!alreadyQuoted && value.find(' ') == std::string::npos) {
+                return value;
+            }
+
+            if (value.ends_with('\\')) {
+                value += '\\';
+            }
+
+            return alreadyQuoted ? value : '"' + value + '"';
+        }
+
+        /**
+         * @brief Substitutes the folder token against the window that was in front.
+         *
+         * Falls back to the profile directory rather than nothing: an empty substitution leaves
+         * a command like `wt -d ""` that only fails, and home is where a terminal opens anyway.
+         * A token the user already wrapped in quotes is substituted bare so they do not double.
+         */
+        inline std::string ExpandDir(std::string command, const HWND context) {
+            if (!command.contains(Tokens::Dir)) {
+                return command;
+            }
+
+            std::string folder = Str::WideToUtf8(ShellContext::ActiveFolder(context));
+            if (folder.empty()) {
+                wchar_t profile[MAX_PATH];
+                if (GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH)) {
+                    folder = Str::WideToUtf8(profile);
+                }
+            }
+
+            const size_t span = std::string_view(Tokens::Dir).size();
+            for (size_t at = command.find(Tokens::Dir); at != std::string::npos;) {
+                const std::string value = Quote(folder, at > 0 && command[at - 1] == '"');
+                command.replace(at, span, value);
+                at = command.find(Tokens::Dir, at + value.size());
+            }
+
+            return command;
         }
 
         /// Console tools are split between UTF-8 and the OEM page, and nothing announces which.
@@ -184,16 +240,18 @@ namespace CommandRunner {
      * Always on a fresh thread: the hotkey worker queue is serial, and ShellExecuteEx can sit
      * for seconds on a UAC prompt or a slow shell handler - that would stall mic actions.
      */
-    inline void Run(const std::string& command) {
+    inline void Run(const std::string& command, const HWND context) {
         if (command.empty()) {
             return;
         }
 
-        std::thread([command] {
+        std::thread([command, context] {
             CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+            const std::string line = Detail::ExpandDir(command, context);
+
             std::wstring file, params;
-            Detail::Split(Str::Utf8ToWide(command), file, params);
+            Detail::Split(Str::Utf8ToWide(line), file, params);
 
             // Windows only lets the process the foreground app started take the foreground, and a
             // hotkey from a tray app is not that - so a new window would open behind everything
@@ -209,7 +267,7 @@ namespace CommandRunner {
             info.nShow = SW_SHOWNORMAL;
 
             if (!ShellExecuteExW(&info)) {
-                LOG_ERROR("Failed to run '%s': 0x%08lX", command.c_str(), GetLastError());
+                LOG_ERROR("Failed to run '%s': 0x%08lX", line.c_str(), GetLastError());
             }
 
             CoUninitialize();
@@ -222,13 +280,20 @@ namespace CommandRunner {
      * The callback lands on this thread, not the caller's, and may be minutes late - it must not
      * touch anything that can be gone by then.
      */
-    inline void RunCaptured(const std::string& command, std::function<void(std::string)> onFinished) {
+    inline void RunCaptured(const std::string& command, const HWND context,
+                            std::function<void(std::string)> onFinished) {
         if (command.empty()) {
             return;
         }
 
-        std::thread([command, onFinished = std::move(onFinished)] {
-            onFinished(Detail::Capture(Str::Utf8ToWide(command)));
+        std::thread([command, context, onFinished = std::move(onFinished)] {
+            // Only the substitution needs an apartment, and the command it feeds can run for
+            // ten seconds - no reason to hold one for that long
+            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            const std::wstring line = Str::Utf8ToWide(Detail::ExpandDir(command, context));
+            CoUninitialize();
+
+            onFinished(Detail::Capture(line));
         }).detach();
     }
 }
