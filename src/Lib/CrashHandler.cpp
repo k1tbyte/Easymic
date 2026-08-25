@@ -21,14 +21,12 @@ namespace CrashHandler {
         struct HandlerState {
             Config config;
             bool initialized = false;
-            std::string lastExceptionInfo;
 
             LPTOP_LEVEL_EXCEPTION_FILTER previousFilter = nullptr;
             _purecall_handler previousPurecallHandler = nullptr;
             _invalid_parameter_handler previousInvalidParameterHandler = nullptr;
             std::terminate_handler previousTerminateHandler = nullptr;
 
-            std::array<void(*)(int), 6> previousSignalHandlers = {};
         };
 
         HandlerState g_state;
@@ -57,38 +55,6 @@ namespace CrashHandler {
             std::array<wchar_t, MAX_PATH> path;
             const DWORD result = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
             return result > 0 ? Str::WideToUtf8(std::wstring(path.data(), result)) : "Unknown";
-        }
-
-        __declspec(nothrow) const char* SafeStdExceptionWhat(const void* thrownObject) {
-            try {
-                return static_cast<const std::exception*>(thrownObject)->what();
-            } catch(...) {
-                return "";
-            }
-        }
-
-        std::string ExtractExceptionMessageFromSEH(EXCEPTION_POINTERS* pExceptionInfo) {
-            if (!pExceptionInfo || !pExceptionInfo->ExceptionRecord) {
-                return "";
-            }
-
-            const EXCEPTION_RECORD* pRecord = pExceptionInfo->ExceptionRecord;
-
-            // Check if it's a C++ exception
-            if (pRecord->ExceptionCode != 0xE06D7363 || pRecord->NumberParameters < 3) {
-                return "";
-            }
-
-            // The thrown object pointer is in ExceptionInformation[1]
-            void* thrownObject = reinterpret_cast<void*>(pRecord->ExceptionInformation[1]);
-            if (!thrownObject) {
-                return "";
-            }
-
-            // Call SEH-safe helper
-            const char* msg = SafeStdExceptionWhat(thrownObject);
-
-            return std::string(msg ? msg : "");
         }
 
 
@@ -150,9 +116,11 @@ namespace CrashHandler {
             oss << "Exception Code: 0x" << std::hex << std::uppercase << pRecord->ExceptionCode << "\n"
                     << "Exception Description: " << description << "\n"
                     << "Exception Flags: 0x" << std::hex << pRecord->ExceptionFlags << "\n"
-                    << "Exception Address: 0x" << std::hex << reinterpret_cast<uintptr_t>(pRecord->ExceptionAddress) << "\n"
-                    << "Exception Message: " << ExtractExceptionMessageFromSEH(pExceptionInfo) <<
-                    "\n";
+                    << "Exception Address: 0x" << std::hex << reinterpret_cast<uintptr_t>(pRecord->ExceptionAddress) << "\n";
+
+            // No message here on purpose: the thrown object cannot be assumed to be a
+            // std::exception, and calling what() through a guessed vtable faults the crash
+            // handler itself. The terminate handler rethrows instead, which is safe and exact.
 
             if (pRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && pRecord->NumberParameters >= 2) {
                 const char *accessType = [](ULONG_PTR type) {
@@ -220,8 +188,6 @@ namespace CrashHandler {
         }
 
         void NotifyException(const std::string &info) {
-            g_state.lastExceptionInfo = info;
-
             if (g_state.config.logCallback) {
                 try {
                     g_state.config.logCallback(info);
@@ -301,15 +267,15 @@ namespace CrashHandler {
 
         void InvalidParameterHandler(const wchar_t *expression, const wchar_t *function,
                                      const wchar_t *file, unsigned int line, uintptr_t) {
+            // Travels as the source, so it reaches the report - a separate field would just be
+            // overwritten by the header that HandleStructuredException builds next
             std::ostringstream oss;
-            oss << "Invalid Parameter Handler Details:\n";
-            if (expression) oss << "Expression: " << Str::WideToUtf8(expression) << "\n";
-            if (function) oss << "Function: " << Str::WideToUtf8(function) << "\n";
-            if (file) oss << "File: " << Str::WideToUtf8(file) << "\n";
-            oss << "Line: " << line << "\n";
+            oss << "Invalid Parameter";
+            if (expression) oss << " | expression: " << Str::WideToUtf8(expression);
+            if (function) oss << " | function: " << Str::WideToUtf8(function);
+            if (file) oss << " | file: " << Str::WideToUtf8(file) << ":" << line;
 
-            g_state.lastExceptionInfo = oss.str();
-            HandleStructuredException(nullptr, "Invalid Parameter");
+            HandleStructuredException(nullptr, oss.str());
 
             if (g_state.previousInvalidParameterHandler) {
                 g_state.previousInvalidParameterHandler(expression, function, file, line, 0);
@@ -339,15 +305,10 @@ namespace CrashHandler {
 
         void InstallSignalHandlers() {
             for (size_t i = 0; i < HANDLED_SIGNALS.size(); ++i) {
-                g_state.previousSignalHandlers[i] = signal(HANDLED_SIGNALS[i], SignalHandler);
+                signal(HANDLED_SIGNALS[i], SignalHandler);
             }
         }
 
-        void RestoreSignalHandlers() {
-            for (size_t i = 0; i < HANDLED_SIGNALS.size(); ++i) {
-                signal(HANDLED_SIGNALS[i], g_state.previousSignalHandlers[i]);
-            }
-        }
     } // anonymous namespace
 
     bool Initialize(const Config &config) {
@@ -371,33 +332,4 @@ namespace CrashHandler {
         return true;
     }
 
-    void Shutdown() {
-        if (!g_state.initialized) {
-            return;
-        }
-
-        if (g_state.previousFilter) {
-            SetUnhandledExceptionFilter(g_state.previousFilter);
-        }
-
-        if (g_state.previousPurecallHandler) {
-            _set_purecall_handler(g_state.previousPurecallHandler);
-        }
-
-        if (g_state.previousInvalidParameterHandler) {
-            _set_invalid_parameter_handler(g_state.previousInvalidParameterHandler);
-        }
-
-        if (g_state.previousTerminateHandler) {
-            std::set_terminate(g_state.previousTerminateHandler);
-        }
-
-        RestoreSignalHandlers();
-
-        g_state.initialized = false;
-    }
-
-    std::string GetLastExceptionInfo() {
-        return g_state.lastExceptionInfo;
-    }
 } // namespace CrashHandler

@@ -5,12 +5,11 @@
 #ifndef EASYMIC_RATELIMITER_H
 #define EASYMIC_RATELIMITER_H
 
-#pragma once
-#include <chrono>
-#include <deque>
-#include <iostream>
-
 #ifdef _DEBUG
+// Debug only: this header reaches every window through BaseWindow, and <iostream> would plant
+// an ios_base::Init static in every translation unit of a release build.
+#include <chrono>
+#include <stdexcept>
 
 class RateLimiter {
 public:
@@ -44,7 +43,6 @@ private:
     std::chrono::steady_clock::time_point lastRefill_;
 };
 
-
 #define MEASURE_RATE(name, maxCalls, intervalMs, alert) \
     static RateLimiter name(maxCalls, std::chrono::milliseconds(intervalMs)); \
     if (name.TooManyCalls()) { \
@@ -53,4 +51,5 @@ private:
 #else
 #define MEASURE_RATE(name, maxCalls, intervalMs, alert)
 #endif
+
 #endif //EASYMIC_RATELIMITER_H

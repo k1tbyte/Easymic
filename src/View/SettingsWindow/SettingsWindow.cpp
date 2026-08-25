@@ -8,12 +8,19 @@
 #include "UACService.hpp"
 #include "../../Resources/Resource.h"
 #include "../../Lib/Version.hpp"
+#include "../../Lib/Logger.hpp"
 #include "Str.hpp"
 
 namespace {
-    /// Desaturated on purpose - it marks the row type, it is not a status
-    constexpr COLORREF CustomActionRowColor = RGB(237, 246, 237);
     constexpr COLORREF VersionLabelColor = RGB(128, 128, 128);
+
+    /// Marks the row type, so it has to stay a tint of whatever the list actually paints rather
+    /// than a colour of its own - pulling red and blue down leaves a green cast on any base.
+    COLORREF CustomActionRowColor() {
+        const COLORREF background = GetSysColor(COLOR_WINDOW);
+        return RGB(GetRValue(background) * 93 / 100, GetGValue(background),
+                   GetBValue(background) * 93 / 100);
+    }
 
     /**
      * @brief Splits the client width across the columns - no horizontal scrolling, long commands
@@ -59,6 +66,26 @@ namespace {
         LayoutActionColumns(hwndList);
     }
 
+    /**
+     * @brief Reloads the About page's log box from the file.
+     *
+     * Wholesale rather than appending the one new line: only errors are logged, so this runs
+     * almost never, and it means the page can be refreshed by a bare message with no payload to
+     * marshal from whichever thread produced the line.
+     */
+    void ReloadLogText(HWND page) {
+        HWND edit = GetDlgItem(page, IDC_ABOUT_LOG_LIST);
+        if (!edit) {
+            return;
+        }
+
+        SetWindowTextW(edit, Str::Utf8ToWide(Logger::GetLogText()).c_str());
+
+        const int length = GetWindowTextLengthW(edit);
+        SendMessage(edit, EM_SETSEL, length, length);
+        SendMessage(edit, EM_SCROLLCARET, 0, 0);
+    }
+
     /// One category page. Forwards its input to the view model through the owning window.
     INT_PTR CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
         auto* window = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -67,6 +94,10 @@ namespace {
             case WM_INITDIALOG:
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, lParam);
                 InitializeActionsList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST));
+                return TRUE;
+
+            case SettingsWindow::WM_LOG_REFRESH:
+                ReloadLogText(hwnd);
                 return TRUE;
 
             case WM_COMMAND: {
@@ -115,7 +146,7 @@ namespace {
                     if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
                         result = CDRF_NOTIFYITEMDRAW;
                     } else if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && draw->nmcd.lItemlParam) {
-                        draw->clrTextBk = CustomActionRowColor;
+                        draw->clrTextBk = CustomActionRowColor();
                     }
 
                     SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, result);
@@ -129,7 +160,7 @@ namespace {
     }
 }
 
-const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
+const SettingsWindow::CategoryItem SettingsWindow::Categories[] = {
     {IDD_SETTINGS_GENERAL, L"General"},
     {IDD_SETTINGS_INDICATOR, L"Indicator"},
     {IDD_SETTINGS_SOUNDS, L"Sounds"},
@@ -137,49 +168,47 @@ const SettingsWindow::CategoryItem SettingsWindow::categories_[] = {
     {IDD_SETTINGS_ABOUT, L"About"},
 };
 
-const size_t SettingsWindow::categoriesCount_ = std::size(categories_);
-
 SettingsWindow::SettingsWindow(HINSTANCE hInstance)
     : BaseWindow(hInstance)
 {
 }
 
 bool SettingsWindow::Initialize(const Config& config) {
-    this->_parent = WindowRegistry::Instance().Get(config.parentHwnd);
+    _parent = FromHandle(config.parentHwnd);
 
-    if (!this->_parent) {
+    if (!_parent) {
         return false;
     }
 
-    config_ = config;
+    _config = config;
     _viewModel->Init();
     return true;
 }
 
 void SettingsWindow::Show() {
-    if (!hwnd_) {
+    if (!_hwnd) {
         INITCOMMONCONTROLSEX controls{sizeof(INITCOMMONCONTROLSEX), ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES};
         InitCommonControlsEx(&controls);
 
         // Modeless: the tray app keeps pumping its own message loop while this is open
-        CreateDialogParamW(hInstance_, MAKEINTRESOURCEW(IDD_SETTINGS_MAIN), config_.parentHwnd,
+        CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(IDD_SETTINGS_MAIN), _config.parentHwnd,
                            SettingsDialogProc, reinterpret_cast<LPARAM>(this));
 
-        if (!hwnd_) {
+        if (!_hwnd) {
             MessageBoxW(nullptr, L"Failed to create the settings window.", L"Error", MB_ICONERROR | MB_OK);
             return;
         }
 
-        ShowWindow(hwnd_, SW_SHOW);
+        ShowWindow(_hwnd, SW_SHOW);
     }
 
-    SetForegroundWindow(hwnd_);
-    isVisible_ = true;
+    SetForegroundWindow(_hwnd);
+    _isVisible = true;
 }
 
 void SettingsWindow::Hide() {
-    if (hwnd_) {
-        _close(hwnd_);
+    if (_hwnd) {
+        _close(_hwnd);
     }
 }
 
@@ -190,14 +219,14 @@ INT_PTR CALLBACK SettingsWindow::SettingsDialogProc(HWND hwnd, UINT message, WPA
         return created->OnInitDialog();
     }
 
-    auto* window = static_cast<SettingsWindow*>(WindowRegistry::Instance().Get(hwnd));
+    auto* window = static_cast<SettingsWindow*>(FromHandle(hwnd));
     if (!window) {
         return FALSE;
     }
 
     switch (message) {
-        case WM_COMMAND:        return window->OnCommand(wParam, lParam);
-        case WM_NOTIFY:         return window->OnNotify(wParam, lParam);
+        case WM_COMMAND:        return window->OnCommand(wParam);
+        case WM_NOTIFY:         return window->OnNotify(lParam);
         case WM_CTLCOLORSTATIC: return window->OnCtlColorStatic(wParam, lParam);
         case WM_CLOSE:          window->Close(); return TRUE;
         case WM_DESTROY:        return window->OnDestroy();
@@ -206,30 +235,30 @@ INT_PTR CALLBACK SettingsWindow::SettingsDialogProc(HWND hwnd, UINT message, WPA
 }
 
 INT_PTR SettingsWindow::OnInitDialog() {
-    hwndTreeView_ = GetDlgItem(hwnd_, IDC_SETTINGS_TREE);
-    hwndGroupBox_ = GetDlgItem(hwnd_, IDC_SETTINGS_GROUPBOX);
+    _hwndTreeView = GetDlgItem(_hwnd, IDC_SETTINGS_TREE);
+    _hwndGroupBox = GetDlgItem(_hwnd, IDC_SETTINGS_GROUPBOX);
 
     if (UAC::IsElevated()) {
-        SetWindowTextW(hwnd_, L"Easymic - settings (Administrator)");
+        SetWindowTextW(_hwnd, L"Easymic - settings (Administrator)");
     }
 
-    HICON icon = LoadIconW(hInstance_, MAKEINTRESOURCEW(IDI_APP));
-    SendMessageW(hwnd_, WM_SETICON, ICON_BIG, (LPARAM)icon);
-    SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    HICON icon = LoadIconW(_hInstance, MAKEINTRESOURCEW(IDI_APP));
+    SendMessageW(_hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+    SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
 
-    SetDlgItemTextW(hwnd_, IDC_SETTINGS_VERSION, Str::Utf8ToWide(g_AppVersion.GetFullFormat()).c_str());
+    SetDlgItemTextW(_hwnd, IDC_SETTINGS_VERSION, Str::Utf8ToWide(g_AppVersion.GetFullFormat()).c_str());
 
     // Hand cursor over the categories
-    SetWindowSubclass(hwndTreeView_, TreeViewSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(_hwndTreeView, TreeViewSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
     PopulateTreeView();
     return TRUE;
 }
 
-INT_PTR SettingsWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
+INT_PTR SettingsWindow::OnCommand(WPARAM wParam) {
     const UINT commandId = LOWORD(wParam);
 
     if (commandId == IDOK) {
-        OnApply();
+        _onApply();
         Close();
         return TRUE;
     }
@@ -242,7 +271,7 @@ INT_PTR SettingsWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
     return FALSE;
 }
 
-INT_PTR SettingsWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
+INT_PTR SettingsWindow::OnNotify(LPARAM lParam) {
     const auto* header = (LPNMHDR)lParam;
 
     if (header->idFrom == IDC_SETTINGS_TREE && header->code == TVN_SELCHANGEDW) {
@@ -252,8 +281,8 @@ INT_PTR SettingsWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
     return FALSE;
 }
 
-INT_PTR SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
-    if ((HWND)lParam != GetDlgItem(hwnd_, IDC_SETTINGS_VERSION)) {
+INT_PTR SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) const {
+    if ((HWND)lParam != GetDlgItem(_hwnd, IDC_SETTINGS_VERSION)) {
         return FALSE;
     }
 
@@ -263,22 +292,23 @@ INT_PTR SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) {
 }
 
 INT_PTR SettingsWindow::OnDestroy() {
-    WindowRegistry::Instance().Unregister(hwnd_);
-    hwnd_ = nullptr;
-    hwndTreeView_ = nullptr;
-    hwndGroupBox_ = nullptr;
-    hwndContentDialog_ = nullptr;
-    isVisible_ = false;
+    SetWindowLongPtrW(_hwnd, GWLP_USERDATA, 0);
+    _hwnd = nullptr;
+    _hwndTreeView = nullptr;
+    _hwndGroupBox = nullptr;
+    _hwndContentDialog = nullptr;
+    _isVisible = false;
 
-    // Last statement: a subscriber may drop the last reference to this window
+    // Last statement: subscribers treat this as "the window is gone" and one of them queues its
+    // destruction, so nothing may touch this object afterwards
     _onExit();
     return TRUE;
 }
 
-void SettingsWindow::PopulateTreeView() {
+void SettingsWindow::PopulateTreeView() const {
     HTREEITEM firstItem = nullptr;
 
-    for (const auto& category : categories_) {
+    for (const auto& category : Categories) {
         TVINSERTSTRUCTW insert{};
         insert.hParent = TVI_ROOT;
         insert.hInsertAfter = TVI_LAST;
@@ -286,11 +316,11 @@ void SettingsWindow::PopulateTreeView() {
         insert.item.pszText = const_cast<wchar_t*>(category.name);
         insert.item.lParam = category.resourceId;
 
-        const auto item = (HTREEITEM)SendMessageW(hwndTreeView_, TVM_INSERTITEMW, 0, (LPARAM)&insert);
+        const auto item = (HTREEITEM)SendMessageW(_hwndTreeView, TVM_INSERTITEMW, 0, (LPARAM)&insert);
         firstItem = firstItem ? firstItem : item;
     }
 
-    SendMessageW(hwndTreeView_, TVM_SELECTITEM, TVGN_CARET, (LPARAM)firstItem);
+    SendMessageW(_hwndTreeView, TVM_SELECTITEM, TVGN_CARET, (LPARAM)firstItem);
 }
 
 void SettingsWindow::OnTreeViewSelectionChanged(HTREEITEM hItem) {
@@ -305,52 +335,52 @@ void SettingsWindow::OnTreeViewSelectionChanged(HTREEITEM hItem) {
     item.pszText = title;
     item.cchTextMax = static_cast<int>(std::size(title));
 
-    if (!SendMessageW(hwndTreeView_, TVM_GETITEMW, 0, (LPARAM)&item)) {
+    if (!SendMessageW(_hwndTreeView, TVM_GETITEMW, 0, (LPARAM)&item)) {
         return;
     }
 
-    currentCategoryId_ = static_cast<int>(item.lParam);
-    SetWindowTextW(hwndGroupBox_, title);
-    LoadCategoryContent(currentCategoryId_);
+    const auto categoryId = static_cast<int>(item.lParam);
+    SetWindowTextW(_hwndGroupBox, title);
+    LoadCategoryContent(categoryId);
 
     if (OnSectionChange) {
-        OnSectionChange(hwndContentDialog_, currentCategoryId_);
+        OnSectionChange(_hwndContentDialog, categoryId);
     }
 }
 
 void SettingsWindow::LoadCategoryContent(int resourceId) {
-    if (hwndContentDialog_) {
-        DestroyWindow(hwndContentDialog_);
-        hwndContentDialog_ = nullptr;
+    if (_hwndContentDialog) {
+        DestroyWindow(_hwndContentDialog);
+        _hwndContentDialog = nullptr;
     }
 
-    hwndContentDialog_ = CreateDialogParamW(hInstance_, MAKEINTRESOURCEW(resourceId), hwndGroupBox_,
+    _hwndContentDialog = CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(resourceId), _hwndGroupBox,
                                             ChildDialogProc, reinterpret_cast<LPARAM>(this));
 
-    if (hwndContentDialog_) {
+    if (_hwndContentDialog) {
         UpdateGroupBoxLayout();
-        ShowWindow(hwndContentDialog_, SW_SHOW);
+        ShowWindow(_hwndContentDialog, SW_SHOW);
     }
 }
 
 /// Fits the category page into the group box interior, below its title.
 void SettingsWindow::UpdateGroupBoxLayout() const {
     RECT groupBox;
-    GetClientRect(hwndGroupBox_, &groupBox);
+    GetClientRect(_hwndGroupBox, &groupBox);
 
-    const UINT dpi = GetDpiForWindow(hwnd_);
+    const UINT dpi = GetDpiForWindow(_hwnd);
     const int padding = MulDiv(8, dpi, 96);
     const int titleHeight = MulDiv(20, dpi, 96);
 
-    SetWindowPos(hwndContentDialog_, nullptr,
+    SetWindowPos(_hwndContentDialog, nullptr,
                  padding, titleHeight,
                  groupBox.right - padding * 2,
                  groupBox.bottom - titleHeight - padding,
                  SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) {
-    HWND hwndList = GetDlgItem(hwndContentDialog_, IDC_HOTKEYS_LIST);
+void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) const {
+    HWND hwndList = GetDlgItem(_hwndContentDialog, IDC_HOTKEYS_LIST);
     if (!hwndList) {
         return;
     }
@@ -382,8 +412,8 @@ void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) {
     LayoutActionColumns(hwndList);
 }
 
-bool SettingsWindow::ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds) {
-    return ActionDialog::Show(hInstance_, hwnd_, action, recentSounds);
+bool SettingsWindow::ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds) const {
+    return ActionDialog::Show(_hInstance, _hwnd, action, recentSounds);
 }
 
 LRESULT CALLBACK SettingsWindow::TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,

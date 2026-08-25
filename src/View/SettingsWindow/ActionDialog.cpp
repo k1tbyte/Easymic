@@ -12,7 +12,7 @@ namespace {
 
     /// Posted to self once the dialog is up - starting the capture from WM_INITDIALOG would arm
     /// the hooks while the dialog manager is still building the window.
-    constexpr UINT WM_AUTOBIND = WM_APP + 1;
+    constexpr UINT WM_AUTOBIND = WM_APP + 2;
 
     struct DialogState {
         ActionEdit* action = nullptr;
@@ -56,14 +56,10 @@ namespace {
     void StartCapture(HWND dialog, ActionEdit& action) {
         SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY, L"Press desired key combination or ESC to clear...");
 
-        const bool started = HotkeyCapture::Start(dialog,
-            [dialog](const std::string& hotkeyName) {
-                SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY, Str::Utf8ToWide(hotkeyName).c_str());
-            },
-            [dialog, &action](const uint64_t mask) {
-                action.Hotkey = mask;
-                SetHotkeyButtonText(dialog, mask);
-            });
+        const bool started = HotkeyCapture::Start(dialog, [dialog, &action](const uint64_t mask) {
+            action.Hotkey = mask;
+            SetHotkeyButtonText(dialog, mask);
+        });
 
         if (!started) {
             SetHotkeyButtonText(dialog, action.Hotkey);
@@ -164,6 +160,12 @@ namespace {
                 if (state) {
                     StartCapture(dialog, *state->action);
                 }
+                return TRUE;
+
+            // Formatting the name is the dialog's job - the hook only says the mask changed
+            case HotkeyCapture::WM_CAPTURE_PREVIEW:
+                SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY,
+                                Str::Utf8ToWide(HotkeyManager::GetHotkeyName(HotkeyCapture::CapturedMask())).c_str());
                 return TRUE;
 
             case HotkeyCapture::WM_CAPTURE_DONE:

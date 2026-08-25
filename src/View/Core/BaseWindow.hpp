@@ -1,297 +1,215 @@
-    #ifndef EASYMIC_BASEWINDOW_HPP
-    #define EASYMIC_BASEWINDOW_HPP
+#ifndef EASYMIC_BASEWINDOW_HPP
+#define EASYMIC_BASEWINDOW_HPP
 
-    #include <cstdio>
-    #include <algorithm>
-    #include <windows.h>
-    #include <functional>
-    #include <memory>
-    #include <unordered_map>
-    #include <type_traits>
+#include <algorithm>
+#include <memory>
+#include <type_traits>
+#include <windows.h>
 
 #include "definitions.h"
 #include "RateLimiter.hpp"
-    #include "WindowRegistry.hpp"
-    #include "ViewModel/ViewModel.hpp"
+#include "ViewModel/ViewModel.hpp"
 
-    class IViewModel;
+template<typename T>
+concept IViewModelType = std::is_base_of_v<IViewModel, T>;
 
-    template<typename T>
-    concept IViewModelType = std::is_base_of_v<IViewModel, T> || std::is_same_v<IViewModel, T>;
+/**
+ * @brief Base class for all application windows.
+ *
+ * Owns its view model; the view model points back with a raw pointer, so the pair is destroyed
+ * with the window. Message dispatch is a virtual override in the derived window - a table of
+ * std::function would be consulted on every message the desktop sends.
+ */
+class BaseWindow {
+public:
+    virtual ~BaseWindow() {
+        // The window can outlive us on the way out of WinMain - detach it, or its proc would
+        // route the next message into freed memory
+        if (_hwnd) {
+            SetWindowLongPtrW(_hwnd, GWLP_USERDATA, 0);
+        }
+    }
 
-    /**
-     * @brief Base class for all application windows
-     * Uses callback-based approach for message handling
-     */
-    class BaseWindow : public std::enable_shared_from_this<BaseWindow> {
-    public:
-        using MessageHandler = std::function<LRESULT(WPARAM, LPARAM)>;
+    /// The window behind a handle, or null before it has been claimed. Replaces a registry:
+    /// the slot lives with the window, so there is nothing to look up, lock or destroy in order.
+    static BaseWindow* FromHandle(HWND hwnd) {
+        return hwnd ? reinterpret_cast<BaseWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)) : nullptr;
+    }
 
-        virtual ~BaseWindow() {
-            if (hwnd_) {
-                WindowRegistry::Instance().Unregister(hwnd_);
-            }
+    BaseWindow(const BaseWindow&) = delete;
+    BaseWindow& operator=(const BaseWindow&) = delete;
+
+    HWND GetHandle() const { return _hwnd; }
+    HINSTANCE GetHInstance() const { return _hInstance; }
+    bool IsVisible() const { return _isVisible; }
+    BaseWindow* GetParent() const { return _parent; }
+
+    HWND GetEffectiveHandle() const { return _shadowHwnd ? _shadowHwnd : _hwnd; }
+    bool IsOvershadowed() const { return _shadowHwnd != nullptr; }
+    void SetShadowHwnd(HWND hwnd) { _shadowHwnd = hwnd; }
+
+    virtual void Invalidate() {
+        if (!_isVisible) {
+            return;
         }
 
-        HWND GetHandle() const { return hwnd_; }
-        HINSTANCE GetInstance() const { return hInstance_; }
-        bool IsVisible() const { return isVisible_; }
-
-        virtual void Invalidate() {
-            if (!isVisible_) {
-                return;
-            }
-
-            if (_shadowHwnd) {
-                SendMessage(hwnd_, WM_PAINT, 0, 0);
-                return;
-            }
-
-            InvalidateRect(hwnd_, nullptr, TRUE);
+        if (_shadowHwnd) {
+            SendMessage(_hwnd, WM_PAINT, 0, 0);
+            return;
         }
 
-        virtual void Show() {
-            _show(GetEffectiveHandle());
-        }
+        InvalidateRect(_hwnd, nullptr, TRUE);
+    }
 
+    virtual void Show() { _show(GetEffectiveHandle()); }
+    virtual void Hide() { _hide(GetEffectiveHandle()); }
+    virtual void Close() { _close(GetEffectiveHandle()); }
 
-        virtual void Hide() {
-            _hide(GetEffectiveHandle());
-        }
+    BaseWindow* SetPositionX(LONG x) { _pos.x = x; return this; }
+    BaseWindow* SetPositionY(LONG y) { _pos.y = y; return this; }
+    BaseWindow* SetWidth(LONG width) { _size.x = width; return this; }
+    BaseWindow* SetHeight(LONG height) { _size.y = height; return this; }
 
-        virtual void Close() {
-            _close(GetEffectiveHandle());
-        }
+    LONG GetPositionX() const { return _pos.x; }
+    LONG GetPositionY() const { return _pos.y; }
+    LONG GetWidth() const { return _size.x; }
+    LONG GetHeight() const { return _size.y; }
 
-        HINSTANCE GetHInstance() const {
-            return hInstance_;
-        }
+    virtual BaseWindow* UpdateRect() { return _updateRect(GetEffectiveHandle()); }
+    virtual BaseWindow* RefreshPos(HWND insertAfter) { return _refreshPos(GetEffectiveHandle(), insertAfter); }
 
-        BaseWindow* GetParent() const {
-            return _parent;
-        }
+    template <IViewModelType T, typename... Args>
+    T* AttachViewModel(Args &&... args) {
+        auto viewModel = std::make_unique<T>(this, std::forward<Args>(args)...);
+        T* attached = viewModel.get();
+        _viewModel = std::move(viewModel);
+        return attached;
+    }
 
-        virtual std::shared_ptr<IViewModel> GetViewModel() const {
-            return _viewModel;
-        }
+protected:
+    explicit BaseWindow(HINSTANCE hInstance) : _hInstance(hInstance) {}
 
-        virtual std::shared_ptr<BaseWindow> SetPositionX(LONG x) {
-            this->_pos.x = x;
-            return shared_from_this();
+    /// Derived windows override this and switch on the message they care about.
+    virtual LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+        // Special handling for drag caption
+        if (message == WM_NCHITTEST) {
+            const LRESULT result = DefWindowProcW(_hwnd, message, wParam, lParam);
+            return result == HTCLIENT ? HTCAPTION : result;
         }
-
-        virtual std::shared_ptr<BaseWindow> SetPositionY(LONG y) {
-            this->_pos.y = y;
-            return shared_from_this();
-        }
-
-        virtual std::shared_ptr<BaseWindow> SetWidth(LONG width) {
-            this->_size.x = width;
-            return shared_from_this();
-        }
-
-        virtual std::shared_ptr<BaseWindow> SetHeight(LONG height) {
-            this->_size.y = height;
-            return shared_from_this();
-        }
-
-        virtual std::shared_ptr<BaseWindow> UpdateRect() {
-            return _updateRect(GetEffectiveHandle());
-        }
-
-        virtual std::shared_ptr<BaseWindow> RefreshPos(HWND insertAfter) {
-            return _refreshPos(GetEffectiveHandle(), insertAfter);
-        }
-
-        LONG GetPositionX() const {
-            return _pos.x;
-        }
-        LONG GetPositionY() const {
-            return _pos.y;
-        }
-        LONG GetWidth() const {
-            return _size.x;
-        }
-        LONG GetHeight() const {
-            return _size.y;
-        }
-
-        template <IViewModelType T, typename... Args>
-        std::shared_ptr<T> AttachViewModel(Args &&... args) {
-            auto vm = std::make_shared<T>(shared_from_this(), std::forward<Args>(args)...);
-            _viewModel = vm;
-            return vm;
-        }
-
-        HWND GetEffectiveHandle() const {
-            return _shadowHwnd ? _shadowHwnd : hwnd_;
-        }
-
-        bool IsOvershadowed() const {
-            return _shadowHwnd != nullptr;
-        }
-
-        void SetShadowHwnd(HWND hwnd) {
-            _shadowHwnd = hwnd;
-        }
-
-        /**
-         * @brief Register handler for specific message
-         */
-        void RegisterMessageHandler(UINT message, MessageHandler handler) {
-            messageHandlers_[message] = std::move(handler);
-        }
-
-    protected:
-        BaseWindow(HINSTANCE hInstance) : hInstance_(hInstance) {}
-
-        /**
-         * @brief Main message handler
-         * Used to dispatch registered message handlers
-         */
-        virtual LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
-            // Special handling for drag caption
-            if (message == WM_NCHITTEST) {
-                LRESULT result = DefWindowProcW(hwnd_, message, wParam, lParam);
-                return result == HTCLIENT ? HTCAPTION : result;
-            }
 
 #if _DEBUG
-            if (message == WM_PAINT) {
-                MEASURE_RATE(RenderDebugLimiter, 50,1000, {
-                    Beep(1600, 150);
-                    throw std::runtime_error("Anomaly detected in WM_PAINT frequency");
-                });
-            }
+        if (message == WM_PAINT) {
+            MEASURE_RATE(RenderDebugLimiter, 50, 1000, {
+                Beep(1600, 150);
+                throw std::runtime_error("Anomaly detected in WM_PAINT frequency");
+            });
+        }
 #endif
 
-            // Search for registered handler
-            if (const auto it = messageHandlers_.find(message); it != messageHandlers_.end()) {
-                return it->second(wParam, lParam);
+        return DefWindowProcW(_hwnd, message, wParam, lParam);
+    }
+
+    static LRESULT CALLBACK StaticWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+        BaseWindow* window = FromHandle(hwnd);
+
+        if (!window) {
+            if ((message != WM_INITDIALOG && message != WM_CREATE) || lParam == 0) {
+                return DefWindowProcW(hwnd, message, wParam, lParam);
             }
 
-            return DefWindowProcW(hwnd_, message, wParam, lParam);
-        }
-
-        /**
-         * @brief Static window procedure for WinAPI
-         */
-        static LRESULT CALLBACK StaticWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-            BaseWindow* window = WindowRegistry::Instance().Get(hwnd);
-
-            if (!window) {
-
-                if ((message == WM_INITDIALOG || message == WM_CREATE) && lParam != 0) {
-                    window = message == WM_INITDIALOG ?  reinterpret_cast<BaseWindow*>(lParam)
-                                                       : static_cast<BaseWindow*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
-                    window->RegisterWindow(hwnd);
-                    RECT rect;
-                    GetWindowRect(hwnd, &rect);
-                    window->SetHeight(rect.bottom - rect.top)
-                        ->SetWidth(rect.right - rect.left)
-                        ->SetPositionX(rect.left)
-                        ->SetPositionY(rect.top);
-
-                } else {
-                    return DefWindowProcW(hwnd, message, wParam, lParam);
-                }
-            } else if (message == WM_DESTROY) {
-                window->hwnd_ = nullptr;
-                WindowRegistry::Instance().Unregister(hwnd);
-            }
-
-            return window->HandleMessage(message, wParam, lParam);
-          //  return DefWindowProcW(hwnd, message, wParam, lParam);
-        }
-
-        /**
-         * @brief Register window in registry
-         */
-        void RegisterWindow(HWND hwnd) {
-            hwnd_ = hwnd;
-            WindowRegistry::Instance().Register(hwnd, this);
-        }
-
-        std::shared_ptr<BaseWindow> _updateRect(HWND hWnd) {
-            if (!hWnd) {
-                return shared_from_this();
-            }
+            window = message == WM_INITDIALOG
+                         ? reinterpret_cast<BaseWindow*>(lParam)
+                         : static_cast<BaseWindow*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+            window->RegisterWindow(hwnd);
 
             RECT rect;
-            GetWindowRect(hWnd, &rect);
-            _size.x = rect.right - rect.left;
-            _size.y = rect.bottom - rect.top;
-            _pos.x = rect.left;
-            _pos.y = rect.top;
-            return shared_from_this();
+            GetWindowRect(hwnd, &rect);
+            window->SetHeight(rect.bottom - rect.top)
+                  ->SetWidth(rect.right - rect.left)
+                  ->SetPositionX(rect.left)
+                  ->SetPositionY(rect.top);
+        } else if (message == WM_DESTROY) {
+            window->_hwnd = nullptr;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         }
 
-        std::shared_ptr<BaseWindow> _refreshPos(HWND hWnd, HWND insertAfter) {
-            if (!hWnd) {
-                return shared_from_this();
-            }
+        return window->HandleMessage(message, wParam, lParam);
+    }
 
-            const POINT anchor{_pos.x, _pos.y};
-            const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
-            if (monitor) {
-                MONITORINFO monitorInfo{sizeof(MONITORINFO)};
-                if (GetMonitorInfoW(monitor, &monitorInfo)) {
-                    const auto &workArea = monitorInfo.rcWork;
-                    const LONG maxX = std::max(workArea.left, workArea.right - _size.x);
-                    const LONG maxY = std::max(workArea.top, workArea.bottom - _size.y);
-                    _pos.x = std::clamp(_pos.x, workArea.left, maxX);
-                    _pos.y = std::clamp(_pos.y, workArea.top, maxY);
-                }
-            }
+    void RegisterWindow(HWND hwnd) {
+        _hwnd = hwnd;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    }
 
-            SetWindowPos(
-                hWnd,
-                insertAfter,
-                _pos.x,
-                _pos.y,
-                _size.x,
-                _size.y,
-                SWP_FRAMECHANGED | SWP_NOACTIVATE
-            );
-
-            return shared_from_this();
+    BaseWindow* _updateRect(HWND hWnd) {
+        if (!hWnd) {
+            return this;
         }
 
-        void _close(HWND hWnd) {
-            if (!hWnd) {
-                return;
+        RECT rect;
+        GetWindowRect(hWnd, &rect);
+        _size.x = rect.right - rect.left;
+        _size.y = rect.bottom - rect.top;
+        _pos.x = rect.left;
+        _pos.y = rect.top;
+        return this;
+    }
+
+    BaseWindow* _refreshPos(HWND hWnd, HWND insertAfter) {
+        if (!hWnd) {
+            return this;
+        }
+
+        const POINT anchor{_pos.x, _pos.y};
+        if (const HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST)) {
+            MONITORINFO monitorInfo{sizeof(MONITORINFO)};
+            if (GetMonitorInfoW(monitor, &monitorInfo)) {
+                const auto &workArea = monitorInfo.rcWork;
+                const LONG maxX = std::max(workArea.left, workArea.right - _size.x);
+                const LONG maxY = std::max(workArea.top, workArea.bottom - _size.y);
+                _pos.x = std::clamp(_pos.x, workArea.left, maxX);
+                _pos.y = std::clamp(_pos.y, workArea.top, maxY);
             }
+        }
+
+        SetWindowPos(hWnd, insertAfter, _pos.x, _pos.y, _size.x, _size.y,
+                     SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        return this;
+    }
+
+    void _close(HWND hWnd) const {
+        if (hWnd) {
             DestroyWindow(hWnd);
         }
+    }
 
-        void _hide(HWND hWnd) {
-            if (!hWnd || !isVisible_) {
-                return;
-            }
-            ShowWindow(hWnd, SW_HIDE);
-            isVisible_ = false;
+    void _hide(HWND hWnd) {
+        if (!hWnd || !_isVisible) {
+            return;
+        }
+        ShowWindow(hWnd, SW_HIDE);
+        _isVisible = false;
+    }
+
+    void _show(HWND hWnd) {
+        if (!hWnd || _isVisible) {
+            return;
         }
 
-        void _show(HWND hWnd) {
-            if (!hWnd || isVisible_) {
-                return;
-            }
+        ShowWindow(hWnd, SW_SHOW);
+        _isVisible = true;
+        Invalidate();
+        UpdateWindow(hWnd);
+    }
 
-            ShowWindow(hWnd, SW_SHOW);
-            isVisible_ = true;
-            Invalidate();
-            UpdateWindow(hWnd);
-        }
+    POINT _size{};
+    POINT _pos{};
+    HWND _hwnd = nullptr;
+    HWND _shadowHwnd = nullptr;
+    BaseWindow* _parent = nullptr;
+    std::unique_ptr<IViewModel> _viewModel;
+    HINSTANCE _hInstance = nullptr;
+    bool _isVisible = false;
+};
 
-        POINT _size{};
-        POINT _pos{};
-        HWND hwnd_ = nullptr;
-        HWND _shadowHwnd = nullptr;
-        BaseWindow* _parent = nullptr;
-        std::shared_ptr<IViewModel> _viewModel;
-        HINSTANCE hInstance_ = nullptr;
-        bool isVisible_ = false;
-        std::unordered_map<UINT, MessageHandler> messageHandlers_;
-    };
-
-    #endif //EASYMIC_BASEWINDOW_HPP
+#endif //EASYMIC_BASEWINDOW_HPP

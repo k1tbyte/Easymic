@@ -9,7 +9,6 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
-#include <optional>
 #include <unordered_map>
 
 #include "EventHandlers/SessionCreateEventsHandler.hpp"
@@ -64,8 +63,6 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
     ComPtr<IAudioSessionManager2> sessionManager;
     ComPtr<VolumeEventsHandler> volumeEventsHandler;
     ComPtr<SessionCreateEventsHandler> sessionCreateHandler;
-    ComPtr<IAudioSessionControl> audioSessionControl;
-    ComPtr<ISimpleAudioVolume> simpleAudioVolume;
     PROPVARIANT deviceNameProp{};
 
 
@@ -120,14 +117,9 @@ public:
                                   nullptr, &sessionManager);
         CHECK_HR(result, "Failed to activate IAudioSessionManager2 for capture device");
 
-        result = sessionManager->GetAudioSessionControl(nullptr,
-                                                        0, &audioSessionControl);
-        CHECK_HR(result, "Failed to get IAudioSessionControl for capture device");
-
-        result = audioSessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), &simpleAudioVolume);
-        CHECK_HR(result, "Failed to get ISimpleAudioVolume for capture device");
-
-        volumeEventsHandler = new VolumeEventsHandler();
+        // Attach, not assign: the handler is born with one reference and ComPtr would AddRef a
+        // second one that nothing ever releases
+        volumeEventsHandler.Attach(new VolumeEventsHandler());
 
         std::weak_ptr weak_this = shared_from_this();
         volumeEventsHandler->OnChange = [weak_this](PAUDIO_VOLUME_NOTIFICATION_DATA pNotify) {
@@ -166,30 +158,10 @@ public:
         return peak;
     }
 
-    void SetVolumeLevel(const float level) const {
-        if (volumeEndpoint) {
-            volumeEndpoint->SetMasterVolumeLevelScalar(level, nullptr);
-        }
-    }
-
     void SetVolumePercent(const BYTE level) const {
-        this->SetVolumeLevel(static_cast<float>(level) / 100);
-    }
-
-    void SetSimpleVolumePercent(const BYTE level) const {
-        if (simpleAudioVolume) {
-            simpleAudioVolume->SetMasterVolume(static_cast<float>(level) / 100, nullptr);
+        if (volumeEndpoint) {
+            volumeEndpoint->SetMasterVolumeLevelScalar(static_cast<float>(level) / 100, nullptr);
         }
-    }
-
-    BYTE GetSimpleVolumePercent() const {
-        BYTE volumePercent = 0;
-        if (simpleAudioVolume) {
-            float level = 0.0f;
-            simpleAudioVolume->GetMasterVolume(&level);
-            volumePercent = std::ceil(level * 100);
-        }
-        return volumePercent;
     }
 
     float GetVolumeLevel() const {
@@ -247,18 +219,6 @@ public:
         }
     }
 
-    int CountSessions(std::optional<AudioSessionState> filter = std::nullopt) const {
-        int count = 0;
-
-        IterateSessions([&count, filter](const ComPtr<IAudioSessionControl> &control, int i) {
-            if (!filter.has_value() || GetSessionState(control) == filter) {
-                count++;
-            }
-        });
-
-        return count;
-    }
-
     void WatchForSessions() {
         std::lock_guard lock(audioSessionMutex);
 
@@ -272,7 +232,7 @@ public:
 
         const std::weak_ptr weak_this = shared_from_this();
         // capture 'this' for logging purposes, in release compiler removes it
-        sessionCreateHandler = new SessionCreateEventsHandler([weak_this, this](IAudioSessionControl *control) {
+        sessionCreateHandler.Attach(new SessionCreateEventsHandler([weak_this, this](IAudioSessionControl *control) {
             const auto _this = weak_this.lock();
             if (!_this) {
                 return;
@@ -280,7 +240,7 @@ public:
 
             LOG_SESSION("New session {%p} created", control);
             _this->_watchForSessionStateChanges(control, true);
-        });
+        }));
 
         sessionManager->RegisterSessionNotification(sessionCreateHandler.Get());
     }
@@ -324,8 +284,6 @@ public:
         volumeEndpoint.Reset();
         meterInformation.Reset();
         sessionManager.Reset();
-        audioSessionControl.Reset();
-        simpleAudioVolume.Reset();
         PropVariantClear(&deviceNameProp);
     }
 
@@ -343,7 +301,8 @@ private:
 
         std::weak_ptr weak_this = shared_from_this();
 
-        const ComPtr<SessionStateEventsHandler> eventHandler = new SessionStateEventsHandler(sessionControl,
+        ComPtr<SessionStateEventsHandler> eventHandler;
+        eventHandler.Attach(new SessionStateEventsHandler(sessionControl,
             [weak_this, this](
         const ComPtr<IAudioSessionControl> &control,
         const EAudioSessionProperty property) {
@@ -372,7 +331,7 @@ private:
                 if (_this->OnSessionPropertyChanged) {
                     (*_this->OnSessionPropertyChanged)(control, property);
                 }
-            });
+            }));
 
         sessionControl->RegisterAudioSessionNotification(eventHandler.Get());
         audioSessions[sessionControl.Get()] = eventHandler;

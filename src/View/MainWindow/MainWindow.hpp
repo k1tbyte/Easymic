@@ -1,24 +1,19 @@
 #ifndef EASYMIC_MAINWINDOW_V2_HPP
 #define EASYMIC_MAINWINDOW_V2_HPP
 
+#include <functional>
+#include <memory>
+#include <string>
+
 #include "../Core/BaseWindow.hpp"
 #include "../Components/TrayIcon.hpp"
 #include "../Components/TrayIconTheme.hpp"
 #include "../Components/GdiRenderer.hpp"
 #include "../Components/LayeredWindow.hpp"
-#include <memory>
-
 #include "AppConfig.hpp"
 
 class MainWindow final : public BaseWindow {
 public:
-    // Callbacks for logic delegation
-    using OnTrayClickCallback = std::function<void()>;
-    using OnTrayMenuCallback = std::function<void(UINT_PTR commandId)>;
-    using OnCloseCallback = std::function<void()>;
-    using OnTimerCallback = std::function<void(UINT_PTR timerId)>;
-    using OnThemeChangedCallback = std::function<void()>;
-
     static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
     static constexpr auto Style = WS_POPUP | WS_DISABLED;
 
@@ -37,20 +32,34 @@ public:
     void UpdateTrayIcon(HICON icon);
     void UpdateTrayTooltip(const std::wstring& tooltip);
 
+    /**
+     * @brief Hands a notification text to the window from any thread.
+     *
+     * The text travels with the message, so nothing is shared and nothing races. Takes no owner
+     * state: a captured command may answer long after its action is gone, and a window that no
+     * longer exists only costs a failed post.
+     */
+    static void PostNotification(HWND target, const std::wstring& text);
 
-    // Callbacks
-    void SetOnTrayClick(OnTrayClickCallback callback) { _onTrayClick = std::move(callback); }
-    void SetOnTrayMenu(OnTrayMenuCallback callback) { _onTrayMenu = std::move(callback); }
-    void SetOnClose(OnCloseCallback callback) { _onClose = std::move(callback); }
+    // View model delegation - single subscriber each, assigned once during Init
+    std::function<void(UINT_PTR commandId)> OnTrayMenu;
+    std::function<void()> OnClose;
+    std::function<void(UINT_PTR timerId)> OnTimer;
+    std::function<void()> OnThemeChanged;
+    std::function<void()> OnRelayout;
+    std::function<void(std::wstring text)> OnNotification;
+    GDIRenderer::RenderCallback OnRender;
 
-    // Rendering
-    void SetRenderCallback(GDIRenderer::RenderCallback callback) {
-        _onRender = std::move(callback);
+    /// Anything that changes what the indicator should look like - only the view model knows how
+    /// to lay it out, so callers say what happened instead of resizing the window themselves.
+    void Relayout() const {
+        if (OnRelayout) {
+            OnRelayout();
+        }
     }
 
     void ToggleInteractivity(bool interactive) const {
-
-        auto *hwnd = GetEffectiveHandle();
+        HWND hwnd = GetEffectiveHandle();
 
         LONG_PTR dwExStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
         LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
@@ -66,60 +75,29 @@ public:
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
     }
 
-    void SetTimerCallback(OnTimerCallback callback) {
-        _onTimer = std::move(callback);
-    }
-
-    /// Fires when the user switches between the light and dark system theme.
-    /// Anything that changes what the indicator should look like - only the view model knows how
-    /// to lay it out, so callers say what happened instead of resizing the window themselves.
-    void SetOnRelayout(OnThemeChangedCallback callback) {
-        _onRelayout = std::move(callback);
-    }
-
-    void Relayout() const {
-        if (_onRelayout) {
-            _onRelayout();
-        }
-    }
-
-    void SetOnThemeChanged(OnThemeChangedCallback callback) {
-        _onThemeChanged = std::move(callback);
-    }
-
 private:
     bool RegisterWindowClass(const WindowConfig& config) const;
-    void SetupMessageHandlers();
 
-    // Message handlers
-    LRESULT OnCreate(WPARAM wParam, LPARAM lParam);
-    LRESULT OnDestroy(WPARAM wParam, LPARAM lParam);
-    LRESULT OnPaint(WPARAM wParam, LPARAM lParam);
-    LRESULT OnClose(WPARAM wParam, LPARAM lParam);
-    LRESULT OnTrayIconMessage(WPARAM wParam, LPARAM lParam);
-    LRESULT OnExitSizeMove(WPARAM wParam, LPARAM lParam);
+    LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) override;
+    LRESULT OnDestroy();
+    LRESULT OnPaint();
+    LRESULT OnTrayIconMessage(LPARAM lParam);
 
     void ShowTrayContextMenu();
 
-    const AppConfig& appConfig_;
-    WindowConfig config_;
-    std::unique_ptr<TrayIcon> trayIcon_;
-
-    // Callbacks
-    OnTrayClickCallback _onTrayClick;
-    OnTrayMenuCallback _onTrayMenu;
-    OnCloseCallback _onClose;
-    OnTimerCallback _onTimer;
-    OnThemeChangedCallback _onThemeChanged;
-    OnThemeChangedCallback _onRelayout;
-    GDIRenderer::RenderCallback _onRender;
+    const AppConfig& _config;
+    TrayIcon _trayIcon;
 
     // Not owned: LoadIcon returns shared icons, the view model keeps them alive
-    HICON currentIcon_ = nullptr;
+    HICON _currentIcon = nullptr;
     std::wstring _currentTooltip;
 
+    /// Registered at runtime, so it cannot be a switch label - checked before the switch.
+    UINT _taskbarCreatedMessage = 0;
+
     static constexpr UINT WM_TRAYICON = WM_USER + 1;
+    /// WM_APP, not WM_USER: the timer ids the view model owns share nothing but the number line
+    static constexpr UINT WM_SHOW_NOTIFICATION = WM_APP + 1;
 };
 
 #endif //EASYMIC_MAINWINDOW_V2_HPP
-

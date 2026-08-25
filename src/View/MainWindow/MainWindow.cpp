@@ -4,46 +4,44 @@
 #include "../Components/IndicatorLayout.hpp"
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
-    : BaseWindow(hInstance)
-    , appConfig_(appConfig), trayIcon_(std::make_unique<TrayIcon>())
+    : BaseWindow(hInstance), _config(appConfig)
 {
 }
 
 bool MainWindow::Initialize(WindowConfig config) {
-    config_ = config;
-
     if (!RegisterWindowClass(config)) {
         return false;
     }
 
-    const int windowSize = IndicatorLayout::PillSize(appConfig_.IndicatorSize);
+    // Restoring the tray icon on an Explorer restart
+    _taskbarCreatedMessage = RegisterWindowMessageA("TaskbarCreated");
+
+    const int windowSize = IndicatorLayout::PillSize(_config.IndicatorSize);
     SetWidth(windowSize);
     SetHeight(windowSize);
-    SetPositionX(appConfig_.WindowPosX);
-    SetPositionY(appConfig_.WindowPosY);
+    SetPositionX(_config.WindowPosX);
+    SetPositionY(_config.WindowPosY);
 
-    hwnd_ = CreateWindowExW(
+    _hwnd = CreateWindowExW(
         StyleEx,
         config.className,
         config.windowTitle,
         Style,
-        appConfig_.WindowPosX,
-        appConfig_.WindowPosY,
+        _config.WindowPosX,
+        _config.WindowPosY,
         windowSize,
         windowSize,
         nullptr,
         nullptr,
-        hInstance_,
+        _hInstance,
         this
     );
 
-    if (!hwnd_) {
+    if (!_hwnd) {
         return false;
     }
 
-    RegisterWindow(hwnd_);
-    SetupMessageHandlers();
-
+    RegisterWindow(_hwnd);
     _viewModel->Init();
 
     return true;
@@ -54,82 +52,91 @@ bool MainWindow::RegisterWindowClass(const WindowConfig& config) const {
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = StaticWindowProc;
-    wc.hInstance = hInstance_;
+    wc.hInstance = _hInstance;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = config.className;
 
     return RegisterClassExW(&wc) != 0;
 }
 
-void MainWindow::SetupMessageHandlers() {
-    RegisterMessageHandler(WM_CREATE, [this](WPARAM wp, LPARAM lp) {
-        return OnCreate(wp, lp);
-    });
+void MainWindow::PostNotification(HWND target, const std::wstring& text) {
+    if (text.empty()) {
+        return;
+    }
 
-    RegisterMessageHandler(WM_DESTROY, [this](WPARAM wp, LPARAM lp) {
-        return OnDestroy(wp, lp);
-    });
-
-    RegisterMessageHandler(WM_PAINT, [this](WPARAM wp, LPARAM lp) {
-        return OnPaint(wp, lp);
-    });
-
-    RegisterMessageHandler(WM_MOVE, [this](WPARAM wp, LPARAM lp) {
-        UpdateRect();
-        return 0;
-    });
-
-    RegisterMessageHandler(WM_CLOSE, [this](WPARAM wp, LPARAM lp) {
-        return OnClose(wp, lp);
-    });
-
-    RegisterMessageHandler(WM_TRAYICON, [this](WPARAM wp, LPARAM lp) {
-        return OnTrayIconMessage(wp, lp);
-    });
-
-    RegisterMessageHandler(WM_TIMER, [this](WPARAM wp, LPARAM lp) {
-        if (_onTimer) {
-            _onTimer(wp);
-        }
-        return 0;
-    });
-
-    RegisterMessageHandler(WM_COMMAND, [this](WPARAM wp, LPARAM lp) {
-        if (_onTrayMenu) {
-            _onTrayMenu(wp);
-        }
-        return 0;
-    });
-
-    RegisterMessageHandler(WM_EXITSIZEMOVE, [this](WPARAM wp, LPARAM lp) {
-        return OnExitSizeMove(wp, lp);
-    });
-
-    // Broadcast to every top-level window when the light/dark theme is switched
-    RegisterMessageHandler(WM_SETTINGCHANGE, [this](WPARAM wp, LPARAM lp) {
-        if (_onThemeChanged && TrayIconTheme::IsColorSetChange(lp)) {
-            _onThemeChanged();
-        }
-        return 0;
-    });
-
-    // Restoring tray icon on Explorer restart
-    const UINT taskbarCreatedMsg = RegisterWindowMessageA("TaskbarCreated");
-    RegisterMessageHandler(taskbarCreatedMsg, [this](WPARAM wp, LPARAM lp) {
-        trayIcon_->Remove(); // clears isCreated_ even if NIM_DELETE fails (shell already lost it)
-        if (currentIcon_) {
-            CreateTrayIcon(currentIcon_, _currentTooltip);
-        }
-        return 0;
-    });
+    auto* payload = new std::wstring(text);
+    if (!PostMessageW(target, WM_SHOW_NOTIFICATION, 0, reinterpret_cast<LPARAM>(payload))) {
+        delete payload;
+    }
 }
 
-LRESULT MainWindow::OnCreate(WPARAM wParam, LPARAM lParam) {
-    return 0;
+LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == _taskbarCreatedMessage) {
+        _trayIcon.Remove(); // clears isCreated_ even if NIM_DELETE fails (shell already lost it)
+        if (_currentIcon) {
+            CreateTrayIcon(_currentIcon, _currentTooltip);
+        }
+        return 0;
+    }
+
+    switch (message) {
+        case WM_CREATE:
+            return 0;
+
+        case WM_DESTROY:
+            return OnDestroy();
+
+        case WM_PAINT:
+            return OnPaint();
+
+        case WM_MOVE:
+        case WM_EXITSIZEMOVE:
+            UpdateRect();
+            return 0;
+
+        case WM_CLOSE:
+            if (OnClose) {
+                OnClose();
+            }
+            return 0;
+
+        case WM_TRAYICON:
+            return OnTrayIconMessage(lParam);
+
+        case WM_TIMER:
+            if (OnTimer) {
+                OnTimer(wParam);
+            }
+            return 0;
+
+        case WM_COMMAND:
+            if (OnTrayMenu) {
+                OnTrayMenu(wParam);
+            }
+            return 0;
+
+        // Broadcast to every top-level window when the light/dark theme is switched
+        case WM_SETTINGCHANGE:
+            if (OnThemeChanged && TrayIconTheme::IsColorSetChange(lParam)) {
+                OnThemeChanged();
+            }
+            return 0;
+
+        case WM_SHOW_NOTIFICATION: {
+            const std::unique_ptr<std::wstring> payload(reinterpret_cast<std::wstring*>(lParam));
+            if (OnNotification) {
+                OnNotification(std::move(*payload));
+            }
+            return 0;
+        }
+
+        default:
+            return BaseWindow::HandleMessage(message, wParam, lParam);
+    }
 }
 
-LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
-    trayIcon_->Remove();
+LRESULT MainWindow::OnDestroy() {
+    _trayIcon.Remove();
     if (IsOvershadowed()) {
         // Dont destroy shadow window, we can reuse it later
         Hide();
@@ -138,9 +145,8 @@ LRESULT MainWindow::OnDestroy(WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
-
-    auto hwnd = GetEffectiveHandle();
+LRESULT MainWindow::OnPaint() {
+    HWND hwnd = GetEffectiveHandle();
     PAINTSTRUCT paintStruct{};
     const bool paintsOwnedWindow = hwnd == GetHandle();
 
@@ -150,9 +156,9 @@ LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
         BeginPaint(hwnd, &paintStruct);
     }
 
-    if (_onRender) {
+    if (OnRender) {
         const POINT windowPos{GetPositionX(), GetPositionY()};
-        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, windowPos, _onRender);
+        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, windowPos, OnRender);
     }
 
     if (paintsOwnedWindow) {
@@ -163,14 +169,7 @@ LRESULT MainWindow::OnPaint(WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-LRESULT MainWindow::OnClose(WPARAM wParam, LPARAM lParam) {
-    if (_onClose) {
-        _onClose();
-    }
-    return 0;
-}
-
-LRESULT MainWindow::OnTrayIconMessage(WPARAM wParam, LPARAM lParam) {
+LRESULT MainWindow::OnTrayIconMessage(LPARAM lParam) {
     const UINT message = LOWORD(lParam);
 
     if (message == WM_LBUTTONDBLCLK || message == WM_RBUTTONUP) {
@@ -180,33 +179,27 @@ LRESULT MainWindow::OnTrayIconMessage(WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-LRESULT MainWindow::OnExitSizeMove(WPARAM wParam, LPARAM lParam) {
-    UpdateRect();
-    return 0;
-}
-
 bool MainWindow::CreateTrayIcon(HICON icon, const std::wstring& tooltip) {
-    if (!hwnd_) {
+    if (!_hwnd) {
         return false;
     }
 
-    currentIcon_ = icon;
-    return trayIcon_->Create(hwnd_, 1, icon, tooltip, WM_TRAYICON);
+    _currentIcon = icon;
+    return _trayIcon.Create(_hwnd, 1, icon, tooltip, WM_TRAYICON);
 }
 
 void MainWindow::UpdateTrayIcon(HICON icon) {
-    currentIcon_ = icon;
-    trayIcon_->UpdateIcon(icon);
+    _currentIcon = icon;
+    _trayIcon.UpdateIcon(icon);
 }
 
 void MainWindow::UpdateTrayTooltip(const std::wstring &tooltip) {
     _currentTooltip = tooltip;
-    trayIcon_->UpdateTooltip(tooltip);
+    _trayIcon.UpdateTooltip(tooltip);
 }
 
-
 void MainWindow::ShowTrayContextMenu() {
-    HMENU menu = LoadMenu(hInstance_, MAKEINTRESOURCE(IDR_TRAY_MENU));
+    HMENU menu = LoadMenu(_hInstance, MAKEINTRESOURCE(IDR_TRAY_MENU));
     if (!menu) {
         return;
     }
@@ -217,7 +210,7 @@ void MainWindow::ShowTrayContextMenu() {
         return;
     }
 
-    const bool bellEnabled = appConfig_.BellVolume > 0;
+    const bool bellEnabled = _config.BellVolume > 0;
     InsertMenuW(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
                ID_APP_TOGGLE_BELL,
                bellEnabled ? L"Disable bell sound" : L"Enable bell sound");
@@ -225,7 +218,7 @@ void MainWindow::ShowTrayContextMenu() {
     POINT cursor;
     GetCursorPos(&cursor);
 
-    SetForegroundWindow(hwnd_);
+    SetForegroundWindow(_hwnd);
 
     TrackPopupMenu(
         subMenu,
@@ -233,10 +226,9 @@ void MainWindow::ShowTrayContextMenu() {
         cursor.x,
         cursor.y,
         0,
-        hwnd_,
+        _hwnd,
         nullptr
     );
 
     DestroyMenu(menu);
 }
-

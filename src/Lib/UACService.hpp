@@ -1,71 +1,28 @@
 #ifndef EASYMIC_UACSERVICE_HPP
 #define EASYMIC_UACSERVICE_HPP
 
-#include <string>
-
+/**
+ * @brief Elevation checks and the scheduled task that skips the UAC prompt.
+ *
+ * The task runs this exact executable with the highest available privileges, so starting it is
+ * the same as accepting the prompt once and having the answer remembered.
+ */
 namespace UAC {
 
-    /**
-     * User Account Control (UAC) utilities
-     * Provides functions for elevation checking, process elevation, and UAC bypass
-     */
-
-    // Core UAC status checking
-
-    /**
-     * Check if current process is running with elevated privileges
-     * @return true if process has administrator privileges
-     */
+    /// True when this process already has administrator privileges.
     bool IsElevated();
 
-    /**
-     * Check if current user can elevate privileges
-     * @return true if user has the ability to elevate (is administrator)
-     */
-    bool CanElevate();
-
-    // Process elevation
-
-    /**
-     * Request elevation for current process
-     * If successful, launches elevated instance and terminates current process
-     * @return true if elevation request was initiated successfully
-     */
+    /// Relaunches elevated and terminates this process. False when the user declined or cannot elevate.
     bool RequestElevation();
 
-    // UAC bypass functionality (requires elevation to set up)
-
-    /**
-     * Check if UAC skip functionality is available
-     * @return true if current process has elevation (required to manage tasks)
-     */
-    bool IsSkipUACAvailable();
-
-    /**
-     * Check if UAC skip is currently enabled for this application
-     * @return true if scheduled task exists and is valid
-     */
+    /// True when the task exists and still points at this executable.
     bool IsSkipUACEnabled();
 
-    /**
-     * Enable UAC skip by creating a scheduled task with highest privileges
-     * Requires elevated privileges
-     * @return true if task was created successfully
-     */
+    /// Creates or removes the task. Both need elevation.
     bool EnableSkipUAC();
-
-    /**
-     * Disable UAC skip by removing the scheduled task
-     * Requires elevated privileges
-     * @return true if task was removed successfully
-     */
     bool DisableSkipUAC();
 
-    /**
-     * Launch current application with elevated privileges via scheduled task
-     * Does not require elevation to call, but requires task to be set up
-     * @return true if elevated instance was launched successfully
-     */
+    /// Starts the elevated instance through the task. Needs no elevation, needs the task.
     bool RunWithSkipUAC();
 
 } // namespace UAC

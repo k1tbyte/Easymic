@@ -2,49 +2,31 @@
 #define EASYMIC_VERSION_HPP
 
 #include <string>
-#include <windows.h>
-#include <winver.h>
-#include <vector>
 
+/// major.minor.patch.build, read from the module's version resource or parsed from a release tag.
 class Version {
 public:
+    /// The running build.
     Version();
-    Version(int major, int minor, int patch, int build = 0);
-    Version(const std::string& versionString);
+    /// Parses "v1.2.3", "1.2.3.4" or "1.2.3-beta" - a pre-release suffix is dropped, and anything
+    /// unparseable simply leaves that component at zero rather than throwing at a caller who is
+    /// handing us whatever the release feed said.
+    explicit Version(const std::string& versionString);
 
-    // Getters
-    int GetMajor() const { return major_; }
-    int GetMinor() const { return minor_; }
-    int GetPatch() const { return patch_; }
-    int GetBuild() const { return build_; }
+    std::string GetFullFormat() const; // e.g. "1.0.0.0"
 
-    // Formatted output
-    std::string GetFormatted() const;
-    std::string GetShortFormat() const; // e.g., "1.0.0"
-    std::string GetFullFormat() const;  // e.g., "1.0.0.0"
-
-    // Version info
-    bool IsPreRelease() const { return isPreRelease_; }
-    std::string GetPreReleaseTag() const { return preReleaseTag_; }
-
-    // Comparison operators
     bool operator>(const Version& other) const;
-    bool operator<(const Version& other) const;
-    bool operator==(const Version& other) const;
-    bool operator!=(const Version& other) const;
 
-    // Static method to get current application version
     static Version GetCurrentVersion();
 
 private:
-    int major_ = 1;
-    int minor_ = 0;
-    int patch_ = 0;
-    int build_ = 0;
-    bool isPreRelease_ = false;
-    std::string preReleaseTag_;
+    Version(int major, int minor, int patch, int build);
 
-    void ParseVersionString(const std::string& versionString);
+    int _major = 0;
+    int _minor = 0;
+    int _patch = 0;
+    int _build = 0;
+
     static Version LoadFromVersionResource();
 };
 

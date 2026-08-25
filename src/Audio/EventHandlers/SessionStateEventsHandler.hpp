@@ -2,12 +2,12 @@
 // Created by kitbyte on 25.10.2025.
 //
 
-
-
 #ifndef EASYMIC_SESSIONSTATEEVENTSHANDLER_HPP
 #define EASYMIC_SESSIONSTATEEVENTSHANDLER_HPP
 #include <cstdint>
 #include <definitions.h>
+
+#include "ComObject.hpp"
 
 enum EAudioSessionProperty : uint32_t {
     None            = 0,
@@ -19,49 +19,20 @@ enum EAudioSessionProperty : uint32_t {
     State           = 1 << 5,  // 0b00100000
     Disconnected    = 1 << 6,  // 0b01000000
     Connected       = 1 << 7,  // 0b10000000
-
-    Dispatch = Disconnected | Connected,
-    Volume = SimpleVolume | ChannelVolume,
-    All = DisplayName | IconPath | SimpleVolume | ChannelVolume |
-          GroupingParam | State | Disconnected | Connected,
 };
 
-class SessionStateEventsHandler final : public IAudioSessionEvents {
-private:
-    LONG rc;
+class SessionStateEventsHandler final : public ComObject<IAudioSessionEvents> {
     const std::function<void(ComPtr<IAudioSessionControl>, EAudioSessionProperty)> OnPropertyChanged;
     ComPtr<IAudioSessionControl> sessionControl;
-    ~SessionStateEventsHandler() = default;
 
 public:
-
     SessionStateEventsHandler(
         const ComPtr<IAudioSessionControl> &control,
-        const std::function<void(ComPtr<IAudioSessionControl>, EAudioSessionProperty)>& onPropertyChanged):
-            rc(1),
-            OnPropertyChanged(onPropertyChanged),
-            sessionControl(control) { }
-
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return InterlockedIncrement(&rc);
-    }
-
-    ULONG STDMETHODCALLTYPE Release() override {
-        ULONG rc = InterlockedDecrement(&this->rc);
-        if(rc == 0) {
-            delete this;
-        }
-        return rc;
-    }
+        const std::function<void(ComPtr<IAudioSessionControl>, EAudioSessionProperty)>& onPropertyChanged)
+        : OnPropertyChanged(onPropertyChanged), sessionControl(control) {}
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-        if(IID_IUnknown == riid) {
-            AddRef();
-            *ppv = static_cast<IUnknown*>(this);
-            return S_OK;
-        }
-
-        if(__uuidof(IAudioSessionEvents) == riid) {
+        if (riid == IID_IUnknown || riid == __uuidof(IAudioSessionEvents)) {
             AddRef();
             *ppv = static_cast<IAudioSessionEvents*>(this);
             return S_OK;
