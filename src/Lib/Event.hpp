@@ -7,9 +7,9 @@
 
 #include <functional>
 #include <mutex>
-#include <unordered_map>
 #include <vector>
 
+/// Subscribe side only - owners hand this out so nobody but them can raise the event.
 template<typename... Args>
 class IEvent {
 public:
@@ -22,46 +22,37 @@ template<typename... Args>
 class Event final : public IEvent<Args...> {
 private:
     using Handler = std::function<void(Args...)>;
-    std::unordered_map<int, Handler> handlers_;
-    mutable std::mutex mutex_;
-    int nextId_ = 0;
+
+    struct Subscription {
+        int id;
+        Handler handler;
+    };
+
+    std::vector<Subscription> _subscriptions;
+    mutable std::mutex _mutex;
+    int _nextId = 0;
 
 public:
-    // Subscribe - returns ID
+    /// Subscribe - returns the id to unsubscribe with.
     int operator+=(Handler handler) override {
-        std::lock_guard lock(mutex_);
-        int id = nextId_++;
-        handlers_[id] = std::move(handler);
-        return id;
+        std::lock_guard lock(_mutex);
+        _subscriptions.push_back({_nextId, std::move(handler)});
+        return _nextId++;
     }
 
-    // Unsubscribe by ID
-    void operator-=(int id) override {
-        std::lock_guard lock(mutex_);
-        handlers_.erase(id);
+    void operator-=(const int id) override {
+        std::lock_guard lock(_mutex);
+        std::erase_if(_subscriptions, [id](const Subscription& entry) { return entry.id == id; });
     }
 
-    void operator () (Args... args) {
-        invoke(args...);
-    }
-
-    void invoke(Args... args) {
-        std::vector<Handler> snapshot;
-        {
-            std::lock_guard lock(mutex_);
-            snapshot.reserve(handlers_.size());
-            for (auto& [id, handler] : handlers_) {
-                snapshot.push_back(handler);
-            }
+    /// Handlers run under the lock: none of them subscribes to, unsubscribes from or destroys
+    /// the event it is handling, and copying them out first would allocate on every raise -
+    /// including the mute path and every log line.
+    void operator()(Args... args) {
+        std::lock_guard lock(_mutex);
+        for (const Subscription& entry : _subscriptions) {
+            entry.handler(args...);
         }
-        for (auto& handler : snapshot) {
-            handler(args...);
-        }
-    }
-
-    void clear() {
-        std::lock_guard lock(mutex_);
-        handlers_.clear();
     }
 };
 

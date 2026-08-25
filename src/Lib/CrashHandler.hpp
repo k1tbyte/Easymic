@@ -21,14 +21,6 @@ namespace CrashHandler {
      */
     bool Initialize(const Config& config = Config());
 
-    void Shutdown();
-
-    /**
-     * Get last exception information (if available)
-     * Only valid immediately after an exception was caught
-     */
-    std::string GetLastExceptionInfo();
-
 } // namespace CrashHandler
 
 #endif // EASYMIC_CRASHHANDLER_HPP

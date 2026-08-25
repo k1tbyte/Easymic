@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <gdiplus.h>
 
+#include "GdiRenderer.hpp"
+
 /**
  * @brief Where the indicator draws: the mic pill, the notification pill next to it, or either alone.
  *
@@ -25,6 +27,12 @@ struct IndicatorLayout {
 
     static constexpr float CornerRadius = 10.0f;
     static constexpr int PillGap = 8;
+
+    // Pill background (RGBA)
+    static constexpr BYTE BgR = 24;
+    static constexpr BYTE BgG = 27;
+    static constexpr BYTE BgB = 40;
+    static constexpr BYTE BgAlpha = 220;
 
     /// The icon is drawn at IndicatorSize with the same amount of padding around it.
     static constexpr int PillSize(const int indicatorSize) { return indicatorSize * 2; }
@@ -54,6 +62,47 @@ struct IndicatorLayout {
         layout.textWidth = std::max(layout.height, MeasureText(text, layout.MakeFont()) + padding * 2);
         layout.totalWidth = layout.textX + layout.textWidth;
         return layout;
+    }
+
+    /// Draws what Compute already measured - no geometry is decided here, which is what keeps
+    /// the window we sized and the glyphs we paint from ever disagreeing.
+    void Render(const RenderContext& ctx, Gdiplus::Bitmap* micBitmap, const std::wstring& text) const {
+        if (!hasMic && !hasText) {
+            return;
+        }
+
+        const auto pillHeight = static_cast<float>(height);
+        Gdiplus::SolidBrush brush(Gdiplus::Color(BgAlpha, BgR, BgG, BgB));
+
+        if (hasMic) {
+            Gdiplus::GraphicsPath micPath;
+            GDIRenderer::CreateRoundedRectPath(micPath, Gdiplus::RectF(0, 0, pillHeight, pillHeight),
+                                               CornerRadius);
+            ctx.graphics->FillPath(&brush, &micPath);
+
+            const int inset = (height - iconSize) / 2;
+            ctx.graphics->DrawImage(micBitmap, inset, inset, iconSize, iconSize);
+        }
+
+        if (!hasText) {
+            return;
+        }
+
+        const Gdiplus::RectF textRect(static_cast<float>(textX), 0,
+                                      static_cast<float>(textWidth), pillHeight);
+
+        Gdiplus::GraphicsPath textPath;
+        GDIRenderer::CreateRoundedRectPath(textPath, textRect, CornerRadius);
+        ctx.graphics->FillPath(&brush, &textPath);
+
+        Gdiplus::StringFormat format;
+        format.SetAlignment(Gdiplus::StringAlignmentCenter);
+        format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+
+        const auto font = MakeFont();
+        Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 240, 240, 240));
+        ctx.graphics->SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+        ctx.graphics->DrawString(text.c_str(), -1, &font, textRect, &format, &textBrush);
     }
 
 private:

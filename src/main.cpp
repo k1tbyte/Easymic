@@ -12,8 +12,6 @@
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    MSG callbackMsg;
-
     auto *const mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
 
     // App is running - shutdown duplicate
@@ -22,11 +20,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 0;
     }
 
-    CrashHandler::LogCallback logCallback = [](const std::string& msg) {
-        LOG_ERROR(msg.c_str());
+    // "%s": the report is a runtime string and carries whatever an exception message had in it
+    const CrashHandler::LogCallback logCallback = [](const std::string& report) {
+        LOG_ERROR("%s", report.c_str());
     };
 
-    if (!CrashHandler::Initialize({ .logCallback = logCallback})) {
+    if (!CrashHandler::Initialize({.logCallback = logCallback})) {
         LOG_ERROR("Failed to initialize CrashHandler");
         CloseHandle(mutex);
         return 1;
@@ -50,16 +49,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    ULONG_PTR token_ = 0;
+    ULONG_PTR gdiplusToken = 0;
     GdiplusStartupInput input;
-    GdiplusStartup(&token_, &input, nullptr);
+    GdiplusStartup(&gdiplusToken, &input, nullptr);
 
-    
-    // Initialize global version
     g_AppVersion = Version::GetCurrentVersion();
-    LOG_INFO("Application version: %s", g_AppVersion.GetFormatted().c_str());
-    
-    // Check for updates if enabled
+    LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());
+
     if (config.IsUpdatesEnabled) {
         static UpdateManager updateManager(config);
         updateManager.CheckForUpdatesAsync([](bool hasUpdate, const std::string& error) {
@@ -71,7 +67,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 }
                 return;
             }
-            
+
             if (hasUpdate) {
                 LOG_INFO("Update available - showing notification");
                 updateManager.ShowUpdateNotification();
@@ -84,22 +80,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LOG_ERROR("AudioManager failed to initialize - continuing without audio control");
     }
 
-    static auto mainWindow = std::make_shared<MainWindow>(hInstance, config);
-    mainWindow->AttachViewModel<MainWindowViewModel>(config, manager);
+    static MainWindow mainWindow(hInstance, config);
+    mainWindow.AttachViewModel<MainWindowViewModel>(config, manager);
 
-    if (!mainWindow->Initialize({})) {
+    if (!mainWindow.Initialize({})) {
         LOG_ERROR("Failed to initialize MainWindow");
         CloseHandle(mutex);
         return 1;
     }
-    
+
     LOG_INFO("MainWindow initialized successfully");
 
-    atexit([]() {
+    atexit([] {
         LOG_INFO("Application shutting down");
-        mainWindow->Hide();
+        mainWindow.Hide();
     });
 
+    MSG callbackMsg;
     while (GetMessage(&callbackMsg, nullptr, 0, 0)) {
         TranslateMessage(&callbackMsg);
         DispatchMessage(&callbackMsg);

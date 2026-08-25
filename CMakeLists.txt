@@ -28,8 +28,8 @@ add_subdirectory(vendor)
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 
-file(GLOB_RECURSE CPP_FILES "${SRC_DIR}/*.cpp")
-file(GLOB_RECURSE HPP_FILES "${SRC_DIR}/*.hpp")
+file(GLOB_RECURSE CPP_FILES CONFIGURE_DEPENDS "${SRC_DIR}/*.cpp")
+file(GLOB_RECURSE HPP_FILES CONFIGURE_DEPENDS "${SRC_DIR}/*.hpp")
 
 
 add_executable(${PROJECT_NAME} #[[WIN32]])

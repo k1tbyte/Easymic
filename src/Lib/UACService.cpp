@@ -3,10 +3,13 @@
 //
 #include "UACService.hpp"
 
-#include <windows.h>
-#include <taskschd.h>
-#include <shellapi.h>
 #include <comdef.h>
+#include <shellapi.h>
+#include <string>
+#include <taskschd.h>
+#include <windows.h>
+
+#include "definitions.h"
 
 #pragma comment(lib, "taskschd.lib")
 #pragma comment(lib, "comsupp.lib")
@@ -21,203 +24,120 @@ namespace {
     constexpr ULONG TASK_START_ATTEMPTS = 6;
     constexpr DWORD TASK_START_WAIT_MS = 250;
 
-    // RAII wrapper for COM initialization
-    class COMInitializer {
+    /// COM has to be up for the task scheduler, but the thread that asks may already have it in
+    /// another mode - that is not an error, it just means we are not the one to shut it down.
+    class ComScope {
+        HRESULT _hr;
+        bool _ownsInit;
     public:
-        COMInitializer() : m_needsUninit(false) {
-            m_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            m_needsUninit = SUCCEEDED(m_hr) && m_hr != RPC_E_CHANGED_MODE;
-        }
+        ComScope() : _hr(CoInitializeEx(nullptr, COINIT_MULTITHREADED)),
+                     _ownsInit(SUCCEEDED(_hr) && _hr != RPC_E_CHANGED_MODE) {}
 
-        ~COMInitializer() {
-            if (m_needsUninit) {
+        ~ComScope() {
+            if (_ownsInit) {
                 CoUninitialize();
             }
         }
 
-        bool IsValid() const {
-            return SUCCEEDED(m_hr) || m_hr == RPC_E_CHANGED_MODE;
-        }
+        ComScope(const ComScope&) = delete;
+        ComScope& operator=(const ComScope&) = delete;
 
-        COMInitializer(const COMInitializer&) = delete;
-        COMInitializer& operator=(const COMInitializer&) = delete;
-
-    private:
-        HRESULT m_hr;
-        bool m_needsUninit;
+        bool IsValid() const { return SUCCEEDED(_hr) || _hr == RPC_E_CHANGED_MODE; }
     };
 
-    // RAII wrapper for task scheduler interfaces
+    /// The root task folder, connected. Everything below needs both.
     class TaskSchedulerSession {
+        ComScope _com;
+        ComPtr<ITaskService> _service;
+        ComPtr<ITaskFolder> _folder;
+
     public:
-        TaskSchedulerSession() : m_taskService(nullptr), m_taskFolder(nullptr) {}
-
-        ~TaskSchedulerSession() {
-            if (m_taskFolder) m_taskFolder->Release();
-            if (m_taskService) m_taskService->Release();
-        }
-
         bool Initialize() {
-            if (!m_com.IsValid()) {
+            if (!_com.IsValid()) {
                 return false;
             }
 
-            HRESULT hr = CoCreateInstance(
-                CLSID_TaskScheduler,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                IID_ITaskService,
-                reinterpret_cast<void**>(&m_taskService)
-            );
+            if (FAILED(CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(&_service)))) {
+                return false;
+            }
 
-            if (FAILED(hr)) return false;
+            const _variant_t empty;
+            if (FAILED(_service->Connect(empty, empty, empty, empty))) {
+                return false;
+            }
 
-            _variant_t empty;
-            hr = m_taskService->Connect(empty, empty, empty, empty);
-            if (FAILED(hr)) return false;
-
-            hr = m_taskService->GetFolder(_bstr_t(L"\\"), &m_taskFolder);
-            return SUCCEEDED(hr);
+            return SUCCEEDED(_service->GetFolder(_bstr_t(L"\\"), &_folder));
         }
 
-        ITaskService* GetService() const { return m_taskService; }
-        ITaskFolder* GetFolder() const { return m_taskFolder; }
-
-        TaskSchedulerSession(const TaskSchedulerSession&) = delete;
-        TaskSchedulerSession& operator=(const TaskSchedulerSession&) = delete;
-
-    private:
-        COMInitializer m_com;
-        ITaskService* m_taskService;
-        ITaskFolder* m_taskFolder;
+        ITaskService* Service() const { return _service.Get(); }
+        ITaskFolder* Folder() const { return _folder.Get(); }
     };
 
-    // RAII helper for handles
-    class HandleGuard {
-    public:
-        explicit HandleGuard(HANDLE handle) : m_handle(handle) {}
-        ~HandleGuard() { if (m_handle) CloseHandle(m_handle); }
-
-        HandleGuard(const HandleGuard&) = delete;
-        HandleGuard& operator=(const HandleGuard&) = delete;
-
-    private:
-        HANDLE m_handle;
-    };
-
-    // RAII helper for COM interfaces
     template<typename T>
-    class COMGuard {
-    public:
-        explicit COMGuard(T* ptr) : m_ptr(ptr) {}
-        ~COMGuard() { if (m_ptr) m_ptr->Release(); }
-
-        COMGuard(const COMGuard&) = delete;
-        COMGuard& operator=(const COMGuard&) = delete;
-
-    private:
-        T* m_ptr;
-    };
-
-    // RAII helper for BSTR
-    class BSTRGuard {
-    public:
-        explicit BSTRGuard(BSTR bstr) : m_bstr(bstr) {}
-        ~BSTRGuard() { if (m_bstr) SysFreeString(m_bstr); }
-
-        BSTRGuard(const BSTRGuard&) = delete;
-        BSTRGuard& operator=(const BSTRGuard&) = delete;
-
-    private:
-        BSTR m_bstr;
-    };
-
-    // Helper functions
-    std::wstring GetCurrentExecutablePath() {
-        wchar_t path[MAX_PATH];
-        DWORD result = GetModuleFileNameW(nullptr, path, MAX_PATH);
-
-        if (result == 0 || result == MAX_PATH) {
-            return L"";
+    bool QueryProcessToken(const TOKEN_INFORMATION_CLASS infoClass, T& value) {
+        HANDLE token = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+            return false;
         }
 
-        return std::wstring(path);
+        DWORD size = sizeof(value);
+        const bool queried = GetTokenInformation(token, infoClass, &value, sizeof(value), &size);
+        CloseHandle(token);
+        return queried;
     }
 
-    HRESULT ValidateTaskExecutable(IRegisteredTask* registeredTask) {
-        if (!registeredTask) return E_INVALIDARG;
+    std::wstring GetCurrentExecutablePath() {
+        wchar_t path[MAX_PATH];
+        const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
 
-        ITaskDefinition* taskDefinition = nullptr;
-        HRESULT hr = registeredTask->get_Definition(&taskDefinition);
-        if (FAILED(hr)) return hr;
+        return length == 0 || length == MAX_PATH ? std::wstring{} : std::wstring(path, length);
+    }
 
-        COMGuard<ITaskDefinition> tdGuard(taskDefinition);
-
-        IActionCollection* actionCollection = nullptr;
-        hr = taskDefinition->get_Actions(&actionCollection);
-        if (FAILED(hr)) return hr;
-
-        COMGuard<IActionCollection> acGuard(actionCollection);
-
-        IAction* action = nullptr;
-        hr = actionCollection->get_Item(1, &action);
-        if (FAILED(hr)) return hr;
-
-        COMGuard<IAction> actionGuard(action);
-
-        IExecAction* execAction = nullptr;
-        hr = action->QueryInterface(IID_IExecAction, reinterpret_cast<void**>(&execAction));
-        if (FAILED(hr)) return hr;
-
-        COMGuard<IExecAction> execGuard(execAction);
-
-        BSTR path = nullptr;
-        hr = execAction->get_Path(&path);
-        if (FAILED(hr)) return hr;
-
-        BSTRGuard pathGuard(path);
-
-        std::wstring currentPath = GetCurrentExecutablePath();
-        if (currentPath.empty()) return E_FAIL;
-
-        // Compare paths (case-insensitive)
-        if (_wcsicmp(path, currentPath.c_str()) != 0) {
-            return E_FAIL; // Task points to different executable
+    /// A task pointing somewhere else is not ours, whatever its name says.
+    bool TaskRunsThisExecutable(IRegisteredTask* registeredTask) {
+        if (!registeredTask) {
+            return false;
         }
 
-        return S_OK;
+        ComPtr<ITaskDefinition> definition;
+        ComPtr<IActionCollection> actions;
+        ComPtr<IAction> action;
+        ComPtr<IExecAction> execAction;
+
+        if (FAILED(registeredTask->get_Definition(&definition))
+            || FAILED(definition->get_Actions(&actions))
+            || FAILED(actions->get_Item(1, &action))
+            || FAILED(action.As(&execAction))) {
+            return false;
+        }
+
+        _bstr_t path;
+        if (FAILED(execAction->get_Path(path.GetAddress()))) {
+            return false;
+        }
+
+        const std::wstring currentPath = GetCurrentExecutablePath();
+        return !currentPath.empty() && _wcsicmp(path, currentPath.c_str()) == 0;
     }
 
     bool ConfigureTaskDefinition(ITaskDefinition* taskDefinition) {
-        HRESULT hr;
-
-        // Set registration info
-        IRegistrationInfo* regInfo = nullptr;
-        hr = taskDefinition->get_RegistrationInfo(&regInfo);
-        if (SUCCEEDED(hr)) {
-            COMGuard<IRegistrationInfo> regGuard(regInfo);
-            regInfo->put_Author(_bstr_t(APP_AUTHOR));
-            regInfo->put_Description(_bstr_t(APP_DESCRIPTION));
+        ComPtr<IRegistrationInfo> registration;
+        if (SUCCEEDED(taskDefinition->get_RegistrationInfo(&registration))) {
+            registration->put_Author(_bstr_t(APP_AUTHOR));
+            registration->put_Description(_bstr_t(APP_DESCRIPTION));
         }
 
-        // Set principal to run with highest privileges
-        IPrincipal* principal = nullptr;
-        hr = taskDefinition->get_Principal(&principal);
-        if (FAILED(hr)) return false;
+        // The whole point of the task: it starts elevated without a prompt
+        ComPtr<IPrincipal> principal;
+        if (FAILED(taskDefinition->get_Principal(&principal))
+            || FAILED(principal->put_RunLevel(TASK_RUNLEVEL_HIGHEST))
+            || FAILED(principal->put_LogonType(TASK_LOGON_INTERACTIVE_TOKEN))) {
+            return false;
+        }
 
-        COMGuard<IPrincipal> principalGuard(principal);
-
-        hr = principal->put_RunLevel(TASK_RUNLEVEL_HIGHEST);
-        if (FAILED(hr)) return false;
-
-        hr = principal->put_LogonType(TASK_LOGON_INTERACTIVE_TOKEN);
-        if (FAILED(hr)) return false;
-
-        // Set task settings
-        ITaskSettings* settings = nullptr;
-        hr = taskDefinition->get_Settings(&settings);
-        if (SUCCEEDED(hr)) {
-            COMGuard<ITaskSettings> settingsGuard(settings);
+        ComPtr<ITaskSettings> settings;
+        if (SUCCEEDED(taskDefinition->get_Settings(&settings))) {
             settings->put_StartWhenAvailable(VARIANT_TRUE);
             settings->put_DisallowStartIfOnBatteries(VARIANT_FALSE);
             settings->put_StopIfGoingOnBatteries(VARIANT_FALSE);
@@ -231,42 +151,35 @@ namespace {
     }
 
     bool CreateTaskAction(ITaskDefinition* taskDefinition) {
-        IActionCollection* actionCollection = nullptr;
-        HRESULT hr = taskDefinition->get_Actions(&actionCollection);
-        if (FAILED(hr)) return false;
+        const std::wstring exePath = GetCurrentExecutablePath();
+        if (exePath.empty()) {
+            return false;
+        }
 
-        COMGuard<IActionCollection> acGuard(actionCollection);
+        ComPtr<IActionCollection> actions;
+        ComPtr<IAction> action;
+        ComPtr<IExecAction> execAction;
 
-        IAction* action = nullptr;
-        hr = actionCollection->Create(TASK_ACTION_EXEC, &action);
-        if (FAILED(hr)) return false;
+        if (FAILED(taskDefinition->get_Actions(&actions))
+            || FAILED(actions->Create(TASK_ACTION_EXEC, &action))
+            || FAILED(action.As(&execAction))) {
+            return false;
+        }
 
-        COMGuard<IAction> actionGuard(action);
-
-        IExecAction* execAction = nullptr;
-        hr = action->QueryInterface(IID_IExecAction, reinterpret_cast<void**>(&execAction));
-        if (FAILED(hr)) return false;
-
-        COMGuard<IExecAction> execGuard(execAction);
-
-        std::wstring exePath = GetCurrentExecutablePath();
-        if (exePath.empty()) return false;
-
-        execAction->put_Path(_bstr_t(exePath.c_str()));
-        return true;
+        return SUCCEEDED(execAction->put_Path(_bstr_t(exePath.c_str())));
     }
 
     std::wstring GetCommandLineArguments() {
         std::wstring arguments;
-        int numArgs = 0;
-        LPWSTR* argList = CommandLineToArgvW(GetCommandLineW(), &numArgs);
+        int argumentCount = 0;
+        LPWSTR* argumentList = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
 
-        if (argList) {
-            for (int i = 1; i < numArgs; i++) {
+        if (argumentList) {
+            for (int i = 1; i < argumentCount; i++) {
                 if (i > 1) arguments += L" ";
-                arguments += argList[i];
+                arguments += argumentList[i];
             }
-            LocalFree(argList);
+            LocalFree(argumentList);
         }
 
         return arguments;
@@ -294,221 +207,110 @@ namespace {
         return false;
     }
 
+    /// True when the user has an administrator token to elevate into at all.
+    bool CanElevate() {
+        TOKEN_ELEVATION_TYPE elevationType;
+        return QueryProcessToken(TokenElevationType, elevationType)
+               && (elevationType == TokenElevationTypeLimited || elevationType == TokenElevationTypeFull);
+    }
+
+    /// Looks the task up and checks it still belongs to us.
+    bool OpenOwnTask(const TaskSchedulerSession& session, ComPtr<IRegisteredTask>& task) {
+        return SUCCEEDED(session.Folder()->GetTask(_bstr_t(APP_SKIPUAC_NAME), &task))
+               && task && TaskRunsThisExecutable(task.Get());
+    }
+
 } // anonymous namespace
 
-// Public API implementation
-
 bool IsElevated() {
-    HANDLE hToken = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-        return false;
-    }
-
-    HandleGuard tokenGuard(hToken);
-
     TOKEN_ELEVATION elevation;
-    DWORD dwSize = sizeof(elevation);
-
-    if (!GetTokenInformation(hToken, TokenElevation, &elevation, sizeof(elevation), &dwSize)) {
-        return false;
-    }
-
-    return elevation.TokenIsElevated != FALSE;
-}
-
-bool CanElevate() {
-    HANDLE hToken = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-        return false;
-    }
-
-    HandleGuard tokenGuard(hToken);
-
-    TOKEN_ELEVATION_TYPE elevationType;
-    DWORD dwSize = sizeof(elevationType);
-
-    if (!GetTokenInformation(hToken, TokenElevationType, &elevationType, sizeof(elevationType), &dwSize)) {
-        return false;
-    }
-
-    return (elevationType == TokenElevationTypeLimited ||
-            elevationType == TokenElevationTypeFull);
+    return QueryProcessToken(TokenElevation, elevation) && elevation.TokenIsElevated != FALSE;
 }
 
 bool RequestElevation() {
     if (IsElevated()) {
-        return true; // Already elevated
-    }
-
-    if (!CanElevate()) {
-        return false; // User cannot elevate
-    }
-
-    std::wstring exePath = GetCurrentExecutablePath();
-    if (exePath.empty()) {
-        return false;
-    }
-
-    HINSTANCE result = ShellExecuteW(
-        nullptr,
-        L"runas",
-        exePath.c_str(),
-        nullptr,
-        nullptr,
-        SW_SHOWNORMAL
-    );
-
-    if (reinterpret_cast<INT_PTR>(result) > 32) {
-        ExitProcess(0);
         return true;
     }
 
-    return false;
-}
+    const std::wstring exePath = GetCurrentExecutablePath();
+    if (!CanElevate() || exePath.empty()) {
+        return false;
+    }
 
-bool IsSkipUACAvailable() {
-    return IsElevated();
+    const HINSTANCE result = ShellExecuteW(nullptr, L"runas", exePath.c_str(), nullptr, nullptr,
+                                           SW_SHOWNORMAL);
+
+    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+        return false;
+    }
+
+    ExitProcess(0);
 }
 
 bool IsSkipUACEnabled() {
     TaskSchedulerSession session;
-    if (!session.Initialize()) {
-        return false;
-    }
+    ComPtr<IRegisteredTask> task;
 
-    IRegisteredTask* registeredTask = nullptr;
-    _bstr_t taskName(APP_SKIPUAC_NAME);
-    HRESULT hr = session.GetFolder()->GetTask(taskName, &registeredTask);
-
-    if (FAILED(hr) || !registeredTask) {
-        return false;
-    }
-
-    COMGuard<IRegisteredTask> taskGuard(registeredTask);
-
-    return SUCCEEDED(ValidateTaskExecutable(registeredTask));
+    return session.Initialize() && OpenOwnTask(session, task);
 }
 
 bool EnableSkipUAC() {
-    if (!IsElevated()) {
-        return false;
-    }
-
     TaskSchedulerSession session;
-    if (!session.Initialize()) {
+    if (!IsElevated() || !session.Initialize()) {
         return false;
     }
 
-    ITaskDefinition* taskDefinition = nullptr;
-    HRESULT hr = session.GetService()->NewTask(0, &taskDefinition);
-    if (FAILED(hr)) {
+    ComPtr<ITaskDefinition> definition;
+    if (FAILED(session.Service()->NewTask(0, &definition))
+        || !ConfigureTaskDefinition(definition.Get())
+        || !CreateTaskAction(definition.Get())) {
         return false;
     }
 
-    COMGuard<ITaskDefinition> tdGuard(taskDefinition);
-
-    if (!ConfigureTaskDefinition(taskDefinition)) {
-        return false;
-    }
-
-    if (!CreateTaskAction(taskDefinition)) {
-        return false;
-    }
-
-    // Register the task
-    IRegisteredTask* registeredTask = nullptr;
-    _variant_t empty;
-    hr = session.GetFolder()->RegisterTaskDefinition(
-        _bstr_t(APP_SKIPUAC_NAME),
-        taskDefinition,
-        TASK_CREATE_OR_UPDATE,
-        empty,
-        empty,
-        TASK_LOGON_INTERACTIVE_TOKEN,
-        empty,
-        &registeredTask
-    );
-
-    if (registeredTask) {
-        registeredTask->Release();
-    }
-
-    return SUCCEEDED(hr);
+    ComPtr<IRegisteredTask> registeredTask;
+    const _variant_t empty;
+    return SUCCEEDED(session.Folder()->RegisterTaskDefinition(
+        _bstr_t(APP_SKIPUAC_NAME), definition.Get(), TASK_CREATE_OR_UPDATE,
+        empty, empty, TASK_LOGON_INTERACTIVE_TOKEN, empty, &registeredTask));
 }
 
 bool DisableSkipUAC() {
-    if (!IsElevated()) {
-        return false;
-    }
-
     TaskSchedulerSession session;
-    if (!session.Initialize()) {
+    if (!IsElevated() || !session.Initialize()) {
         return false;
     }
 
-    _bstr_t taskName(APP_SKIPUAC_NAME);
-    HRESULT hr = session.GetFolder()->DeleteTask(taskName, 0);
-
-    return SUCCEEDED(hr);
+    return SUCCEEDED(session.Folder()->DeleteTask(_bstr_t(APP_SKIPUAC_NAME), 0));
 }
 
 bool RunWithSkipUAC() {
     TaskSchedulerSession session;
-    if (!session.Initialize()) {
+    ComPtr<IRegisteredTask> task;
+
+    if (!session.Initialize() || !OpenOwnTask(session, task)) {
         return false;
     }
 
-    IRegisteredTask* registeredTask = nullptr;
-    _bstr_t taskName(APP_SKIPUAC_NAME);
-    HRESULT hr = session.GetFolder()->GetTask(taskName, &registeredTask);
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    COMGuard<IRegisteredTask> taskGuard(registeredTask);
-
-    // Verify task points to current executable
-    hr = ValidateTaskExecutable(registeredTask);
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    // Check if task is enabled
     VARIANT_BOOL isEnabled = VARIANT_FALSE;
-    registeredTask->get_Enabled(&isEnabled);
+    task->get_Enabled(&isEnabled);
     if (isEnabled == VARIANT_FALSE) {
         return false;
     }
 
-    // Build arguments
-    std::wstring arguments = GetCommandLineArguments();
-
-    // Run the task
+    // Whatever we were started with has to reach the elevated instance too
+    const std::wstring arguments = GetCommandLineArguments();
     _variant_t params;
     if (!arguments.empty()) {
         params = arguments.c_str();
     }
 
-    IRunningTask* runningTask = nullptr;
-    hr = registeredTask->RunEx(
-        params,
-#ifdef _MSC_VER
-        TASK_RUN_IGNORE_CONSTRAINTS,
-#else
-        0x2,
-#endif
-        0,
-        nullptr,
-        &runningTask
-    );
-
-    if (FAILED(hr) || !runningTask) {
+    ComPtr<IRunningTask> runningTask;
+    if (FAILED(task->RunEx(params, TASK_RUN_IGNORE_CONSTRAINTS, 0, nullptr, &runningTask))
+        || !runningTask) {
         return false;
     }
 
-    COMGuard<IRunningTask> runningGuard(runningTask);
-
-    return WaitForTaskStart(runningTask);
+    return WaitForTaskStart(runningTask.Get());
 }
 
 } // namespace UAC

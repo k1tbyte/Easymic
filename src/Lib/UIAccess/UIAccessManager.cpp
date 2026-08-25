@@ -9,7 +9,6 @@
 
 #include "definitions.h"
 #include "Injection.hpp"
-#include "Process.hpp"
 
 
 struct ShellcodeWindowCreateParams {
@@ -30,9 +29,6 @@ struct ShellcodeAffinityParams {
     DWORD affinity;
 };
 
-
-/*extern "C" VOID WINAPI RemoteThreadFunc(LPVOID lpParam);
-extern "C" SIZE_T RemoteThreadFuncSize;*/
 
 
 VOID WINAPI WindowCreateRemoteThreadFunc(LPVOID lpParam) {
@@ -217,11 +213,7 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
         Sleep(100);
     }
 
-    hwnd = GetWindowsByTitle(uiAccessPids, key);
-    std::wstring processName = Process::GetNameByHWND(hwnd);
-    LOG_INFO("[UIAccess] Using window from: %ls", processName.c_str());
-
-    return hwnd;
+    return GetWindowsByTitle(uiAccessPids, key);
 }
 
 bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {

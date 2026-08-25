@@ -13,10 +13,6 @@
 #include "Win32Hook.hpp"
 #include "definitions.h"
 
-/*#define KEYLOG(x, ...) \
-    printf("[HotkeyManager] " x "\n", __VA_ARGS__)*/
-
-#define KEYLOG(x, ...)
 
 #pragma region [PRIVATE] Hotkeys name table
 
@@ -370,10 +366,9 @@ namespace  HotkeyManager {
             _sequenceMask = lastKeyPressed == vkCode ? (((_sequenceMask >> 16) << 8) | modifiers) : modifiers;
         }
 
-        KEYLOG("Key released | mask: 0x%.16llX, vkCode hex: 0x%02X, name: %s", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
 
         if (_onBindingCallback) {
-            _onBindingCallback(vkCode, Keys::State::KEY_RELEASED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(vkCode, Keys::State::KEY_RELEASED, _sequenceMask);
         }
     }
 
@@ -391,10 +386,9 @@ namespace  HotkeyManager {
             _sequenceMask = sequence | modifiers;
         }
 
-        KEYLOG("Key pressed | mask: 0x%016llX, vkCode hex: 0x%02X, name: %s", _sequenceMask, vkCode, GetHotkeyName(_sequenceMask).c_str());
 
         if (_onBindingCallback) {
-            _onBindingCallback(vkCode, Keys::State::KEY_PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(vkCode, Keys::State::KEY_PRESSED, _sequenceMask);
             // Skip hotkey handling if in binding mode
             return;
         }
@@ -532,9 +526,6 @@ namespace  HotkeyManager {
            _hotkeys.try_emplace(keysMask, binding).second;
     }
 
-    bool RegisterHotkey(const uint64_t keysMask, const std::function<void()>& onPress, const bool overwrite) {
-        return RegisterHotkey(keysMask, { onPress, nullptr }, overwrite);
-    }
 
     void BindStart(const BindingCallback& callback) {
         if (!callback) {
@@ -544,7 +535,7 @@ namespace  HotkeyManager {
         _onBindingCallback = callback;
         if (_sequenceMask != 0) {
             const uint8_t lastKeyPressed = (_sequenceMask >> 8) & 0xFF;
-            _onBindingCallback(lastKeyPressed, Keys::State::KEY_PRESSED, _sequenceMask, GetHotkeyName(_sequenceMask));
+            _onBindingCallback(lastKeyPressed, Keys::State::KEY_PRESSED, _sequenceMask);
         }
     }
 
@@ -552,9 +543,6 @@ namespace  HotkeyManager {
         _onBindingCallback = nullptr;
     }
 
-    bool UnregisterHotkey(const uint64_t keysMask) {
-        return _hotkeys.erase(keysMask) > 0;
-    }
 
     bool Initialize() {
         if (_keyboardHook || _mouseHook) {

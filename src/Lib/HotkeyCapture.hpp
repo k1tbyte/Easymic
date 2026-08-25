@@ -2,7 +2,6 @@
 #define EASYMIC_HOTKEYCAPTURE_HPP
 
 #include <functional>
-#include <string>
 #include <windows.h>
 
 #include "HotkeyManager.hpp"
@@ -10,21 +9,22 @@
 /**
  * @brief The single hotkey capture session shared by every binding UI.
  *
- * Teardown must never run inside the LL hook proc - unhooking and joining the action worker there
- * blows LowLevelHooksTimeout and Windows silently drops the hook. The hook callback therefore only
- * posts WM_CAPTURE_DONE to the owning window, which must route it to Finish().
+ * Nothing but a PostMessage happens inside the LL hook proc. Formatting the combination name or
+ * writing it into a control there would run string allocation and a synchronous WM_SETTEXT
+ * against LowLevelHooksTimeout, and Windows answers a slow proc by silently dropping the hook -
+ * which is also why teardown is deferred to the owning window rather than done in the callback.
  */
 namespace HotkeyCapture {
-    inline constexpr UINT WM_CAPTURE_DONE = WM_APP;
+    /// The combination changed; read CapturedMask() and render it.
+    inline constexpr UINT WM_CAPTURE_PREVIEW = WM_APP;
+    /// The user let go; the owning window must route this to Finish().
+    inline constexpr UINT WM_CAPTURE_DONE = WM_APP + 1;
 
-    /// Combination typed so far, live.
-    using PreviewCallback = std::function<void(const std::string& hotkeyName)>;
     /// Final combination, 0 when cleared with ESC.
     using DoneCallback = std::function<void(uint64_t mask)>;
 
     namespace Detail {
         inline HWND _target = nullptr;
-        inline PreviewCallback _preview;
         inline DoneCallback _done;
         inline uint64_t _captured = 0;
         inline bool _active = false;
@@ -40,7 +40,6 @@ namespace HotkeyCapture {
             _ownsHooks = false;
             _captured = 0;
             _target = nullptr;
-            _preview = nullptr;
             _done = nullptr;
             HotkeyManager::BindStop();
             if (ownedHooks) {
@@ -51,7 +50,10 @@ namespace HotkeyCapture {
 
     inline bool IsActive() { return Detail::_active; }
 
-    inline bool Start(HWND target, PreviewCallback preview, DoneCallback done) {
+    /// What has been typed so far, for the window handling WM_CAPTURE_PREVIEW.
+    inline uint64_t CapturedMask() { return Detail::_captured; }
+
+    inline bool Start(HWND target, DoneCallback done) {
         using namespace Detail;
 
         if (_active) {
@@ -65,20 +67,18 @@ namespace HotkeyCapture {
         }
 
         _target = target;
-        _preview = std::move(preview);
         _done = std::move(done);
         _captured = 0;
         _active = true;
 
-        HotkeyManager::BindStart([](uint8_t vkCode, Keys::State state, uint64_t sequenceMask,
-                                    const std::string& hotkeyName) {
+        HotkeyManager::BindStart([](uint8_t vkCode, Keys::State state, uint64_t sequenceMask) {
             if (_pending) {
                 return;
             }
 
             if (state != Keys::State::KEY_RELEASED) {
                 _captured = sequenceMask;
-                _preview(hotkeyName);
+                PostMessageW(_target, WM_CAPTURE_PREVIEW, 0, 0);
                 return;
             }
 

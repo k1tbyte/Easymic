@@ -21,56 +21,61 @@ private:
     const AudioManager &_audioManager;
     AppConfig& _cfg;
     AppConfig _cfgPrev;
-    MainWindow* MainWnd = nullptr;
-    
+    MainWindow* _mainWindow = nullptr;
+
+    /// Autostart lives in the registry, not the config, so the pending state is tracked here and
+    /// written on Apply - closing with Cancel must leave the machine exactly as it was.
+    bool _autoStartRequested = false;
+    bool _autoStartInitial = false;
+
     // Logger UI management
-    int logAddedSubscriptionId_ = -1;
-    int logClearedSubscriptionId_ = -1;
-    HWND currentAboutHwnd_ = nullptr;
-    HFONT linkFont_ = nullptr;
+    int _logAddedSubscriptionId = -1;
+    HFONT _linkFont = nullptr;
 
     constexpr static const wchar_t* IndicatorStates[] = {
         L"Hidden", L"Muted", L"Muted or talking"
     };
 
     // UI Helper Methods
-    void InitializeGeneralSection(HWND hWnd);
-    void InitializeIndicatorSection(HWND hWnd);
-    void InitializeSoundsSection(HWND hWnd);
+    void InitializeGeneralSection(HWND hWnd) const;
+    void InitializeIndicatorSection(HWND hWnd) const;
+    void InitializeSoundsSection(HWND hWnd) const;
     void RefreshActionRows() const;
     void ClearHotkey(uint64_t mask, const std::string& exceptBuiltIn, int exceptCustomIndex);
     void EditBuiltInAction(const BuiltInAction& builtIn);
     void EditCustomAction(int customIndex);
     void InitializeAboutSection(HWND hWnd);
-    
+
     void SetupLogDisplay(HWND hWnd);
     void CleanupLogDisplay();
-    void UpdateLogDisplay(const std::string& formattedEntry);
-    
+
+    /// Offers to restart elevated. @return true when the app is on its way out and the caller
+    /// must not touch anything else.
+    bool RequestElevationFor(HWND hWnd, const wchar_t* feature) const;
+    void CommitPrivilegedSettings() const;
+
     // Mic state feedback sounds - the action sounds live in the action dialog instead
-    void HandleSoundSelection(HWND hWnd, int comboBoxId, std::string& configSource);
-    void HandleSoundBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource);
+    void HandleSoundSelection(HWND hWnd, int comboBoxId, std::string& configSource) const;
+    void HandleSoundBrowse(HWND hWnd, int comboBoxId, const char* title, std::string& configSource) const;
 
 public:
-    SettingsWindowViewModel(const std::shared_ptr<BaseWindow>& baseView, AppConfig& config, const AudioManager& audioManager) :
-        BaseViewModel(baseView),
-        _audioManager(audioManager),
-        _cfg(config) {
+    SettingsWindowViewModel(BaseWindow* baseView, AppConfig& config, const AudioManager& audioManager)
+        : BaseViewModel(baseView), _audioManager(audioManager), _cfg(config) {
     }
-    
-    ~SettingsWindowViewModel() {
+
+    ~SettingsWindowViewModel() override {
         CleanupLogDisplay();
-        if (linkFont_) {
-            DeleteObject(linkFont_);
+        if (_linkFont) {
+            DeleteObject(_linkFont);
         }
     }
 
     void HandleSectionChange(HWND hWnd, int sectionId);
     void HandleButtonClick(HWND hWnd, int buttonId);
-    void HandleComboBoxChange(HWND hWnd, int comboBoxId);
-    void HandleTrackbarChange(HWND hWnd, int trackbarId, int value);
+    void HandleComboBoxChange(HWND hWnd, int comboBoxId) const;
+    void HandleTrackbarChange(HWND hWnd, int trackbarId, int value) const;
     void HandleActionActivated(int rowIndex);
-    
+
     void Init() override;
 };
 

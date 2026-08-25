@@ -7,7 +7,10 @@
 #include "Event.hpp"
 
 /**
- * @brief Simple file-based logger with thread-safe operations and printf-style formatting
+ * @brief Simple file-based logger with thread-safe operations and printf-style formatting.
+ *
+ * Go through the LOG_* macros in definitions.h rather than calling Log directly - they are what
+ * compiles a level out of the build.
  */
 class Logger {
 public:
@@ -19,21 +22,16 @@ public:
 
     static void Initialize();
     static void Log(Level level, const char* format, ...);
-    static void Info(const char* format, ...);
-    static void Warning(const char* format, ...);
-    static void Error(const char* format, ...);
-    
+
     static std::string GetLogText();
-    static void ClearLog();
-    
-    // Events for UI updates
+
+    /// Every line, from whatever thread produced it. Raised with no lock held.
     static Event<Level, const std::string&, const std::string&> OnLogAdded;
-    static Event<> OnLogCleared;
 
 private:
-    static std::string logFilePath_;
-    static std::mutex logMutex_;
-    static std::once_flag initFlag_;
+    static std::string _logFilePath;
+    static std::mutex _logMutex;
+    static std::once_flag _initFlag;
     static constexpr size_t MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 
     static const char* LevelToString(Level level);

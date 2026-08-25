@@ -5,8 +5,6 @@
 #ifndef EASYMIC_BASEVIEWMODEL_HPP
 #define EASYMIC_BASEVIEWMODEL_HPP
 
-#include <memory>
-
 class BaseWindow;
 
 // Interface for polymorphic storage in BaseWindow
@@ -16,17 +14,19 @@ public:
     virtual void Init() = 0; // Must be implemented by concrete ViewModels
 };
 
-// Template base class for typed view access
+/**
+ * @brief Template base class for typed view access.
+ *
+ * The window owns the view model, so the back pointer is raw on purpose: a shared_ptr here
+ * would close a cycle and neither side would ever be destroyed.
+ */
 template <typename T>
 class BaseViewModel : public IViewModel {
 protected:
-    std::shared_ptr<T> _view;
+    T* _view;
 
 public:
-    explicit BaseViewModel(const std::shared_ptr<BaseWindow>& view)
-        : _view(std::static_pointer_cast<T>(view)) {
+    explicit BaseViewModel(BaseWindow* view) : _view(static_cast<T*>(view)) {
     }
-
-    std::shared_ptr<T> GetView() const { return _view; }
 };
 #endif //EASYMIC_BASEVIEWMODEL_HPP

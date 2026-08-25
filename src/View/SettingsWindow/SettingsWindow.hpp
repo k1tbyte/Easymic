@@ -1,19 +1,18 @@
 #ifndef EASYMIC_SETTINGSWINDOW_V2_HPP
 #define EASYMIC_SETTINGSWINDOW_V2_HPP
 
+// BaseWindow first: it brings in windows.h, and commctrl.h does not compile without it
 #include "../Core/BaseWindow.hpp"
-#include "Resources/Resource.h"
-#include <array>
+
 #include <commctrl.h>
 #include <functional>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "AppConfig.hpp"
+#include "Resources/Resource.h"
 #include "ActionDialog.hpp"
 #include "Event.hpp"
-
 
 /// One row of the actions table, built-in or custom.
 struct ActionRow {
@@ -29,14 +28,12 @@ struct ActionRow {
  * The frame is the IDD_SETTINGS_MAIN template and each category is a child dialog placed inside
  * the group box - the dialog manager owns the layout, the fonts and the DPI scaling.
  */
-class SettingsWindow : public BaseWindow {
+class SettingsWindow final : public BaseWindow {
 
 public:
-    using OnButtonClickCallback = std::function<void(HWND hWnd, int buttonId)>;
-    using OnComboBoxChangeCallback = std::function<void(HWND hWnd, int comboBoxId)>;
-    using OnTrackbarChangeCallback = std::function<void(HWND hWnd, int trackbarId, int value)>;
-    using OnSectionChangeCallback = std::function<void(HWND hWnd, int sectionId)>;
-    using OnActionActivatedCallback = std::function<void(int rowIndex)>;
+    /// Posted when a log line arrives, so the About page reloads itself. The line can come from
+    /// any thread, and the logger must never end up waiting on this window's message queue.
+    static constexpr UINT WM_LOG_REFRESH = WM_APP + 10;
 
     struct Config {
         HWND parentHwnd = nullptr;
@@ -55,45 +52,47 @@ public:
     void Show() override;
     void Hide() override;
 
-    void SetActionRows(const std::vector<ActionRow>& rows);
+    void SetActionRows(const std::vector<ActionRow>& rows) const;
 
     /// Modal editor for any action. @return true when the action must be saved.
-    bool ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds);
+    bool ShowActionDialog(ActionEdit& action, std::set<std::string>& recentSounds) const;
 
-    Event<>& OnExit = _onExit;
-    Event<>& OnApply = _onApply;
-    OnButtonClickCallback OnButtonClick = nullptr;
-    OnComboBoxChangeCallback OnComboBoxChange = nullptr;
-    OnTrackbarChangeCallback OnTrackbarChange = nullptr;
-    OnSectionChangeCallback OnSectionChange = nullptr;
-    OnActionActivatedCallback OnActionActivated = nullptr;
+    // Subscribe side only - the window is the one that raises these
+    IEvent<>& OnExit = _onExit;
+    IEvent<>& OnApply = _onApply;
+
+    // View model delegation - single subscriber each, assigned once during Init
+    std::function<void(HWND hWnd, int buttonId)> OnButtonClick;
+    std::function<void(HWND hWnd, int comboBoxId)> OnComboBoxChange;
+    std::function<void(HWND hWnd, int trackbarId, int value)> OnTrackbarChange;
+    std::function<void(HWND hWnd, int sectionId)> OnSectionChange;
+    std::function<void(int rowIndex)> OnActionActivated;
 
 private:
-    void PopulateTreeView();
+    void PopulateTreeView() const;
     void LoadCategoryContent(int resourceId);
     void UpdateGroupBoxLayout() const;
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
 
     static INT_PTR CALLBACK SettingsDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-    static LRESULT CALLBACK TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    static LRESULT CALLBACK TreeViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+                                                 UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
     INT_PTR OnInitDialog();
-    INT_PTR OnCommand(WPARAM wParam, LPARAM lParam);
-    INT_PTR OnNotify(WPARAM wParam, LPARAM lParam);
+    INT_PTR OnCommand(WPARAM wParam);
+    INT_PTR OnNotify(LPARAM lParam);
     INT_PTR OnDestroy();
-    INT_PTR OnCtlColorStatic(WPARAM wParam, LPARAM lParam);
+    INT_PTR OnCtlColorStatic(WPARAM wParam, LPARAM lParam) const;
 
     Event<> _onExit;
     Event<> _onApply;
 
-    Config config_;
-    HWND hwndTreeView_ = nullptr;
-    HWND hwndGroupBox_ = nullptr;
-    HWND hwndContentDialog_ = nullptr;
-    int currentCategoryId_ = -1;
+    Config _config;
+    HWND _hwndTreeView = nullptr;
+    HWND _hwndGroupBox = nullptr;
+    HWND _hwndContentDialog = nullptr;
 
-    static const CategoryItem categories_[];
-    static const size_t categoriesCount_;
+    static const CategoryItem Categories[];
 };
 
 #endif //EASYMIC_SETTINGSWINDOW_V2_HPP

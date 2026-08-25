@@ -4,30 +4,29 @@
 #include <fstream>
 #include <windows.h>
 
-std::string Logger::logFilePath_;
-std::mutex Logger::logMutex_;
-std::once_flag Logger::initFlag_;
+std::string Logger::_logFilePath;
+std::mutex Logger::_logMutex;
+std::once_flag Logger::_initFlag;
 Event<Logger::Level, const std::string&, const std::string&> Logger::OnLogAdded;
-Event<> Logger::OnLogCleared;
 
 
 void Logger::Initialize() {
-    std::call_once(initFlag_, [] {
+    std::call_once(_initFlag, [] {
         wchar_t modulePath[MAX_PATH];
         if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
             return;
         }
 
-        std::lock_guard lock(logMutex_);
-        logFilePath_ = (std::filesystem::path(modulePath).parent_path() / L"easymic.log").string();
+        std::lock_guard lock(_logMutex);
+        _logFilePath = (std::filesystem::path(modulePath).parent_path() / L"easymic.log").string();
         CheckLogFileSize();
     });
 }
 
 void Logger::CheckLogFileSize() {
     std::error_code ec;
-    if (std::filesystem::file_size(logFilePath_, ec) > MAX_LOG_SIZE) {
-        std::filesystem::remove(logFilePath_, ec);
+    if (std::filesystem::file_size(_logFilePath, ec) > MAX_LOG_SIZE) {
+        std::filesystem::remove(_logFilePath, ec);
     }
 }
 
@@ -48,19 +47,23 @@ std::string Logger::FormatString(const char* format, va_list args) {
 
 void Logger::LogImpl(Level level, const std::string& message) {
     Initialize();
-    if (logFilePath_.empty()) {
+    if (_logFilePath.empty()) {
         return;
     }
 
-    std::lock_guard lock(logMutex_);
+    std::string formattedEntry;
+    {
+        std::lock_guard lock(_logMutex);
+        formattedEntry = FormatLogEntry(level, message);
 
-    const std::string formattedEntry = FormatLogEntry(level, message);
-
-    // Text mode on purpose: the log ends up in an edit control that wants CRLF
-    if (std::ofstream logFile(logFilePath_, std::ios::app); logFile.is_open()) {
-        logFile << formattedEntry << std::endl;
+        // Text mode on purpose: the log ends up in an edit control that wants CRLF
+        if (std::ofstream logFile(_logFilePath, std::ios::app); logFile.is_open()) {
+            logFile << formattedEntry << std::endl;
+        }
     }
 
+    // Raised with nothing held: a log line can come from any thread, and a subscriber that has
+    // to reach the UI thread would otherwise deadlock against the UI thread's own logging
     OnLogAdded(level, message, formattedEntry);
 }
 
@@ -73,43 +76,16 @@ void Logger::Log(Level level, const char* format, ...) {
     LogImpl(level, message);
 }
 
-void Logger::Info(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    std::string message = FormatString(format, args);
-    va_end(args);
-
-    LogImpl(Level::Info, message);
-}
-
-void Logger::Warning(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    std::string message = FormatString(format, args);
-    va_end(args);
-
-    LogImpl(Level::Warning, message);
-}
-
-void Logger::Error(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    std::string message = FormatString(format, args);
-    va_end(args);
-
-    LogImpl(Level::Error, message);
-}
-
 std::string Logger::GetLogText() {
     Initialize();
-    if (logFilePath_.empty()) {
+    if (_logFilePath.empty()) {
         return {};
     }
 
-    std::lock_guard lock(logMutex_);
+    std::lock_guard lock(_logMutex);
 
     // Binary: the file already holds the CRLF the edit control expects
-    std::ifstream logFile(logFilePath_, std::ios::binary | std::ios::ate);
+    std::ifstream logFile(_logFilePath, std::ios::binary | std::ios::ate);
     if (!logFile.is_open()) {
         return {};
     }
@@ -123,21 +99,6 @@ std::string Logger::GetLogText() {
     logFile.seekg(0, std::ios::beg);
     logFile.read(text.data(), size);
     return text;
-}
-
-void Logger::ClearLog() {
-    Initialize();
-    if (logFilePath_.empty()) {
-        return;
-    }
-
-    {
-        std::lock_guard lock(logMutex_);
-        std::ofstream logFile(logFilePath_, std::ios::trunc);
-    }
-
-    LogImpl(Level::Info, "Log cleared");
-    OnLogCleared();
 }
 
 std::string Logger::FormatLogEntry(Level level, const std::string& message) {
