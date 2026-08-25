@@ -1,22 +1,12 @@
 #include "MainWindow.hpp"
 
 #include "../../Resources/Resource.h"
-
-// The indicator draws the icon at IndicatorSize with the same amount of padding around it
-#define INDICATOR_SCALE 2
+#include "../Components/IndicatorLayout.hpp"
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance)
     , appConfig_(appConfig), trayIcon_(std::make_unique<TrayIcon>())
 {
-}
-
-std::shared_ptr<BaseWindow> MainWindow::SetWidth(LONG width) {
-    return BaseWindow::SetWidth(width * INDICATOR_SCALE);
-}
-
-std::shared_ptr<BaseWindow> MainWindow::SetHeight(LONG height) {
-    return BaseWindow::SetHeight(height * INDICATOR_SCALE);
 }
 
 bool MainWindow::Initialize(WindowConfig config) {
@@ -26,7 +16,7 @@ bool MainWindow::Initialize(WindowConfig config) {
         return false;
     }
 
-    const int windowSize = appConfig_.IndicatorSize;
+    const int windowSize = IndicatorLayout::PillSize(appConfig_.IndicatorSize);
     SetWidth(windowSize);
     SetHeight(windowSize);
     SetPositionX(appConfig_.WindowPosX);
@@ -228,9 +218,9 @@ void MainWindow::ShowTrayContextMenu() {
     }
 
     const bool bellEnabled = appConfig_.BellVolume > 0;
-    InsertMenuA(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
+    InsertMenuW(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
                ID_APP_TOGGLE_BELL,
-               bellEnabled ? "Disable bell sound" : "Enable bell sound");
+               bellEnabled ? L"Disable bell sound" : L"Enable bell sound");
 
     POINT cursor;
     GetCursorPos(&cursor);

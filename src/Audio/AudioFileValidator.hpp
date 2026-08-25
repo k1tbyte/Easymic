@@ -11,6 +11,8 @@
 #include <string>
 #include <windows.h>
 
+#include "Str.hpp"
+
 struct WavValidationResult {
     bool isValid = false;
     std::string errorMessage;
@@ -69,7 +71,8 @@ private:
 inline WavValidationResult AudioFileValidator::ValidateWavFile(const std::string& filePath, float maxDurationSeconds) {
     WavValidationResult result;
 
-    std::ifstream file(filePath, std::ios::binary);
+    // The wide overload is the only one that opens a non-ASCII path: the narrow one is ACP
+    std::ifstream file(Str::Utf8ToWide(filePath), std::ios::binary);
     if (!file.is_open()) {
         result.errorMessage = "Cannot open file";
         return result;
@@ -101,26 +104,24 @@ inline WavValidationResult AudioFileValidator::ValidateWavFile(const std::string
 }
 
 inline std::string AudioFileValidator::ShowWavFileDialog(HWND hWnd, const char* title) {
-    OPENFILENAMEA ofn;
-    char szFile[260] = { 0 };
+    OPENFILENAMEW ofn;
+    wchar_t szFile[MAX_PATH] = { 0 };
+    const std::wstring caption = Str::Utf8ToWide(title);
 
     ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hWnd;
     ofn.lpstrFile = szFile;
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = "WAV Files (*.wav)\0*.wav\0All Files (*.*)\0*.*\0";
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"WAV Files (*.wav)\0*.wav\0All Files (*.*)\0*.*\0";
     ofn.nFilterIndex = 1;
-    ofn.lpstrFileTitle = NULL;
+    ofn.lpstrFileTitle = nullptr;
     ofn.nMaxFileTitle = 0;
-    ofn.lpstrInitialDir = NULL;
-    ofn.lpstrTitle = title;
+    ofn.lpstrInitialDir = nullptr;
+    ofn.lpstrTitle = caption.c_str();
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(szFile);
-    }
-    return "";
+    return GetOpenFileNameW(&ofn) ? Str::WideToUtf8(szFile) : std::string{};
 }
 
 inline bool AudioFileValidator::PickValidWavFile(HWND hWnd, const char* title, std::string& result) {
@@ -130,8 +131,8 @@ inline bool AudioFileValidator::PickValidWavFile(HWND hWnd, const char* title, s
     }
 
     if (const WavValidationResult validation = ValidateWavFile(selectedFile); !validation.isValid) {
-        MessageBoxA(hWnd, ("Invalid WAV file: " + validation.errorMessage).c_str(),
-                    "File Validation Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(hWnd, Str::Utf8ToWide("Invalid WAV file: " + validation.errorMessage).c_str(),
+                    L"File Validation Error", MB_OK | MB_ICONERROR);
         return false;
     }
 

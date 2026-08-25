@@ -29,8 +29,8 @@ private:
     HWND currentAboutHwnd_ = nullptr;
     HFONT linkFont_ = nullptr;
 
-    constexpr static const char* IndicatorStates[] = {
-        "Hidden", "Muted", "Muted or talking"
+    constexpr static const wchar_t* IndicatorStates[] = {
+        L"Hidden", L"Muted", L"Muted or talking"
     };
 
     // UI Helper Methods

@@ -56,7 +56,7 @@ namespace CrashHandler {
         std::string GetExecutablePath() {
             std::array<wchar_t, MAX_PATH> path;
             const DWORD result = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-            return result > 0 ? Str::ToNarrow(std::wstring(path.data(), result)) : "Unknown";
+            return result > 0 ? Str::WideToUtf8(std::wstring(path.data(), result)) : "Unknown";
         }
 
         __declspec(nothrow) const char* SafeStdExceptionWhat(const void* thrownObject) {
@@ -303,9 +303,9 @@ namespace CrashHandler {
                                      const wchar_t *file, unsigned int line, uintptr_t) {
             std::ostringstream oss;
             oss << "Invalid Parameter Handler Details:\n";
-            if (expression) oss << "Expression: " << Str::ToNarrow(expression) << "\n";
-            if (function) oss << "Function: " << Str::ToNarrow(function) << "\n";
-            if (file) oss << "File: " << Str::ToNarrow(file) << "\n";
+            if (expression) oss << "Expression: " << Str::WideToUtf8(expression) << "\n";
+            if (function) oss << "Function: " << Str::WideToUtf8(function) << "\n";
+            if (file) oss << "File: " << Str::WideToUtf8(file) << "\n";
             oss << "Line: " << line << "\n";
 
             g_state.lastExceptionInfo = oss.str();

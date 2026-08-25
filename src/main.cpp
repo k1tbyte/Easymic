@@ -4,6 +4,7 @@
 #include "CrashHandler.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "ViewModel/MainWindowViewModel.hpp"
+#include "Lib/HotkeyManager.hpp"
 #include "Lib/Logger.hpp"
 #include "Lib/Version.hpp"
 #include "Lib/UpdateManager.hpp"
@@ -41,9 +42,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             CloseHandle(mutex);
             return 0;
         }
-        MessageBoxA(nullptr,
-            "Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
-            "UAC Bypass Failed",
+        MessageBoxW(nullptr,
+            L"Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
+            L"UAC Bypass Failed",
             MB_OK | MB_ICONWARNING);
         LOG_WARNING("Skip UAC failed, continuing with normal startup");
     }
@@ -103,6 +104,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         TranslateMessage(&callbackMsg);
         DispatchMessage(&callbackMsg);
     }
+
+    // The action worker outlives the message loop, and ~thread() on a joinable thread calls
+    // std::terminate - every clean exit used to end in a crash report
+    HotkeyManager::Dispose();
 
     ReleaseMutex(mutex);
     CloseHandle(mutex);

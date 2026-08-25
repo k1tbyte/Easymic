@@ -1,6 +1,7 @@
 #include "UpdateManager.hpp"
 #include "AppConfig.hpp"
 #include "Resources/Resource.h"
+#include "Str.hpp"
 #include <windows.h>
 #include <wininet.h>
 #include <shlobj.h>
@@ -133,7 +134,7 @@ void UpdateManager::ShowUpdateNotification() {
 
 void UpdateManager::DownloadAndInstallUpdate() {
     if (!hasUpdate_ || latestRelease_.assets.empty()) {
-        MessageBoxA(nullptr, "No update available or no assets found.", "Update Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"No update available or no assets found.", L"Update Error", MB_ICONERROR);
         return;
     }
     
@@ -145,7 +146,7 @@ void UpdateManager::DownloadAndInstallUpdate() {
         ApplyUpdate(downloadPath);
     } catch (const std::exception& e) {
         std::string error = "Update failed: " + std::string(e.what());
-        MessageBoxA(nullptr, error.c_str(), "Update Error", MB_ICONERROR);
+        MessageBoxW(nullptr, Str::Utf8ToWide(error).c_str(), L"Update Error", MB_ICONERROR);
     }
 }
 
@@ -254,14 +255,14 @@ INT_PTR CALLBACK UpdateManager::UpdateDialogProc(HWND hDlg, UINT message, WPARAM
                 pUpdateManager = reinterpret_cast<UpdateManager*>(lParam);
                 if (pUpdateManager) {
                     // Set version text
-                    SetDlgItemTextA(hDlg, IDC_UPDATE_VERSION, pUpdateManager->latestRelease_.tag_name.c_str());
+                    SetDlgItemTextW(hDlg, IDC_UPDATE_VERSION, Str::Utf8ToWide(pUpdateManager->latestRelease_.tag_name).c_str());
                     
                     // Set release notes
                     std::string notes = pUpdateManager->latestRelease_.body;
                     if (notes.empty()) {
                         notes = "No release notes available.";
                     }
-                    SetDlgItemTextA(hDlg, IDC_UPDATE_NOTES, notes.c_str());
+                    SetDlgItemTextW(hDlg, IDC_UPDATE_NOTES, Str::Utf8ToWide(notes).c_str());
                 }
                 
                 // Center the dialog

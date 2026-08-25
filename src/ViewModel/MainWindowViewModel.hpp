@@ -5,8 +5,8 @@
 #ifndef EASYMIC_MAINWINDOWVIEWMODEL_HPP
 #define EASYMIC_MAINWINDOWVIEWMODEL_HPP
 
-
-
+#include <atomic>
+#include <algorithm>
 #include "HotkeyManager.hpp"
 #include "RateLimiter.hpp"
 #include "SettingsWindowViewModel.hpp"
@@ -14,8 +14,10 @@
 #include "../Lib/UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
 #include "MainWindow/MainWindow.hpp"
+#include "View/Components/IndicatorLayout.hpp"
 #include "View/Core/BaseWindow.hpp"
-
+#include "Str.hpp"
+#include "NotificationTokens.hpp"
 #include "SoundCatalog.hpp"
 #include "CommandRunner.hpp"
 
@@ -26,16 +28,19 @@ using namespace Gdiplus;
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
     static constexpr UINT ID_PEAK_TIMER = WM_USER + 100;
+    static constexpr UINT ID_NOTIFICATION_TIMER = WM_USER + 101;
+    /// WM_APP, not WM_USER: the two above are timer ids and share nothing but the number line
+    static constexpr UINT WM_SHOW_NOTIFICATION = WM_APP + 1;
     static constexpr int PEAK_TIMER_INTERVAL_MS = 150;  // milliseconds
+    static constexpr int NOTIFICATION_DURATION_MS = 2000;
     static constexpr int PEAK_METER_DEBOUNCE_PHASES = 2;
     static constexpr const char *SHADOW_WINDOW_KEY = "EasymicIndicator";
-    
+
     // Window background color (RGBA)
     static constexpr BYTE WND_BG_R = 24;
     static constexpr BYTE WND_BG_G = 27;
     static constexpr BYTE WND_BG_B = 40;
     static constexpr BYTE WND_BG_ALPHA = 220;
-    static constexpr float WND_CORNER_RADIUS = 10.0f;
 
     int OnCaptureStateChangedId = -1;
     int OnCaptureSessionPropertyChangedId = -1;
@@ -63,17 +68,28 @@ private:
     Bitmap* bitmapToDisplay = nullptr;
 
     bool hasCaptureDevice = false;
-    bool captureDeviceMuted = false;
+    // Written from the WASAPI notification thread, read from the hotkey worker and the UI
+    std::atomic<bool> captureDeviceMuted = false;
     float captureDeviceVolume = -1.0f;
     int8_t _prevBellVolume = 25;
 
     bool isPeakMeterActive = false;
     int peakMeterPhase = 0;
 
+    IndicatorLayout _layout;
+    /// UI thread only - the worker hands its text over through the message queue. Empty is "none".
+    std::wstring _notificationText;
+    /// Where the user left the indicator. Widening it for a notification must not move this.
+    POINT _anchor{};
+    /// The device only publishes a new level from its callback, so the action that changed it
+    /// posts the value it just asked for - otherwise {volume} shows the previous one.
+    std::atomic<uint8_t> _volumePercent = 0;
 
-    void ShiftMicVolume(const int delta) const {
+    void ShiftMicVolume(const int delta) {
         const auto &mic = *_audio.CaptureDevice();
-        mic.SetVolumePercent(static_cast<BYTE>(std::clamp(mic.GetVolumePercent() + delta, 0, 100)));
+        const int target = std::clamp(mic.GetVolumePercent() + delta, 0, 100);
+        mic.SetVolumePercent(static_cast<BYTE>(target));
+        _volumePercent = static_cast<uint8_t>(target);
     }
 
     /// What each built-in id actually does. BuiltInActions::All describes how it is configured.
@@ -88,15 +104,90 @@ private:
     /// Push to talk is the one action that needs the key going up as well.
     const std::function<void()> releasePushToTalk = [this] { _audio.CaptureDevice()->SetMute(true); };
 
-    /// Wraps an action so it announces itself first. Runs on the hotkey worker, never in the hook.
-    std::function<void()> WithSound(std::function<void()> handler, const std::string& sound) const {
-        if (sound.empty()) {
-            return handler;
+    /// What an action announces. An empty text means the table default, so a config saved before
+    /// that default existed still gets one; the tokens that cannot differ between two presses are
+    /// resolved right here, which leaves the default free of braces and ExpandState with no work.
+    static std::string NotificationText(const std::string& text, const char* fallback,
+                                        const std::string& name, const uint64_t hotkey) {
+        const std::string source = text.empty() ? fallback : text;
+        if (source.empty()) {
+            return {};
         }
 
-        return [handler = std::move(handler), sound, hInstance = _view->GetHInstance()] {
-            SoundCatalog::Play(hInstance, sound);
+        auto resolved = Str::Replace(source, NotificationTokens::Name, name);
+        return resolved.find(NotificationTokens::Key) == std::string::npos
+                   ? resolved
+                   : Str::Replace(std::move(resolved), NotificationTokens::Key,
+                                  HotkeyManager::GetHotkeyName(hotkey));
+    }
+
+    /// Runs on the hotkey worker, after the action - a state token must read what it has just done.
+    std::string ExpandState(const std::string& text) const {
+        if (text.find('{') == std::string::npos) {
+            return text;
+        }
+
+        auto expanded = Str::Replace(text, NotificationTokens::Volume,
+                                     std::to_string(_volumePercent.load()));
+        return Str::Replace(std::move(expanded), NotificationTokens::Bell,
+                            _cfg.BellVolume > 0 ? "on" : "off");
+    }
+
+    /// The text travels with the message, so nothing is shared with the UI thread and nothing races.
+    /// Takes no view model state: a captured command may answer long after this one is gone, and a
+    /// window that no longer exists only costs a failed post.
+    static void PostNotification(HWND target, const std::string& text) {
+        if (text.empty()) {
+            return;
+        }
+
+        auto* payload = new std::wstring(Str::Utf8ToWide(text));
+        if (!PostMessageW(target, WM_SHOW_NOTIFICATION, 0, reinterpret_cast<LPARAM>(payload))) {
+            delete payload;
+        }
+    }
+
+    void ShowNotification(const std::string& text) const {
+        if (text.empty() || !_cfg.NotificationsEnabled) {
+            return;
+        }
+
+        PostNotification(_view->GetHandle(), ExpandState(text));
+    }
+
+    /// {stdout} in the text is what asks for the output, so it also picks how the command is run.
+    std::function<void()> CustomActionRunner(const std::string& command, const std::string& text) const {
+        if (!text.contains(NotificationTokens::Stdout)) {
+            return [command] { CommandRunner::Run(command); };
+        }
+
+        return [this, command, text] {
+            // Resolved before launching: only the view model can read the state tokens, and it is
+            // not safe to touch from the command thread that answers later
+            const std::string resolved = _cfg.NotificationsEnabled ? ExpandState(text) : std::string{};
+
+            CommandRunner::RunCaptured(command,
+                [target = _view->GetHandle(), resolved](const std::string& output) {
+                    PostNotification(target, Str::Replace(resolved, NotificationTokens::Stdout, output));
+                });
+        };
+    }
+
+    /// Wraps an action so it announces itself. Runs on the hotkey worker, never in the hook.
+    /// The sound comes first because it is the instant feedback, the text last because it reports.
+    std::function<void()> WithActionFeedback(std::function<void()> handler, std::string sound,
+                                             std::string notification) const {
+        if (sound.empty() && notification.empty()) {
+            return std::move(handler);
+        }
+
+        return [this, handler = std::move(handler), sound = std::move(sound),
+                notification = std::move(notification), hInstance = _view->GetHInstance()] {
+            if (!sound.empty()) {
+                SoundCatalog::Play(hInstance, sound);
+            }
             handler();
+            ShowNotification(notification);
         };
     }
 
@@ -110,8 +201,16 @@ public:
     }
 
 private:
+    void KillNotificationTimer() {
+        if (!_notificationText.empty()) {
+            KillTimer(_view->GetHandle(), ID_NOTIFICATION_TIMER);
+            _notificationText.clear();
+        }
+    }
+
     void SuspendActivity() {
         KillPeakMeter();
+        KillNotificationTimer();
         if (_view->IsOvershadowed()) {
             _view->Hide();
             _view->SetShadowHwnd(nullptr);
@@ -186,7 +285,10 @@ private:
             }
 
             const ActionBinding& binding = configured->second;
-            auto run = WithSound(handler->second, binding.Sound);
+            auto run = WithActionFeedback(handler->second, binding.Sound,
+                binding.ShowNotification ? NotificationText(binding.Notification, builtIn.DefaultNotification,
+                                                            builtIn.Title, binding.Hotkey)
+                                         : std::string{});
 
             registered |= HotkeyManager::RegisterHotkey(binding.Hotkey,
                 builtIn.HoldOnly ? HotkeyManager::HotkeyBinding{.onPress = std::move(run),
@@ -200,7 +302,14 @@ private:
                 continue;
             }
 
-            auto run = WithSound([command = action.Command] { CommandRunner::Run(command); }, action.Sound);
+            const std::string text = action.ShowNotification
+                ? NotificationText(action.Notification, BuiltInActions::DefaultNotification,
+                                   action.Name, action.Hotkey)
+                : std::string{};
+
+            // A captured command announces itself when it is done, so the wrapper must not do it too
+            auto run = WithActionFeedback(CustomActionRunner(action.Command, text), action.Sound,
+                                          text.contains(NotificationTokens::Stdout) ? std::string{} : text);
             registered |= HotkeyManager::RegisterHotkey(action.Hotkey, action.OnRelease
                 ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run)}
                 : HotkeyManager::HotkeyBinding{.onPress = std::move(run)});
@@ -220,7 +329,6 @@ private:
             _view->RefreshPos(HWND_TOPMOST);
         }
 
-
         const auto affinity = _cfg.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
         DWORD existingAffinity = 0;
         GetWindowDisplayAffinity(_view->GetEffectiveHandle(), &existingAffinity);
@@ -229,13 +337,69 @@ private:
             _view->IsOvershadowed()
                                     ? UIAccessManager::InjectDisplayAffinity(_view->GetEffectiveHandle(), affinity)
                                     : SetWindowDisplayAffinity(_view->GetHandle(), affinity);
-
         }
-
 
         UpdateDevice();
     }
 
+    /// Whether the mic pill may be on screen at all - config and live sessions, no mute state.
+    bool MicAllowed() const {
+        return hasCaptureDevice && _cfg.IndicatorState != IndicatorState::Hidden
+               && (!_cfg.HideWhenInactive || _audio.CaptureDevice()->GetActiveSessionsCount() > 0);
+    }
+
+    /// Muted is the only thing the pill shows by itself - the peak meter overrides it while talking.
+    void RefreshMicBitmap() {
+        bitmapToDisplay = (MicAllowed() && captureDeviceMuted) ? mutedBitmap.get() : nullptr;
+    }
+
+    /// The text pill must not shove the mic pill sideways, so it grows to the right - or to the
+    /// left instead, when the right edge of the work area is in the way.
+    LONG NotificationOriginX() const {
+        const int overhang = _layout.totalWidth - _layout.height;
+        if (overhang <= 0) {
+            return _anchor.x;
+        }
+
+        MONITORINFO info{sizeof(MONITORINFO)};
+        const HMONITOR monitor = MonitorFromPoint(_anchor, MONITOR_DEFAULTTONEAREST);
+        const bool spillsOver = monitor && GetMonitorInfoW(monitor, &info)
+                                && _anchor.x + _layout.totalWidth > info.rcWork.right;
+
+        return spillsOver ? _anchor.x - overhang : _anchor.x;
+    }
+
+    /// The one place that decides whether the indicator is on screen and how wide it is.
+    void UpdateIndicatorLayout() {
+        if (!_layout.hasText) {
+            _anchor = {_view->GetPositionX(), _view->GetPositionY()};
+        }
+
+        _layout = IndicatorLayout::Compute(_cfg.IndicatorSize, bitmapToDisplay != nullptr,
+                                           _notificationText);
+
+        // "Muted or talking" keeps an empty window up on purpose: the peak meter only ticks while
+        // the indicator is visible, and it is what discovers that the mic went live
+        const bool waitsForPeak = _cfg.IndicatorState == IndicatorState::MutedOrTalk && MicAllowed();
+
+        if (!_layout.hasText && !_layout.hasMic && !waitsForPeak) {
+            KillPeakMeter();
+            _view->Hide();
+            return;
+        }
+
+        // Seeded from the anchor every time, so the work-area clamp inside RefreshPos stays
+        // transient instead of walking the indicator across the screen notification by notification
+        _view->SetPositionX(NotificationOriginX())
+             ->SetPositionY(_anchor.y)
+             ->SetWidth(_layout.totalWidth)
+             ->SetHeight(_layout.height);
+
+        _view->Show();
+        _view->RefreshPos(HWND_TOPMOST);
+        _view->Invalidate();
+        SyncPeakMeter();
+    }
 
     void OnTrayMenuCommand(UINT_PTR commandId) {
         switch (commandId) {
@@ -246,15 +410,12 @@ private:
                 ToggleBellSound();
                 break;
             case ID_APP_SETTINGS:
-
                 if (_settingsWindow) {
                     return;
                 }
-                // DetachListeners();
                 SuspendActivity();
                 bitmapToDisplay = unmutedBitmap.get();
-                _view->Invalidate();
-                _view->Show();
+                UpdateIndicatorLayout();
                 _settingsWindow = std::make_shared<SettingsWindow>(_view->GetHInstance());
                 _settingsWindow->AttachViewModel<SettingsWindowViewModel>(_cfg, _audio);
 
@@ -272,26 +433,44 @@ private:
         }
     }
 
+    /// Draws what UpdateIndicatorLayout already measured - no geometry is decided here.
     void OnRender(const RenderContext &ctx) {
-        if (!bitmapToDisplay) {
+        if (!_layout.hasMic && !_layout.hasText) {
             return;
         }
 
-        GraphicsPath path;
-        RectF rect(0, 0, static_cast<float>(ctx.width), static_cast<float>(ctx.height));
-
-        GDIRenderer::CreateRoundedRectPath(path, rect, WND_CORNER_RADIUS);
+        const auto pillHeight = static_cast<float>(_layout.height);
         SolidBrush brush(Color(WND_BG_ALPHA, WND_BG_R, WND_BG_G, WND_BG_B));
-        ctx.graphics->FillPath(&brush, &path);
 
-        const auto iconSize = _cfg.IndicatorSize;
+        if (_layout.hasMic) {
+            GraphicsPath micPath;
+            GDIRenderer::CreateRoundedRectPath(micPath, RectF(0, 0, pillHeight, pillHeight),
+                                               IndicatorLayout::CornerRadius);
+            ctx.graphics->FillPath(&brush, &micPath);
 
-        ctx.graphics->DrawImage(bitmapToDisplay,
-                                ctx.width / 2 - iconSize / 2,
-                                ctx.height / 2 - iconSize / 2,
-                                iconSize,
-                                iconSize
-        );
+            const int inset = (_layout.height - _layout.iconSize) / 2;
+            ctx.graphics->DrawImage(bitmapToDisplay, inset, inset, _layout.iconSize, _layout.iconSize);
+        }
+
+        if (!_layout.hasText) {
+            return;
+        }
+
+        const RectF textRect(static_cast<float>(_layout.textX), 0,
+                             static_cast<float>(_layout.textWidth), pillHeight);
+
+        GraphicsPath textPath;
+        GDIRenderer::CreateRoundedRectPath(textPath, textRect, IndicatorLayout::CornerRadius);
+        ctx.graphics->FillPath(&brush, &textPath);
+
+        StringFormat format;
+        format.SetAlignment(StringAlignmentCenter);
+        format.SetLineAlignment(StringAlignmentCenter);
+
+        const auto font = _layout.MakeFont();
+        SolidBrush textBrush(Color(255, 240, 240, 240));
+        ctx.graphics->SetTextRenderingHint(TextRenderingHintAntiAlias);
+        ctx.graphics->DrawString(_notificationText.c_str(), -1, &font, textRect, &format, &textBrush);
     }
 
     void CaptureDeviceStateChanged(bool silent) {
@@ -301,21 +480,23 @@ private:
             _view->UpdateTrayTooltip(L"Easymic - No device");
             bitmapToDisplay = nullptr;
             RefreshTrayIcon();
-            _view->Hide();
+            UpdateIndicatorLayout();
             return;
         }
 
-        bitmapToDisplay = captureDeviceMuted ? mutedBitmap.get() : nullptr;
+        RefreshMicBitmap();
         RefreshTrayIcon();
-        _view->Invalidate();
-        SyncPeakMeter();
+        UpdateIndicatorLayout();
+
+        // The device has spoken, so whatever an action optimistically published is now stale
+        _volumePercent = mic.GetVolumePercent();
 
         constexpr auto bufferSize = 255;
 
         wchar_t buffer[bufferSize];
         swprintf(buffer, bufferSize, L"Easymic - %ls [%d%%]",
                  mic.GetDeviceName(),
-                 mic.GetVolumePercent());
+                 _volumePercent.load());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 
         // Mic state feedback: fires for a mute from anywhere, not just from our own hotkey
@@ -330,21 +511,12 @@ private:
         hasCaptureDevice = mic.IsInitialized();
         captureDeviceMuted = mic.IsMuted();
         captureDeviceVolume = mic.GetVolumeLevel();
+        _volumePercent = mic.GetVolumePercent();
 
         AdjustMicVolume();
         AdjustAppVolume();
 
         CaptureDeviceStateChanged(true);
-        const auto activeSessions = _audio.CaptureDevice()->GetActiveSessionsCount();
-
-        if (!hasCaptureDevice || _cfg.IndicatorState == IndicatorState::Hidden || (_cfg.HideWhenInactive && activeSessions == 0)) {
-            KillPeakMeter();
-            _view->Hide();
-            return;
-        }
-
-        _view->Show();
-        SyncPeakMeter();
     }
 
     /// Polling the peak meter costs a WASAPI call every tick, so it only runs while it can
@@ -427,19 +599,39 @@ public:
             RefreshTrayIcon();
         });
 
+        _view->SetOnRelayout([this] { UpdateIndicatorLayout(); });
+
+        _view->RegisterMessageHandler(WM_SHOW_NOTIFICATION, [this](WPARAM, LPARAM lParam) {
+            const std::unique_ptr<std::wstring> payload(reinterpret_cast<std::wstring*>(lParam));
+            _notificationText = std::move(*payload);
+
+            // Same id, so a second action while the first is still up just restarts the countdown
+            SetTimer(_view->GetHandle(), ID_NOTIFICATION_TIMER, NOTIFICATION_DURATION_MS, nullptr);
+            UpdateIndicatorLayout();
+            return 0;
+        });
+
         _view->SetTimerCallback([this](UINT_PTR timerId) {
-            const auto peak = _audio.CaptureDevice()->GetPeak();
-            if (peak > _cfg.IndicatorVolumeThreshold) {
-                if (!peakMeterPhase) {
-                    OutputDebugStringA("The microphone has become active\n");
-                    bitmapToDisplay = activeBitmap.get();
-                    peakMeterPhase = PEAK_METER_DEBOUNCE_PHASES;
-                    _view->Invalidate();
+            if (timerId == ID_NOTIFICATION_TIMER) {
+                KillNotificationTimer();
+                UpdateIndicatorLayout();
+                return;
+            }
+
+            if (timerId == ID_PEAK_TIMER) {
+                const auto peak = _audio.CaptureDevice()->GetPeak();
+                if (peak > _cfg.IndicatorVolumeThreshold) {
+                    if (!peakMeterPhase) {
+                        OutputDebugStringW(L"The microphone has become active\n");
+                        bitmapToDisplay = activeBitmap.get();
+                        peakMeterPhase = PEAK_METER_DEBOUNCE_PHASES;
+                        UpdateIndicatorLayout();
+                    }
+                } else if (peakMeterPhase && (--peakMeterPhase) == 0) {
+                    OutputDebugStringW(L"The microphone has become inactive\n");
+                    RefreshMicBitmap();
+                    UpdateIndicatorLayout();
                 }
-            } else if (peakMeterPhase && (--peakMeterPhase) == 0) {
-                OutputDebugStringA("The microphone has become inactive\n");
-                bitmapToDisplay = captureDeviceMuted ? mutedBitmap.get() : nullptr;
-                _view->Invalidate();
             }
         });
 

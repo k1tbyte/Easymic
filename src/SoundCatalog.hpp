@@ -7,6 +7,7 @@
 
 #include "Resource.hpp"
 #include "Resources/Resource.h"
+#include "Str.hpp"
 
 /**
  * @brief The single registry every sound picker and every playback site goes through.
@@ -50,12 +51,13 @@ namespace SoundCatalog {
             // The buffer points into the module image, so it outlives the async playback
             const Resource resource = Resource::FromModule(hInstance, MAKEINTRESOURCEA(bundled->ResourceId), "WAVE");
             if (!resource.empty()) {
-                PlaySoundA(reinterpret_cast<LPCSTR>(resource.buffer()), nullptr, SND_ASYNC | SND_MEMORY);
+                // SND_MEMORY takes a buffer, not a string - the W entry point is the same call
+                PlaySoundW(reinterpret_cast<LPCWSTR>(resource.buffer()), nullptr, SND_ASYNC | SND_MEMORY);
             }
             return;
         }
 
-        PlaySoundA(sound.c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
+        PlaySoundW(Str::Utf8ToWide(sound).c_str(), nullptr, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);
     }
 }
 
