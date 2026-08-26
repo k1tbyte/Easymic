@@ -29,6 +29,9 @@ enum class IndicatorState {
 struct ActionBinding {
     uint64_t Hotkey = 0;
     bool OnRelease  = false;
+    /// How many times the combination is pressed in a row to run this. One combination can drive
+    /// several actions as long as the count differs.
+    uint8_t Presses = 1;
     /// SoundCatalog key or a file path, empty means silent.
     std::string Sound;
     /// Overlay text shown when the action fires, {token} aware. Empty falls back to the built-in
@@ -47,6 +50,7 @@ struct CustomAction {
     std::string Notification;
     uint64_t Hotkey  = 0;
     bool OnRelease   = false;
+    uint8_t Presses  = 1;
     bool ShowNotification = true;
 
     bool operator==(const CustomAction&) const = default;
@@ -72,6 +76,8 @@ struct AppConfig {
     bool HideWhenInactive          = true;
     /// Master switch for the on-screen action notifications; per action, an empty text is the off.
     bool NotificationsEnabled      = true;
+    /// How long a combination waits for another press before it decides how many there were.
+    uint16_t MultiPressWindowMs    = 200;
     /// Bumped by Load once the migration for that revision has run. 0 means "written before
     /// migrations existed", which is why it must not default to the current revision.
     int32_t Version = 0;

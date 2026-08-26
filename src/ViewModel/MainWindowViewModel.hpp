@@ -71,9 +71,18 @@ private:
     std::function<void()> MakeBuiltInHandler(const BuiltInId id) {
         switch (id) {
             case BuiltInId::ToggleMute:
-                return [this] { _audio.CaptureDevice()->ToggleMute(); };
+                // The device only reports a new mute from its callback, so the action publishes
+                // what it just asked for - the same trick {volume} uses, or {mic} would report
+                // the state the microphone was in before the key was pressed
+                return [this] {
+                    _audio.CaptureDevice()->ToggleMute();
+                    _feedback.PublishMicMuted(!_feedback.MicMuted());
+                };
             case BuiltInId::PushToTalk:
-                return [this] { _audio.CaptureDevice()->SetMute(false); };
+                return [this] {
+                    _audio.CaptureDevice()->SetMute(false);
+                    _feedback.PublishMicMuted(false);
+                };
             case BuiltInId::MicVolumeUp:
                 return [this] { ShiftMicVolume(10); };
             case BuiltInId::MicVolumeDown:
@@ -92,7 +101,10 @@ private:
     }
 
     /// Push to talk is the one action that needs the key going up as well.
-    const std::function<void()> _releasePushToTalk = [this] { _audio.CaptureDevice()->SetMute(true); };
+    const std::function<void()> _releasePushToTalk = [this] {
+        _audio.CaptureDevice()->SetMute(true);
+        _feedback.PublishMicMuted(true);
+    };
 
 public:
     MainWindowViewModel(BaseWindow* baseView, AppConfig& config, AudioManager& audioManager)
@@ -154,10 +166,11 @@ private:
         _cfg.Save();
     }
 
-    /// Everything an action needs to fire: its combination, its feedback and which edge it runs on.
-    bool RegisterAction(const uint64_t hotkey, std::function<void()> run, const bool onRelease,
-                        const bool holdOnly) {
-        return HotkeyManager::RegisterHotkey(hotkey,
+    /// Everything an action needs to fire: its combination, how many presses of it, its feedback
+    /// and which edge it runs on.
+    bool RegisterAction(const uint64_t hotkey, const uint8_t presses, std::function<void()> run,
+                        const bool onRelease, const bool holdOnly) {
+        return HotkeyManager::RegisterHotkey(hotkey, presses ? presses : 1,
             holdOnly ? HotkeyManager::HotkeyBinding{.onPress = std::move(run),
                                                     .onRelease = _releasePushToTalk}
             : onRelease ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run)}
@@ -189,8 +202,8 @@ private:
                                                                    builtIn.Title, binding.Hotkey)
                                          : std::string{});
 
-            registered |= RegisterAction(binding.Hotkey, std::move(run), binding.OnRelease,
-                                         builtIn.HoldOnly);
+            registered |= RegisterAction(binding.Hotkey, binding.Presses, std::move(run),
+                                         binding.OnRelease, builtIn.HoldOnly);
         }
 
         for (const auto& action : _cfg.CustomActions) {
@@ -207,7 +220,8 @@ private:
             auto run = _feedback.Wrap(_feedback.ForCommand(action.Command, text), action.Sound,
                                       text.contains(Tokens::Stdout) ? std::string{} : text);
 
-            registered |= RegisterAction(action.Hotkey, std::move(run), action.OnRelease, false);
+            registered |= RegisterAction(action.Hotkey, action.Presses, std::move(run),
+                                         action.OnRelease, false);
         }
 
         return registered;
@@ -230,6 +244,7 @@ private:
     void RestoreConfig() {
         _audio.WatchForCaptureSessions();
         HotkeyManager::ClearHotkeys();
+        HotkeyManager::SetMultiPressWindow(_cfg.MultiPressWindowMs);
         _feedback.PublishBellEnabled(_cfg.BellVolume > 0);
 
 #ifndef EASYMIC_NO_GLOBAL_HOOKS
@@ -393,6 +408,8 @@ private:
         const auto mic = _audio.CaptureDevice();
         _hasCaptureDevice = mic->IsInitialized();
         _captureDeviceMuted = mic->IsMuted();
+        // No device is not "live" either, so {mic} reads off rather than claiming an open mic
+        _feedback.PublishMicMuted(!_hasCaptureDevice || _captureDeviceMuted);
         _captureDeviceVolume = mic->GetVolumeLevel();
         _feedback.PublishVolumePercent(mic->GetVolumePercent());
 
@@ -426,6 +443,7 @@ private:
         _audio.OnCaptureStateChanged += [this](bool muted, float level) {
             const bool silent = _captureDeviceMuted == muted;
             _captureDeviceMuted = muted;
+            _feedback.PublishMicMuted(muted);
             CaptureDeviceStateChanged(silent);
 
             if (level != _captureDeviceVolume) {

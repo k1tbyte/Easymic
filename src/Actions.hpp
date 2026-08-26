@@ -43,7 +43,7 @@ namespace BuiltInActions {
 
     /**
      * @brief What a notification says. {name} and {key} are resolved when the hotkey is registered,
-     * {volume} and {bell} when it fires - see ActionFeedback.
+     * {volume}, {mic} and {bell} when it fires - see ActionFeedback.
      */
     inline constexpr char DefaultNotification[] = "{name} triggered";
 
@@ -51,8 +51,9 @@ namespace BuiltInActions {
 
     inline constexpr BuiltInAction All[] = {
         // Push to talk says nothing: on a held key the text would flicker with every tap.
-        // Toggle mute says nothing about state either - the indicator icon already shows it.
-        {BuiltInId::ToggleMute,      "Toggle mute",       "Toggle mute",       "",     DefaultNotification, false, false},
+        // Toggle mute reports the state rather than the press - the indicator shows it too, but
+        // it can be turned off, and then this is the only thing that says which way it went.
+        {BuiltInId::ToggleMute,      "Toggle mute",       "Toggle mute",       "",     "Mic {mic}",         false, false},
         {BuiltInId::PushToTalk,      "Push to talk",      "Push to talk",      "",     "",                  false, true },
         {BuiltInId::MicVolumeUp,     "Mic volume up",     "Mic volume up",     "Tick", "Mic {volume}%",     true,  false},
         {BuiltInId::MicVolumeDown,   "Mic volume down",   "Mic volume down",   "Tick", "Mic {volume}%",     true,  false},

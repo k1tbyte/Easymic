@@ -10,6 +10,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <deque>
+#include <vector>
+#include <chrono>
 #include "Win32Hook.hpp"
 #include "definitions.h"
 
@@ -273,7 +275,12 @@ constexpr std::array<uint8_t, 256> MakeModifierTable() {
 
 namespace  HotkeyManager {
     uint64_t _sequenceMask = 0;
-    std::unordered_map <uint64_t, HotkeyBinding> _hotkeys;
+
+    /// Every binding of one combination, indexed by press count minus one. A count nobody bound
+    /// is a default entry, and _enqueue already ignores an empty function - so an exact match is
+    /// all this has to express, and a gap in the range costs no branch of its own.
+    using MaskBindings = std::vector<HotkeyBinding>;
+    std::unordered_map<uint64_t, MaskBindings> _hotkeys;
     BindingCallback _onBindingCallback = nullptr;
 
 
@@ -291,29 +298,81 @@ namespace  HotkeyManager {
     std::deque<std::function<void()>> _actionQueue;
     bool _actionStop = false;
 
+    /// How long a combination waits for another press before it resolves. Only a mask with more
+    /// than one bound count ever waits - everything else fires on the press, as it always did.
+    std::chrono::milliseconds _multiPressWindow{200};
+
+    // The press being counted, guarded by _actionMutex. Free of extra cost: _dispatch already
+    // takes that lock on every hotkey, so the hook is not entering anything new.
+    uint64_t _pendingMask = 0;
+    uint8_t _pendingCount = 0;
+    std::chrono::steady_clock::time_point _pendingDeadline{};
+
+    /// Caller holds _actionMutex. An unbound count is an empty function and simply falls through.
+    void _enqueue(std::function<void()> action) {
+        if (action) {
+            _actionQueue.push_back(std::move(action));
+        }
+    }
+
     void _dispatch(std::function<void()> action) {
         if (!action) {
             return;
         }
         {
             std::lock_guard lock(_actionMutex);
-            _actionQueue.push_back(std::move(action));
+            _enqueue(std::move(action));
         }
         _actionCv.notify_one();
     }
 
+    void _clearPending() {
+        _pendingMask = 0;
+        _pendingCount = 0;
+    }
+
+    /// The window closed without another press, so the count is final. Caller holds _actionMutex.
+    void _resolvePending() {
+        if (const auto it = _hotkeys.find(_pendingMask);
+            it != _hotkeys.end() && _pendingCount && _pendingCount <= it->second.size()) {
+            _enqueue(it->second[_pendingCount - 1].onPress);
+        }
+        _clearPending();
+    }
+
+    /**
+     * @brief Runs queued actions and closes the multi-press window.
+     *
+     * The window is a timed wait, never a sleep: a hotkey pressed while one is open still runs
+     * the moment it is queued. The predicate-less overload is deliberate - the one that takes a
+     * predicate loops on the deadline it was given, so a press that extends the window would not
+     * be noticed until the original deadline had passed.
+     */
     void _actionLoop() {
         std::unique_lock lock(_actionMutex);
         while (true) {
-            _actionCv.wait(lock, [] { return _actionStop || !_actionQueue.empty(); });
             if (_actionStop && _actionQueue.empty()) {
                 return;
             }
-            auto action = std::move(_actionQueue.front());
-            _actionQueue.pop_front();
-            lock.unlock();
-            action();
-            lock.lock();
+
+            if (!_actionQueue.empty()) {
+                auto action = std::move(_actionQueue.front());
+                _actionQueue.pop_front();
+                lock.unlock();
+                action();
+                lock.lock();
+                continue;
+            }
+
+            if (!_pendingMask) {
+                _actionCv.wait(lock);
+                continue;
+            }
+
+            _actionCv.wait_until(lock, _pendingDeadline);
+            if (_pendingMask && std::chrono::steady_clock::now() >= _pendingDeadline) {
+                _resolvePending();
+            }
         }
     }
 
@@ -322,6 +381,7 @@ namespace  HotkeyManager {
             std::lock_guard lock(_actionMutex);
             _actionStop = true;
             _actionQueue.clear();
+            _clearPending();
         }
         _actionCv.notify_one();
         if (_actionWorker.joinable()) {
@@ -329,23 +389,64 @@ namespace  HotkeyManager {
         }
     }
 
-    void _raiseAction(const Keys::State state, const uint8_t vkCode) {
-        const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
-
-        const auto fire = [state](const HotkeyBinding& binding) {
-            _dispatch(state == Keys::State::KEY_PRESSED ? binding.onPress : binding.onRelease);
-        };
-
-        if (const auto it = _hotkeys.find(singleMask); it != _hotkeys.end()) {
-            fire(it->second);
-        }
-
-        if (singleMask == _sequenceMask) {
+    /**
+     * @brief Hands one combination's action to the worker, counting presses when it has to.
+     *
+     * One rule decides everything: a count that has reached the highest one bound on this mask
+     * fires at once, anything below it waits for the window to close. A mask with nothing but a
+     * single press bound has a maximum of one, so it still fires on the press itself - the wait
+     * is paid only where the user actually bound more than one count.
+     */
+    void _fire(const Keys::State state, const uint64_t mask) {
+        const auto it = _hotkeys.find(mask);
+        if (it == _hotkeys.end() || it->second.empty()) {
             return;
         }
 
-        if (const auto it = _hotkeys.find(_sequenceMask); it != _hotkeys.end()) {
-            fire(it->second);
+        const MaskBindings& bindings = it->second;
+
+        if (bindings.size() == 1) {
+            _dispatch(state == Keys::State::KEY_PRESSED ? bindings[0].onPress : bindings[0].onRelease);
+            return;
+        }
+
+        // Counting only means anything on the press, and a mask that counts cannot also answer
+        // the release: it would run the single-press action on the way up and again when the
+        // window closed. Held actions keep both edges - nothing above one count is bound to them.
+        if (state != Keys::State::KEY_PRESSED) {
+            return;
+        }
+
+        {
+            std::lock_guard lock(_actionMutex);
+            const auto now = std::chrono::steady_clock::now();
+
+            // Another combination, or too long a pause, ends the previous wait on its own terms
+            // rather than swallowing the action the user already asked for
+            if (_pendingMask && (_pendingMask != mask || now >= _pendingDeadline)) {
+                _resolvePending();
+            }
+
+            _pendingMask = mask;
+            _pendingCount++;
+
+            if (_pendingCount >= bindings.size()) {
+                _enqueue(bindings[_pendingCount - 1].onPress);
+                _clearPending();
+            } else {
+                _pendingDeadline = now + _multiPressWindow;
+            }
+        }
+        _actionCv.notify_one();
+    }
+
+    void _raiseAction(const Keys::State state, const uint8_t vkCode) {
+        const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
+
+        _fire(state, singleMask);
+
+        if (singleMask != _sequenceMask) {
+            _fire(state, _sequenceMask);
         }
     }
 
@@ -520,10 +621,40 @@ namespace  HotkeyManager {
         return modifierResult.append(result);
     }
 
-    bool RegisterHotkey(const uint64_t keysMask, const HotkeyBinding &binding, const bool overwrite) {
-        return overwrite ?
-           _hotkeys.insert_or_assign(keysMask, binding).second :
-           _hotkeys.try_emplace(keysMask, binding).second;
+    /**
+     * @brief Binds an action to a combination pressed a given number of times in a row.
+     *
+     * The slot is the count, so two actions on one combination no longer collide - what has to
+     * be unique is the pair. Registering a high count with nothing below it leaves the counts in
+     * between empty on purpose: they are the ones that must stay silent.
+     */
+    bool RegisterHotkey(const uint64_t keysMask, const uint8_t presses, const HotkeyBinding &binding,
+                        const bool overwrite) {
+        if (!presses) {
+            return false;
+        }
+
+        MaskBindings& bindings = _hotkeys[keysMask];
+
+        // Checked before the resize, or a rejected registration would still raise the maximum
+        // and make every count below it start waiting for a press that can never resolve
+        const bool taken = presses <= bindings.size()
+                           && (bindings[presses - 1].onPress || bindings[presses - 1].onRelease);
+        if (taken && !overwrite) {
+            return false;
+        }
+
+        if (bindings.size() < presses) {
+            bindings.resize(presses);
+        }
+
+        bindings[presses - 1] = binding;
+        return true;
+    }
+
+    void SetMultiPressWindow(const uint16_t milliseconds) {
+        std::lock_guard lock(_actionMutex);
+        _multiPressWindow = std::chrono::milliseconds{milliseconds};
     }
 
 
@@ -571,7 +702,9 @@ namespace  HotkeyManager {
     }
 
     void ClearHotkeys() {
+        std::lock_guard lock(_actionMutex);
         _hotkeys.clear();
+        _clearPending();
     }
 
     void Dispose() {
@@ -580,6 +713,7 @@ namespace  HotkeyManager {
         _stopWorker();
         _sequenceMask = 0;
         _hotkeys.clear();
+        _clearPending();
         memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));
     }
 }
