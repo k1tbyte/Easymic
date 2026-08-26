@@ -12,7 +12,7 @@
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    auto *const mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+    auto *mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
 
     // App is running - shutdown duplicate
     if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
@@ -35,12 +35,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     static AppConfig config = AppConfig::Load();
 
     if (config.IsSkipUACEnabled && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
+        // The elevated instance claims this very name, and the name lives as long as a handle is
+        // open - hand it over before starting it, or it shuts itself down as a duplicate
+        CloseHandle(mutex);
+        mutex = nullptr;
+
         if (UAC::RunWithSkipUAC()) {
-            // Successfully started elevated instance, close this one
-            ReleaseMutex(mutex);
+            return 0;
+        }
+
+        // Handoff failed - take the name back, unless the elevated instance got it anyway
+        mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+        if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
             CloseHandle(mutex);
             return 0;
         }
+
         MessageBoxW(nullptr,
             L"Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
             L"UAC Bypass Failed",
@@ -106,7 +116,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // std::terminate - every clean exit used to end in a crash report
     HotkeyManager::Dispose();
 
-    ReleaseMutex(mutex);
     CloseHandle(mutex);
     return 0;
 }
