@@ -44,7 +44,13 @@ namespace HotkeyManager {
     };
 
     std::string GetHotkeyName(uint64_t keysMask);
-    bool RegisterHotkey(uint64_t keysMask, const HotkeyBinding& binding, bool overwrite = false);
+    /// Binds an action to a combination pressed `presses` times in a row. Two actions may share
+    /// a combination as long as the count differs; only the pair has to be unique.
+    bool RegisterHotkey(uint64_t keysMask, uint8_t presses, const HotkeyBinding& binding,
+                        bool overwrite = false);
+    /// How long a combination waits for another press. Only a combination with more than one
+    /// bound count ever waits - everything else still fires on the press itself.
+    void SetMultiPressWindow(uint16_t milliseconds);
     void BindStart(const BindingCallback& callback);
     void BindStop();
     /// False when the hooks are already up or the OS refused them - never throws, it is called

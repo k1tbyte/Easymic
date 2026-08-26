@@ -30,7 +30,9 @@ namespace {
      * fill: guessing the scrollbar width instead leaves a dead gap while the list still fits.
      */
     void LayoutActionColumns(HWND hwndList) {
-        constexpr int percents[] = {34, 30, 0}; // the last one takes what is left
+        // The hotkey column carries the combination, the press count and the release marker,
+        // so it is the one that must not truncate
+        constexpr int percents[] = {32, 38, 0}; // the last one takes what is left
 
         RECT clientRect;
         GetClientRect(hwndList, &clientRect);

@@ -38,10 +38,12 @@ private:
 
     // UI Helper Methods
     void InitializeGeneralSection(HWND hWnd) const;
+    void InitializeHotkeysSection(HWND hWnd) const;
     void InitializeIndicatorSection(HWND hWnd) const;
     void InitializeSoundsSection(HWND hWnd) const;
     void RefreshActionRows() const;
-    void ClearHotkey(uint64_t mask, const std::string& exceptBuiltIn, int exceptCustomIndex);
+    void ClearHotkey(uint64_t mask, uint8_t presses, const std::string& exceptBuiltIn,
+                     int exceptCustomIndex);
     void EditBuiltInAction(const BuiltInAction& builtIn);
     void EditCustomAction(int customIndex);
     void InitializeAboutSection(HWND hWnd);

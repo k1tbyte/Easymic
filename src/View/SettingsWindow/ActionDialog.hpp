@@ -21,6 +21,8 @@ struct ActionEdit {
     std::string Notification; // overlay text, {token} aware
     uint64_t Hotkey = 0;
     bool OnRelease = false;
+    /// How many presses of the combination in a row run this action.
+    uint8_t Presses = 1;
     bool ShowNotification = true;
 
     bool IsCustom = false;    // shows the name and command rows

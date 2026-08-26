@@ -102,6 +102,23 @@ namespace {
                      reinterpret_cast<LPARAM>(Str::Utf8ToWide(Tokens::All[chosen - 1].Text).c_str()));
     }
 
+    /// The counts a combination can be bound to. More than a handful is not pressable.
+    constexpr int MaxPresses = 5;
+
+    int SelectedPresses(HWND dialog) {
+        const auto index = SendDlgItemMessageW(dialog, IDC_ACTION_PRESSES, CB_GETCURSEL, 0, 0);
+        return index == CB_ERR ? 1 : static_cast<int>(index) + 1;
+    }
+
+    /// Counting presses happens on the way down, so a counted action cannot also answer the
+    /// release - the single press would run on the way up and again when the window closed.
+    void SetOnReleaseEnabled(HWND dialog, const bool enabled) {
+        if (!enabled) {
+            CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, BST_UNCHECKED);
+        }
+        EnableWindow(GetDlgItem(dialog, IDC_ACTION_ON_RELEASE), enabled);
+    }
+
     void SetNotificationEnabled(HWND dialog, const bool enabled) {
         EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION), enabled);
         EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION_TOKENS), enabled);
@@ -120,6 +137,7 @@ namespace {
         }
 
         if (action.HoldOnly) {
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_PRESSES_LABEL, IDC_ACTION_PRESSES});
             DialogControls::CollapseRow(dialog, {IDC_ACTION_ON_RELEASE});
         }
 
@@ -142,6 +160,14 @@ namespace {
                 CheckDlgButton(dialog, IDC_ACTION_NOTIFICATION_ENABLED,
                                action.ShowNotification ? BST_CHECKED : BST_UNCHECKED);
                 SetNotificationEnabled(dialog, action.ShowNotification);
+
+                for (int presses = 1; presses <= MaxPresses; presses++) {
+                    SendDlgItemMessageW(dialog, IDC_ACTION_PRESSES, CB_ADDSTRING, 0,
+                                        reinterpret_cast<LPARAM>(std::to_wstring(presses).c_str()));
+                }
+                SendDlgItemMessageW(dialog, IDC_ACTION_PRESSES, CB_SETCURSEL,
+                                    (action.Presses ? action.Presses : 1) - 1, 0);
+                SetOnReleaseEnabled(dialog, action.Presses <= 1);
                 CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, action.OnRelease ? BST_CHECKED : BST_UNCHECKED);
                 SetHotkeyButtonText(dialog, action.Hotkey);
                 DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
@@ -195,6 +221,12 @@ namespace {
                             DialogControls::IsChecked(dialog, IDC_ACTION_NOTIFICATION_ENABLED));
                         return TRUE;
 
+                    case IDC_ACTION_PRESSES:
+                        if (HIWORD(wParam) == CBN_SELCHANGE) {
+                            SetOnReleaseEnabled(dialog, SelectedPresses(dialog) <= 1);
+                        }
+                        return TRUE;
+
                     case IDC_ACTION_NOTIFICATION_TOKENS:
                         ShowTokenMenu(dialog, IDC_ACTION_NOTIFICATION, IDC_ACTION_NOTIFICATION_TOKENS,
                                       Tokens::Notification, action.IsCustom);
@@ -235,7 +267,9 @@ namespace {
                             action.Command = std::move(command);
                         }
 
-                        action.OnRelease = !action.HoldOnly
+                        action.Presses = action.HoldOnly ? uint8_t{1}
+                                                        : static_cast<uint8_t>(SelectedPresses(dialog));
+                        action.OnRelease = !action.HoldOnly && action.Presses == 1
                                            && IsDlgButtonChecked(dialog, IDC_ACTION_ON_RELEASE) == BST_CHECKED;
                         action.Sound = action.HasSound
                                        ? DialogControls::ResolveSound(GetDlgItem(dialog, IDC_ACTION_SOUND),

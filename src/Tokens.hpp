@@ -14,6 +14,7 @@ namespace Tokens {
     inline constexpr char Name[]   = "{name}";
     inline constexpr char Key[]    = "{key}";
     inline constexpr char Volume[] = "{volume}";
+    inline constexpr char Mic[]    = "{mic}";
     inline constexpr char Bell[]   = "{bell}";
     inline constexpr char Stdout[] = "{stdout}";
     inline constexpr char Dir[]    = "{dir}";
@@ -37,6 +38,7 @@ namespace Tokens {
         {Name,   "Action name",                             Notification, false},
         {Key,    "Key combination",                         Notification, false},
         {Volume, "Microphone volume, 0-100",                Notification, false},
+        {Mic,    "Microphone, on or off",                   Notification, false},
         {Bell,   "Bell sound, on or off",                   Notification, false},
         {Stdout, "Command output - waits for it to finish", Notification, true },
         {Dir,    "Folder the active Explorer tab shows",    Command,      true },

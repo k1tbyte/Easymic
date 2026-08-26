@@ -65,6 +65,8 @@
 #define IDD_SETTINGS_HOTKEYS                        401
 #define IDC_HOTKEYS_LIST                            402
 #define IDC_HOTKEYS_TITLE                           403
+#define IDC_HOTKEYS_WINDOW_LABEL                    404
+#define IDC_HOTKEYS_WINDOW_TRACKBAR                 405
 
 
 #define IDD_ACTION_EDIT                              451
@@ -83,6 +85,8 @@
 #define IDC_ACTION_NOTIFICATION_ENABLED              464
 #define IDC_ACTION_NOTIFICATION_TOKENS               465
 #define IDC_ACTION_COMMAND_TOKENS                    466
+#define IDC_ACTION_PRESSES_LABEL                     467
+#define IDC_ACTION_PRESSES                           468
 
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502

@@ -21,7 +21,7 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
             InitializeSoundsSection(hWnd);
             break;
         case IDD_SETTINGS_HOTKEYS:
-            RefreshActionRows();
+            InitializeHotkeysSection(hWnd);
             break;
         case IDD_SETTINGS_ABOUT:
             InitializeAboutSection(hWnd);
@@ -29,6 +29,12 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
         default:
             break;
     }
+}
+
+void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) const {
+    RefreshActionRows();
+    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_HOTKEYS_WINDOW_TRACKBAR),
+                                 10, MAKELONG(100, 600), _cfg.MultiPressWindowMs);
 }
 
 void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) const {
@@ -94,9 +100,16 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) const {
 
 /// Built-ins first, in table order, then the custom ones, then the add row.
 void SettingsWindowViewModel::RefreshActionRows() const {
-    const auto describe = [](const uint64_t mask, const bool onRelease) {
+    const auto describe = [](const uint64_t mask, const bool onRelease, const uint8_t presses) {
         std::string hotkey = mask ? HotkeyManager::GetHotkeyName(mask) : "";
-        if (onRelease && !hotkey.empty()) {
+        if (hotkey.empty()) {
+            return hotkey;
+        }
+
+        if (presses > 1) {
+            hotkey += " x" + std::to_string(presses);
+        }
+        if (onRelease) {
             hotkey += " (release)";
         }
         return hotkey;
@@ -111,14 +124,14 @@ void SettingsWindowViewModel::RefreshActionRows() const {
 
         rows.push_back({
             .Name = builtIn.Title,
-            .Hotkey = describe(binding.Hotkey, binding.OnRelease),
+            .Hotkey = describe(binding.Hotkey, binding.OnRelease, binding.Presses),
         });
     }
 
     for (const auto& action : _cfg.CustomActions) {
         rows.push_back({
             .Name = action.Name,
-            .Hotkey = describe(action.Hotkey, action.OnRelease),
+            .Hotkey = describe(action.Hotkey, action.OnRelease, action.Presses),
             .Command = action.Command,
             .IsCustom = true
         });
@@ -128,20 +141,23 @@ void SettingsWindowViewModel::RefreshActionRows() const {
     _view->SetActionRows(rows);
 }
 
-/// Frees a combination from every other action - one hotkey drives one action.
-void SettingsWindowViewModel::ClearHotkey(uint64_t mask, const std::string& exceptBuiltIn, int exceptCustomIndex) {
+/// Frees a combination from every other action. What has to be unique is the pair: the same
+/// combination may drive several actions as long as each wants a different number of presses.
+void SettingsWindowViewModel::ClearHotkey(uint64_t mask, uint8_t presses,
+                                          const std::string& exceptBuiltIn, int exceptCustomIndex) {
     if (!mask) {
         return;
     }
 
     for (auto& [id, binding] : _cfg.Actions) {
-        if (id != exceptBuiltIn && binding.Hotkey == mask) {
+        if (id != exceptBuiltIn && binding.Hotkey == mask && binding.Presses == presses) {
             binding.Hotkey = 0;
         }
     }
 
     for (int i = 0; i < static_cast<int>(_cfg.CustomActions.size()); i++) {
-        if (i != exceptCustomIndex && _cfg.CustomActions[i].Hotkey == mask) {
+        if (i != exceptCustomIndex && _cfg.CustomActions[i].Hotkey == mask
+            && _cfg.CustomActions[i].Presses == presses) {
             _cfg.CustomActions[i].Hotkey = 0;
         }
     }
@@ -171,6 +187,7 @@ void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
                                                                         : builtIn.DefaultNotification,
         .Hotkey = isConfigured ? it->second.Hotkey : 0,
         .OnRelease = isConfigured && it->second.OnRelease,
+        .Presses = isConfigured ? it->second.Presses : uint8_t{1},
         .ShowNotification = !isConfigured || it->second.ShowNotification,
         .HasSound = builtIn.HasSound,
         .HoldOnly = builtIn.HoldOnly,
@@ -180,9 +197,10 @@ void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
         return;
     }
 
-    ClearHotkey(edit.Hotkey, builtIn.Key, -1);
+    ClearHotkey(edit.Hotkey, edit.Presses, builtIn.Key, -1);
     _cfg.Actions[builtIn.Key] = {.Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease,
-                                 .Sound = edit.Sound, .Notification = edit.Notification,
+                                 .Presses = edit.Presses, .Sound = edit.Sound,
+                                 .Notification = edit.Notification,
                                  .ShowNotification = edit.ShowNotification};
 }
 
@@ -200,6 +218,7 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
                                                     : stored.Notification,
         .Hotkey = stored.Hotkey,
         .OnRelease = stored.OnRelease,
+        .Presses = stored.Presses,
         .ShowNotification = stored.ShowNotification,
         .IsCustom = true,
         .AllowDelete = isExisting,
@@ -214,11 +233,12 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
         return;
     }
 
-    ClearHotkey(edit.Hotkey, {}, isExisting ? customIndex : -1);
+    ClearHotkey(edit.Hotkey, edit.Presses, {}, isExisting ? customIndex : -1);
 
     const CustomAction action{.Name = edit.Name, .Command = edit.Command, .Sound = edit.Sound,
                               .Notification = edit.Notification, .Hotkey = edit.Hotkey,
-                              .OnRelease = edit.OnRelease, .ShowNotification = edit.ShowNotification};
+                              .OnRelease = edit.OnRelease, .Presses = edit.Presses,
+                              .ShowNotification = edit.ShowNotification};
 
     if (isExisting) {
         _cfg.CustomActions[customIndex] = action;
@@ -413,6 +433,9 @@ void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, in
         case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
             _cfg.IndicatorSize = static_cast<BYTE>(value);
             _mainWindow->Relayout();
+            break;
+        case IDC_HOTKEYS_WINDOW_TRACKBAR:
+            _cfg.MultiPressWindowMs = static_cast<uint16_t>(value);
             break;
         case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
             _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;

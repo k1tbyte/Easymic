@@ -28,6 +28,7 @@ class ActionFeedback {
     /// The device only publishes a new level from its callback, so the action that changed it
     /// posts the value it just asked for - otherwise {volume} shows the previous one.
     std::atomic<uint8_t> _volumePercent = 0;
+    std::atomic<bool> _micMuted = false;
     std::atomic<bool> _bellEnabled = true;
 
 public:
@@ -40,6 +41,9 @@ public:
 
     uint8_t VolumePercent() const { return _volumePercent.load(); }
     void PublishVolumePercent(const uint8_t percent) { _volumePercent = percent; }
+
+    bool MicMuted() const { return _micMuted.load(); }
+    void PublishMicMuted(const bool muted) { _micMuted = muted; }
 
     bool BellEnabled() const { return _bellEnabled.load(); }
     void PublishBellEnabled(const bool enabled) { _bellEnabled = enabled; }
@@ -117,6 +121,7 @@ private:
 
         auto expanded = Str::Replace(text, Tokens::Volume,
                                      std::to_string(_volumePercent.load()));
+        expanded = Str::Replace(std::move(expanded), Tokens::Mic, _micMuted ? "off" : "on");
         return Str::Replace(std::move(expanded), Tokens::Bell,
                             _bellEnabled ? "on" : "off");
     }
