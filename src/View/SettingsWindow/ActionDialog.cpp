@@ -119,6 +119,12 @@ namespace {
         EnableWindow(GetDlgItem(dialog, IDC_ACTION_ON_RELEASE), enabled);
     }
 
+    /// Only a release can tell a tap from a hold, so the box follows the checkbox that decides it.
+    void SyncTapOnly(HWND dialog) {
+        EnableWindow(GetDlgItem(dialog, IDC_ACTION_TAP_ONLY),
+                     DialogControls::IsChecked(dialog, IDC_ACTION_ON_RELEASE));
+    }
+
     void SetNotificationEnabled(HWND dialog, const bool enabled) {
         EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION), enabled);
         EnableWindow(GetDlgItem(dialog, IDC_ACTION_NOTIFICATION_TOKENS), enabled);
@@ -128,17 +134,23 @@ namespace {
         if (!action.IsCustom) {
             DialogControls::CollapseRow(dialog, {IDC_ACTION_COMMAND_LABEL, IDC_ACTION_COMMAND,
                                                  IDC_ACTION_COMMAND_TOKENS});
-            DialogControls::CollapseRow(dialog, {IDC_ACTION_NAME_LABEL, IDC_ACTION_NAME});
+        }
+
+        if (action.ArgsLabel.empty()) {
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_ARGS_LABEL, IDC_ACTION_ARGS});
         }
 
         if (!action.HasSound) {
             DialogControls::CollapseRow(dialog, {IDC_ACTION_SOUND_LABEL, IDC_ACTION_SOUND,
                                                  IDC_ACTION_SOUND_BROWSE});
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_SOUND_VOLUME_LABEL,
+                                                 IDC_ACTION_SOUND_VOLUME});
         }
 
         if (action.HoldOnly) {
             DialogControls::CollapseRow(dialog, {IDC_ACTION_PRESSES_LABEL, IDC_ACTION_PRESSES});
             DialogControls::CollapseRow(dialog, {IDC_ACTION_ON_RELEASE});
+            DialogControls::CollapseRow(dialog, {IDC_ACTION_TAP_ONLY});
         }
 
         ShowWindow(GetDlgItem(dialog, IDC_ACTION_DELETE), action.AllowDelete ? SW_SHOW : SW_HIDE);
@@ -156,6 +168,17 @@ namespace {
                 SetWindowTextW(dialog, Str::Utf8ToWide(action.Title).c_str());
                 SetDlgItemTextW(dialog, IDC_ACTION_NAME, Str::Utf8ToWide(action.Name).c_str());
                 SetDlgItemTextW(dialog, IDC_ACTION_COMMAND, Str::Utf8ToWide(action.Command).c_str());
+                SetDlgItemTextW(dialog, IDC_ACTION_ARGS, Str::Utf8ToWide(action.Args).c_str());
+
+                if (!action.ArgsLabel.empty()) {
+                    SetDlgItemTextW(dialog, IDC_ACTION_ARGS_LABEL,
+                                    Str::Utf8ToWide(action.ArgsLabel).c_str());
+                    // Every action reads its argument its own way, so the format has to be on
+                    // screen rather than in a manual nobody has
+                    SendDlgItemMessageW(dialog, IDC_ACTION_ARGS, EM_SETCUEBANNER, TRUE,
+                        reinterpret_cast<LPARAM>(Str::Utf8ToWide(action.ArgsHint).c_str()));
+                }
+
                 SetDlgItemTextW(dialog, IDC_ACTION_NOTIFICATION, Str::Utf8ToWide(action.Notification).c_str());
                 CheckDlgButton(dialog, IDC_ACTION_NOTIFICATION_ENABLED,
                                action.ShowNotification ? BST_CHECKED : BST_UNCHECKED);
@@ -169,9 +192,14 @@ namespace {
                                     (action.Presses ? action.Presses : 1) - 1, 0);
                 SetOnReleaseEnabled(dialog, action.Presses <= 1);
                 CheckDlgButton(dialog, IDC_ACTION_ON_RELEASE, action.OnRelease ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(dialog, IDC_ACTION_TAP_ONLY, action.TapOnly ? BST_CHECKED : BST_UNCHECKED);
+                SyncTapOnly(dialog);
+                CheckDlgButton(dialog, IDC_ACTION_BLOCK, action.Block ? BST_CHECKED : BST_UNCHECKED);
                 SetHotkeyButtonText(dialog, action.Hotkey);
                 DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
                                                    *state->recentSounds, action.Sound);
+                DialogControls::InitTrackbar(GetDlgItem(dialog, IDC_ACTION_SOUND_VOLUME),
+                                             10, MAKELONG(0, 100), action.SoundVolume);
 
                 LayoutForAction(dialog, action);
                 SetWindowSubclass(GetDlgItem(dialog, IDC_ACTION_HOTKEY), HotkeyButtonProc, 0, 0);
@@ -221,9 +249,14 @@ namespace {
                             DialogControls::IsChecked(dialog, IDC_ACTION_NOTIFICATION_ENABLED));
                         return TRUE;
 
+                    case IDC_ACTION_ON_RELEASE:
+                        SyncTapOnly(dialog);
+                        return TRUE;
+
                     case IDC_ACTION_PRESSES:
                         if (HIWORD(wParam) == CBN_SELCHANGE) {
                             SetOnReleaseEnabled(dialog, SelectedPresses(dialog) <= 1);
+                            SyncTapOnly(dialog);
                         }
                         return TRUE;
 
@@ -253,28 +286,36 @@ namespace {
                         return TRUE;
 
                     case IDOK: {
-                        if (action.IsCustom) {
-                            auto name = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NAME));
-                            auto command = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_COMMAND));
+                        auto name = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NAME));
+                        auto command = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_COMMAND));
 
-                            if (name.empty() || command.empty()) {
-                                MessageBoxW(dialog, L"Name and command are required.", L"Action",
-                                            MB_OK | MB_ICONWARNING);
-                                return TRUE;
-                            }
-
-                            action.Name = std::move(name);
-                            action.Command = std::move(command);
+                        if (name.empty() || (action.IsCustom && command.empty())) {
+                            MessageBoxW(dialog, action.IsCustom
+                                            ? L"Name and command are required."
+                                            : L"Name is required.",
+                                        L"Action", MB_OK | MB_ICONWARNING);
+                            return TRUE;
                         }
+
+                        action.Name = std::move(name);
+                        action.Command = std::move(command);
+                        action.Args = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_ARGS));
 
                         action.Presses = action.HoldOnly ? uint8_t{1}
                                                         : static_cast<uint8_t>(SelectedPresses(dialog));
                         action.OnRelease = !action.HoldOnly && action.Presses == 1
                                            && IsDlgButtonChecked(dialog, IDC_ACTION_ON_RELEASE) == BST_CHECKED;
+                        action.Block = DialogControls::IsChecked(dialog, IDC_ACTION_BLOCK);
+                        action.TapOnly = action.OnRelease
+                                         && DialogControls::IsChecked(dialog, IDC_ACTION_TAP_ONLY);
                         action.Sound = action.HasSound
                                        ? DialogControls::ResolveSound(GetDlgItem(dialog, IDC_ACTION_SOUND),
                                                                       *state->recentSounds)
                                        : std::string{};
+                        if (action.HasSound) {
+                            action.SoundVolume = static_cast<uint8_t>(SendDlgItemMessageW(
+                                dialog, IDC_ACTION_SOUND_VOLUME, TBM_GETPOS, 0, 0));
+                        }
                         action.ShowNotification = DialogControls::IsChecked(dialog, IDC_ACTION_NOTIFICATION_ENABLED);
                         action.Notification = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NOTIFICATION));
 

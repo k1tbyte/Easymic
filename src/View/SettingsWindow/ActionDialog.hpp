@@ -15,17 +15,27 @@
  */
 struct ActionEdit {
     std::string Title;        // dialog caption
-    std::string Name;         // custom only
-    std::string Command;      // custom only
+    std::string Name;
+    std::string Command;      // command actions only
+    /// What a built-in was configured with. The label doubles as the switch: empty means this
+    /// action takes no argument and the row is not there at all.
+    std::string Args;
+    std::string ArgsLabel;
+    std::string ArgsHint;
     std::string Sound;        // SoundCatalog key or file path, empty means none
+    uint8_t SoundVolume = 100; // 0-100, this action's own level
     std::string Notification; // overlay text, {token} aware
     uint64_t Hotkey = 0;
     bool OnRelease = false;
     /// How many presses of the combination in a row run this action.
     uint8_t Presses = 1;
-    bool ShowNotification = true;
+    /// Swallows the combination so nothing below Easymic sees it.
+    bool Block = false;
+    /// Release only: the key has to have been tapped by itself, not held as a modifier.
+    bool TapOnly = false;
+    bool ShowNotification = false;
 
-    bool IsCustom = false;    // shows the name and command rows
+    bool IsCustom = false;    // shows the command row
     bool HasSound = true;     // shows the sound row
     bool HoldOnly = false;    // hides "trigger on release" - the action needs both edges
     bool AllowDelete = false; // shows the Delete button

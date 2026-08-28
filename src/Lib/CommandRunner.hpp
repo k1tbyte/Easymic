@@ -7,8 +7,10 @@
 #include <shellapi.h>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "ShellContext.hpp"
+#include "ShellLaunch.hpp"
 #include "Str.hpp"
 #include "Tokens.hpp"
 #include "definitions.h"
@@ -254,22 +256,30 @@ namespace CommandRunner {
             Detail::Split(Str::Utf8ToWide(line), file, params);
 
             // Windows only lets the process the foreground app started take the foreground, and a
-            // hotkey from a tray app is not that - so a new window would open behind everything
-            // and an already running single-instance app would only flash in the taskbar. This
-            // hands our claim over to whoever we are about to launch.
-            AllowSetForegroundWindow(ASFW_ANY);
+            // hotkey from a tray app is not that - so an app that is already running would only
+            // flash in the taskbar. The snapshot is what says afterwards which window the launch
+            // produced, since the shell hands nothing back.
+            const std::vector<HWND> before = ShellLaunch::Switchable();
+            const HWND wasInFront = GetForegroundWindow();
 
-            SHELLEXECUTEINFOW info{sizeof(info)};
-            // NOASYNC is required when the calling thread exits right after - this one does
-            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
-            info.lpFile = file.c_str();
-            info.lpParameters = params.empty() ? nullptr : params.c_str();
-            info.nShow = SW_SHOWNORMAL;
+            // The shell runs it as the user rather than with our token, which is what keeps a
+            // bound app off administrator rights
+            if (!ShellLaunch::Run(file, params)) {
+                SHELLEXECUTEINFOW info{sizeof(info)};
+                // NOASYNC is required when the calling thread exits right after - this one does
+                info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+                info.lpFile = file.c_str();
+                info.lpParameters = params.empty() ? nullptr : params.c_str();
+                info.nShow = SW_SHOWNORMAL;
 
-            if (!ShellExecuteExW(&info)) {
-                LOG_ERROR("Failed to run '%s': 0x%08lX", line.c_str(), GetLastError());
+                if (!ShellExecuteExW(&info)) {
+                    LOG_ERROR("Failed to run '%s': 0x%08lX", line.c_str(), GetLastError());
+                    CoUninitialize();
+                    return;
+                }
             }
 
+            ShellLaunch::RaiseNew(before, wasInFront);
             CoUninitialize();
         }).detach();
     }

@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <sys/stat.h>
 #include <string>
-#include <unordered_map>
 #include <vector>
 #include <set>
 #include <windows.h>
@@ -23,37 +22,41 @@ enum class IndicatorState {
 };
 
 /**
- * @brief What the user can tune for a built-in action.
- * Custom actions carry the same three fields plus their name and command line.
+ * @brief One thing a hotkey does, whether that is a built-in or a command line.
+ *
+ * Built-ins are entries like any other rather than a fixed table, so the same one can sit in the
+ * list as many times as the user has keys for it - three language switches over different locale
+ * rings is the case that asked for this.
  */
-struct ActionBinding {
-    uint64_t Hotkey = 0;
-    bool OnRelease  = false;
-    /// How many times the combination is pressed in a row to run this. One combination can drive
-    /// several actions as long as the count differs.
-    uint8_t Presses = 1;
+struct Action {
+    std::string Name;
+    /// BuiltInAction::Key, empty when this runs the command line below instead.
+    std::string BuiltIn;
+    std::string Command;
+    /// What the built-in was configured with. Only the language switch reads one so far, as a
+    /// comma separated list of locales.
+    std::string Args;
     /// SoundCatalog key or a file path, empty means silent.
     std::string Sound;
     /// Overlay text shown when the action fires, {token} aware. Empty falls back to the built-in
     /// table, so a config written before a default existed still gets one.
     std::string Notification;
-    bool ShowNotification = true;
+    uint64_t Hotkey = 0;
+    bool OnRelease  = false;
+    /// How many times the combination is pressed in a row to run this. One combination can drive
+    /// several actions as long as the count differs.
+    uint8_t Presses = 1;
+    /// Swallows the combination instead of passing it on, so the app underneath never sees it.
+    bool Block = false;
+    /// Release only: skips the action when another key was pressed while this one was held, which
+    /// is what lets the same key double as a modifier.
+    bool TapOnly = false;
+    /// How loud this action plays its sound, 0-100. Independent of BellVolume, which belongs to
+    /// the mic state chime alone.
+    uint8_t SoundVolume = 100;
+    bool ShowNotification = false;
 
-    bool operator==(const ActionBinding&) const = default;
-};
-
-/// User defined action: a shell command bound to a hotkey.
-struct CustomAction {
-    std::string Name;
-    std::string Command;
-    std::string Sound;
-    std::string Notification;
-    uint64_t Hotkey  = 0;
-    bool OnRelease   = false;
-    uint8_t Presses  = 1;
-    bool ShowNotification = true;
-
-    bool operator==(const CustomAction&) const = default;
+    bool operator==(const Action&) const = default;
 };
 
 struct AppConfig {
@@ -62,6 +65,7 @@ struct AppConfig {
 
     int32_t WindowPosX             = 0;
     int32_t WindowPosY             = 0;
+    /// The mic state chime only - action sounds carry their own level.
     int8_t BellVolume              = 25;
     int8_t MicVolume               = -1;
     uint8_t IndicatorSize          = 16;
@@ -78,23 +82,19 @@ struct AppConfig {
     bool NotificationsEnabled      = true;
     /// How long a combination waits for another press before it decides how many there were.
     uint16_t MultiPressWindowMs    = 200;
-    /// Bumped by Load once the migration for that revision has run. 0 means "written before
-    /// migrations existed", which is why it must not default to the current revision.
+    /// Which build's shape the file was written in. 0 is one that predates the field, so it must
+    /// not default to the current revision - the whole point is telling those apart.
     int32_t Version = 0;
 
     std::set<std::string> SkippedVersions;
-    /// Built-in action id -> its binding. BuiltInActions::All is the list of valid ids.
-    std::unordered_map<std::string, ActionBinding> Actions;
-    std::vector<CustomAction> CustomActions;
+    /// Every action in the order the settings list shows them.
+    std::vector<Action> Actions;
     /// One list behind every sound picker, whatever the picker is for.
     std::set<std::string> RecentSounds;
     /// Mic state feedback, not an action sound: these play whenever the device changes state,
     /// including a mute from Discord or the mixer. SoundCatalog keys or file paths.
     std::string MuteSoundSource = "Mute";
     std::string UnmuteSoundSource = "Unmute";
-
-    /// Superseded by Actions, kept so an old config does not lose its hotkeys on update.
-    std::unordered_map<std::string, uint64_t> Hotkeys;
 
     bool operator==(const AppConfig&) const = default;
 
@@ -123,31 +123,16 @@ struct AppConfig {
             LOG_ERROR("Config load failed: %s", glz::format_error(ec).c_str());
         }
 
-        config.Migrate();
+        // Stamped on the way in rather than written by whoever saves, so the number always says
+        // which build shaped the file - there is nothing to migrate yet, and that is the anchor
+        // the first migration will need
+        config.Version = CurrentVersion;
 #endif // CONFIG_ENABLED
         return config;
     }
 
 private:
-    static constexpr int32_t CurrentVersion = 1;
-
-    /// Brings a config written by an older build up to CurrentVersion.
-    void Migrate()
-    {
-        if (Version < 1) {
-            // Hotkeys only carried the key mask - the rest comes from the built-in table, so a
-            // migrated action ends up exactly where a freshly configured one would
-            for (const auto& [id, mask] : Hotkeys) {
-                const BuiltInAction* action = BuiltInActions::Find(id);
-                if (mask && action && !Actions.contains(id)) {
-                    Actions[id] = {.Hotkey = mask, .Sound = action->DefaultSound};
-                }
-            }
-            Hotkeys.clear();
-        }
-
-        Version = CurrentVersion;
-    }
+    static constexpr int32_t CurrentVersion = 2;
 
     static std::string GetConfigPath()
     {

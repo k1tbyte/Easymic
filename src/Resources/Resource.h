@@ -87,6 +87,12 @@
 #define IDC_ACTION_COMMAND_TOKENS                    466
 #define IDC_ACTION_PRESSES_LABEL                     467
 #define IDC_ACTION_PRESSES                           468
+#define IDC_ACTION_BLOCK                             469
+#define IDC_ACTION_SOUND_VOLUME_LABEL                470
+#define IDC_ACTION_SOUND_VOLUME                      471
+#define IDC_ACTION_TAP_ONLY                          472
+#define IDC_ACTION_ARGS_LABEL                        473
+#define IDC_ACTION_ARGS                              474
 
 #define IDD_SETTINGS_ABOUT                          501
 #define IDC_ABOUT_VERSION_INFO                       502

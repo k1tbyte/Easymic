@@ -41,6 +41,13 @@ namespace HotkeyManager {
     struct HotkeyBinding {
         std::function<void()> onPress;
         std::function<void()> onRelease;
+        /// Swallows the key instead of passing it down the hook chain. It applies to the whole
+        /// combination, not to this count alone - a first press leaking through while the second
+        /// was eaten is worse than either answer.
+        bool block = false;
+        /// Drops the release when another key went down while this one was held, so a key can act
+        /// as a modifier for the next one and still do its own thing when tapped by itself.
+        bool tapOnly = false;
     };
 
     std::string GetHotkeyName(uint64_t keysMask);

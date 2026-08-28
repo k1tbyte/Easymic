@@ -2,6 +2,7 @@
 #define EASYMIC_SOUNDCATALOG_HPP
 
 #include <mmsystem.h>
+#include <mutex>
 #include <string>
 #include <windows.h>
 
@@ -41,11 +42,26 @@ namespace SoundCatalog {
         return nullptr;
     }
 
-    /// Plays a bundled key or a user file. Empty is silence, a missing file is silence too.
-    inline void Play(HINSTANCE hInstance, const std::string& sound) {
-        if (sound.empty()) {
+    /**
+     * @brief Plays a bundled key or a user file at the given level, 0-100.
+     *
+     * Empty is silence, a missing file is silence too, and so is a level of zero.
+     *
+     * The level belongs to the whole process, but PlaySound only ever plays one sound at a time,
+     * so setting it for the sound about to start is the same as setting it per sound. The lock is
+     * what keeps the two playback threads - the hotkey worker and the device notifications - from
+     * playing at each other's level.
+     */
+    inline void Play(HINSTANCE hInstance, const std::string& sound, const uint8_t volumePercent) {
+        if (sound.empty() || !volumePercent) {
             return;
         }
+
+        static std::mutex mutex;
+        const std::lock_guard lock(mutex);
+
+        const auto level = static_cast<WORD>((volumePercent > 100 ? 100 : volumePercent) * 0xFFFF / 100);
+        waveOutSetVolume(nullptr, MAKELONG(level, level));
 
         if (const Bundled* bundled = Find(sound)) {
             // The buffer points into the module image, so it outlives the async playback
