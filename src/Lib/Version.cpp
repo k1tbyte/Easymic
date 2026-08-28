@@ -9,7 +9,7 @@
 
 namespace {
     /// What the app claims to be when the version resource cannot be read at all.
-    constexpr int FallbackVersion[] = {1, 2, 1, 0};
+    constexpr int FallbackVersion[] = {1, 3, 0, 0};
 }
 
 // Global version instance
