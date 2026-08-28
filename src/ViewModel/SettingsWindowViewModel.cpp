@@ -1,6 +1,7 @@
 #include "SettingsWindowViewModel.hpp"
 #include "HotkeyCapture.hpp"
-#include "HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
+#include "Core/KeyNames.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
@@ -100,7 +101,7 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) const {
 /// One row per action in config order, then the row that adds another.
 void SettingsWindowViewModel::RefreshActionRows() const {
     const auto describe = [](const uint64_t mask, const bool onRelease, const uint8_t presses) {
-        std::string hotkey = mask ? HotkeyManager::GetHotkeyName(mask) : "";
+        std::string hotkey = mask ? KeyNames::Format(mask) : "";
         if (hotkey.empty()) {
             return hotkey;
         }

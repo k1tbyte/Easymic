@@ -73,6 +73,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
         src/Lib
         src/Audio
         src/View
+        src/Core
 )
 
 if(MINGW)

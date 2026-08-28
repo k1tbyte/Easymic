@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "ActionFeedback.hpp"
-#include "HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
 #include "../Lib/InputLanguage.hpp"
 #include "SettingsWindowViewModel.hpp"
 #include "UACService.hpp"
@@ -130,7 +130,7 @@ private:
             _view->SetShadowHwnd(nullptr);
         }
         _audio.StopWatchingForCaptureSessions();
-        HotkeyManager::Dispose(); // also drops every registered hotkey
+        HotkeyService::Dispose(); // also drops every registered hotkey
     }
 
     void RefreshTrayIcon() const {
@@ -167,12 +167,12 @@ private:
     /// which edge it runs on, whether the key reaches anything else and whether a tap is required.
     bool RegisterAction(const uint64_t hotkey, const uint8_t presses, std::function<void()> run,
                         const bool onRelease, const bool holdOnly, const bool block, const bool tapOnly) {
-        return HotkeyManager::RegisterHotkey(hotkey, presses ? presses : 1,
-            holdOnly ? HotkeyManager::HotkeyBinding{.onPress = std::move(run),
+        return HotkeyService::RegisterHotkey(hotkey, presses ? presses : 1,
+            holdOnly ? HotkeyService::HotkeyBinding{.onPress = std::move(run),
                                                     .onRelease = _releasePushToTalk, .block = block}
-            : onRelease ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run), .block = block,
+            : onRelease ? HotkeyService::HotkeyBinding{.onRelease = std::move(run), .block = block,
                                                        .tapOnly = tapOnly}
-                        : HotkeyManager::HotkeyBinding{.onPress = std::move(run), .block = block});
+                        : HotkeyService::HotkeyBinding{.onPress = std::move(run), .block = block});
     }
 
     /// A configured hotkey is not a registered one - an action can carry no combination, and
@@ -235,13 +235,13 @@ private:
 
     void RestoreConfig() {
         _audio.WatchForCaptureSessions();
-        HotkeyManager::ClearHotkeys();
-        HotkeyManager::SetMultiPressWindow(_cfg.MultiPressWindowMs);
+        HotkeyService::ClearHotkeys();
+        HotkeyService::SetMultiPressWindow(_cfg.MultiPressWindowMs);
         _feedback.PublishBellEnabled(_cfg.BellVolume > 0);
 
 #ifndef APP_NO_GLOBAL_HOOKS
         if (RegisterConfiguredActions()) {
-            HotkeyManager::Initialize();
+            HotkeyService::Initialize();
         }
 #endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
 

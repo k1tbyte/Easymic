@@ -5,7 +5,8 @@
 #include "Resources/Resource.h"
 #include "../../Audio/AudioFileValidator.hpp"
 #include "../../Lib/HotkeyCapture.hpp"
-#include "../../Lib/HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
+#include "Core/KeyNames.hpp"
 #include "../../Lib/Str.hpp"
 
 namespace {
@@ -21,7 +22,7 @@ namespace {
 
     void SetHotkeyButtonText(HWND dialog, const uint64_t mask) {
         SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY,
-                        mask ? Str::Utf8ToWide(HotkeyManager::GetHotkeyName(mask)).c_str()
+                        mask ? Str::Utf8ToWide(KeyNames::Format(mask)).c_str()
                              : L"Click to bind");
     }
 
@@ -221,7 +222,7 @@ namespace {
             // Formatting the name is the dialog's job - the hook only says the mask changed
             case HotkeyCapture::WM_CAPTURE_PREVIEW:
                 SetDlgItemTextW(dialog, IDC_ACTION_HOTKEY,
-                                Str::Utf8ToWide(HotkeyManager::GetHotkeyName(HotkeyCapture::CapturedMask())).c_str());
+                                Str::Utf8ToWide(KeyNames::Format(HotkeyCapture::CapturedMask())).c_str());
                 return TRUE;
 
             case HotkeyCapture::WM_CAPTURE_DONE:

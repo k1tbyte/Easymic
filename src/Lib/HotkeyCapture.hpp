@@ -3,7 +3,7 @@
 #include <functional>
 #include <windows.h>
 
-#include "HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
 
 /**
  * @brief The single hotkey capture session shared by every binding UI.
@@ -40,9 +40,9 @@ namespace HotkeyCapture {
             _captured = 0;
             _target = nullptr;
             _done = nullptr;
-            HotkeyManager::BindStop();
+            HotkeyService::BindStop();
             if (ownedHooks) {
-                HotkeyManager::Dispose();
+                HotkeyService::Dispose();
             }
         }
     }
@@ -59,8 +59,8 @@ namespace HotkeyCapture {
             return false;
         }
 
-        _ownsHooks = !HotkeyManager::IsHooked();
-        if (_ownsHooks && !HotkeyManager::Initialize()) {
+        _ownsHooks = !HotkeyService::IsHooked();
+        if (_ownsHooks && !HotkeyService::Initialize()) {
             _ownsHooks = false;
             return false;
         }
@@ -70,7 +70,7 @@ namespace HotkeyCapture {
         _captured = 0;
         _active = true;
 
-        HotkeyManager::BindStart([](uint8_t vkCode, Keys::State state, uint64_t sequenceMask) {
+        HotkeyService::BindStart([](uint8_t vkCode, Keys::State state, uint64_t sequenceMask) {
             if (_pending) {
                 return;
             }

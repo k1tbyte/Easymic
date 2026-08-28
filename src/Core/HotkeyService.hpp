@@ -1,12 +1,7 @@
-//
-// Created by kitbyte on 04.11.2025.
-//
-
 #pragma once
 
 #include <cstdint>
 #include <windows.h>
-#include <string>
 #include <functional>
 
 namespace Keys {
@@ -26,8 +21,13 @@ namespace Keys {
     } Modifier;
 }
 
-
-namespace HotkeyManager {
+/**
+ * @brief The low-level hooks and the mask table they look combinations up in.
+ *
+ * Nothing here runs an action: the hook proc resolves a mask and hands the work to Dispatcher,
+ * which owns the worker thread. Naming a combination belongs to KeyNames.
+ */
+namespace HotkeyService {
 
     /**
      * @brief Raised from inside the low-level hook proc while a combination is being bound.
@@ -49,7 +49,6 @@ namespace HotkeyManager {
         bool tapOnly = false;
     };
 
-    std::string GetHotkeyName(uint64_t keysMask);
     /// Binds an action to a combination pressed `presses` times in a row. Two actions may share
     /// a combination as long as the count differs; only the pair has to be unique.
     bool RegisterHotkey(uint64_t keysMask, uint8_t presses, const HotkeyBinding& binding,
@@ -68,4 +67,3 @@ namespace HotkeyManager {
     void Dispose();
 
 }
-

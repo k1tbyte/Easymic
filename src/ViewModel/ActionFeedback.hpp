@@ -6,7 +6,8 @@
 
 #include "AppConfig.hpp"
 #include "CommandRunner.hpp"
-#include "HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
+#include "Core/KeyNames.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
@@ -65,7 +66,7 @@ public:
         return resolved.find(Tokens::Key) == std::string::npos
                    ? resolved
                    : Str::Replace(std::move(resolved), Tokens::Key,
-                                  HotkeyManager::GetHotkeyName(hotkey));
+                                  KeyNames::Format(hotkey));
     }
 
     /// Wraps an action so it announces itself. Runs on the hotkey worker, never in the hook.

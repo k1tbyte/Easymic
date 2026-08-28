@@ -4,7 +4,7 @@
 #include "CrashHandler.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "ViewModel/MainWindowViewModel.hpp"
-#include "Lib/HotkeyManager.hpp"
+#include "Core/HotkeyService.hpp"
 #include "Lib/Logger.hpp"
 #include "Lib/Version.hpp"
 #include "Lib/UpdateManager.hpp"
@@ -114,7 +114,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // The action worker outlives the message loop, and ~thread() on a joinable thread calls
     // std::terminate - every clean exit used to end in a crash report
-    HotkeyManager::Dispose();
+    HotkeyService::Dispose();
 
     CloseHandle(mutex);
     return 0;
