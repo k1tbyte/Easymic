@@ -1,5 +1,7 @@
 #include "MainWindow.hpp"
 
+#include "Core/Dispatcher.hpp"
+
 #include "../../Resources/Resource.h"
 #include "../Components/IndicatorLayout.hpp"
 
@@ -42,6 +44,11 @@ bool MainWindow::Initialize(WindowConfig config) {
     }
 
     RegisterWindow(_hwnd);
+
+    // This window owns the message loop, so it is the one the worker reaches the UI thread
+    // through. Bound before the view model, which may post from its own Init.
+    Dispatcher::BindUi(_hwnd);
+
     _viewModel->Init();
 
     return true;
@@ -129,6 +136,12 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         }
+
+        // This window owns the message loop, so it is the one the worker gets back to the UI
+        // thread through - see Dispatcher::ToUi
+        case Dispatcher::WM_DISPATCH_RUN:
+            Dispatcher::RunPosted(lParam);
+            return 0;
 
         default:
             return BaseWindow::HandleMessage(message, wParam, lParam);

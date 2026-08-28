@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "ActionFeedback.hpp"
+#include "Core/Dispatcher.hpp"
 #include "Core/HotkeyService.hpp"
 #include "../Lib/InputLanguage.hpp"
 #include "SettingsWindowViewModel.hpp"
@@ -90,10 +91,10 @@ private:
                 return [this] { ShiftMicVolume(-10); };
             case BuiltInId::ToggleBellSound:
                 // The config belongs to the UI thread, so the worker publishes what it asked for
-                // - the same trick {volume} uses - and hands the write over through the queue
+                // - the same trick {volume} uses - and hands the write itself over to that thread
                 return [this] {
                     _feedback.PublishBellEnabled(!_feedback.BellEnabled());
-                    PostMessageW(_view->GetHandle(), WM_COMMAND, ID_APP_TOGGLE_BELL, 0);
+                    Dispatcher::ToUi([this] { ToggleBellSound(); });
                 };
             case BuiltInId::SwitchLanguage:
                 return [args] { InputLanguage::SwitchNext(args); };
