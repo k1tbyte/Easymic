@@ -28,7 +28,7 @@ struct ActionEdit {
     bool OnRelease = false;
     /// How many presses of the combination in a row run this action.
     uint8_t Presses = 1;
-    /// Swallows the combination so nothing below Easymic sees it.
+    /// Swallows the combination so nothing below EasyLauncher sees it.
     bool Block = false;
     /// Release only: the key has to have been tapped by itself, not held as a modifier.
     bool TapOnly = false;

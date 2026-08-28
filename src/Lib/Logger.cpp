@@ -18,7 +18,7 @@ void Logger::Initialize() {
         }
 
         std::lock_guard lock(_logMutex);
-        _logFilePath = (std::filesystem::path(modulePath).parent_path() / L"easymic.log").string();
+        _logFilePath = (std::filesystem::path(modulePath).parent_path() / L"easylauncher.log").string();
         CheckLogFileSize();
     });
 }

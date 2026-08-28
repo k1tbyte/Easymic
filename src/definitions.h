@@ -10,14 +10,17 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define APP_NAME L"Easymic"
+#define APP_NAME L"EasyLauncher"
 
 /// Identity only, no app name in it: the name never bought uniqueness - the GUID does that - nor
 /// a namespace, which is what a Local\ or Global\ prefix is for. Carrying one only means a rename
 /// can silently break the single-instance check.
 #define MUTEX_NAME L"{8963D562-E35B-492A-A3D2-5FD724CE24B2}"
+
 #define CONFIG_NAME L"conf.b"
 
+/// Still the old name - the GitHub repository has not been renamed, and this feeds the update
+/// check's API URL.
 #define REPO_NAME   "Easymic"
 #define DEV_NAME    "k1tbyte"
 #define REPO_URL    "https://github.com/" DEV_NAME "/" REPO_NAME

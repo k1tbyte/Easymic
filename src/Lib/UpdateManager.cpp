@@ -36,7 +36,7 @@ namespace {
      * a 404 from GitHub would be written to disk and then copied over the running executable.
      */
     bool Fetch(const std::string& url, const std::function<void(const char*, DWORD)>& sink) {
-        const InternetHandle session(InternetOpenA("Easymic-Updater", INTERNET_OPEN_TYPE_PRECONFIG,
+        const InternetHandle session(InternetOpenA("EasyLauncher-Updater", INTERNET_OPEN_TYPE_PRECONFIG,
                                                    nullptr, nullptr, 0));
         if (!session) {
             return false;

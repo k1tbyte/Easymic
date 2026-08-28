@@ -31,7 +31,7 @@ private:
     static constexpr int PEAK_TIMER_INTERVAL_MS = 150;
     static constexpr int NOTIFICATION_DURATION_MS = 2000;
     static constexpr int PEAK_METER_DEBOUNCE_PHASES = 2;
-    static constexpr const char *SHADOW_WINDOW_KEY = "EasymicIndicator";
+    static constexpr const char *SHADOW_WINDOW_KEY = "EasyLauncherIndicator";
 
     std::unique_ptr<SettingsWindow> _settingsWindow;
 
@@ -239,11 +239,11 @@ private:
         HotkeyManager::SetMultiPressWindow(_cfg.MultiPressWindowMs);
         _feedback.PublishBellEnabled(_cfg.BellVolume > 0);
 
-#ifndef EASYMIC_NO_GLOBAL_HOOKS
+#ifndef APP_NO_GLOBAL_HOOKS
         if (RegisterConfiguredActions()) {
             HotkeyManager::Initialize();
         }
-#endif // EASYMIC_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
+#endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
 
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             _view->Hide();
@@ -368,7 +368,7 @@ private:
 
     void CaptureDeviceStateChanged(const bool silent) {
         if (!_hasCaptureDevice) {
-            _view->UpdateTrayTooltip(L"Easymic - No device");
+            _view->UpdateTrayTooltip(APP_NAME L" - No device");
             _bitmapToDisplay = nullptr;
             RefreshTrayIcon();
             UpdateIndicatorLayout();
@@ -385,7 +385,7 @@ private:
 
         constexpr auto bufferSize = 255;
         wchar_t buffer[bufferSize];
-        swprintf(buffer, bufferSize, L"Easymic - %ls [%d%%]",
+        swprintf(buffer, bufferSize, APP_NAME L" - %ls [%d%%]",
                  mic->GetDeviceName(), _feedback.VolumePercent());
         _view->UpdateTrayTooltip(std::wstring(buffer));
 

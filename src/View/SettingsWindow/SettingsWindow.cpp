@@ -241,7 +241,7 @@ INT_PTR SettingsWindow::OnInitDialog() {
     _hwndGroupBox = GetDlgItem(_hwnd, IDC_SETTINGS_GROUPBOX);
 
     if (UAC::IsElevated()) {
-        SetWindowTextW(_hwnd, L"Easymic - settings (Administrator)");
+        SetWindowTextW(_hwnd, APP_NAME L" - settings (Administrator)");
     }
 
     HICON icon = LoadIconW(_hInstance, MAKEINTRESOURCEW(IDI_APP));

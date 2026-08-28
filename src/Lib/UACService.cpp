@@ -18,9 +18,9 @@ namespace UAC {
 
 namespace {
 
-    constexpr wchar_t APP_SKIPUAC_NAME[] = L"Easymic_SkipUAC";
-    constexpr wchar_t APP_AUTHOR[] = L"Easymic";
-    constexpr wchar_t APP_DESCRIPTION[] = L"Easymic UAC bypass task";
+    constexpr wchar_t APP_SKIPUAC_NAME[] = L"EasyLauncher_SkipUAC";
+    constexpr wchar_t APP_AUTHOR[] = L"EasyLauncher";
+    constexpr wchar_t APP_DESCRIPTION[] = L"EasyLauncher UAC bypass task";
     constexpr ULONG TASK_START_ATTEMPTS = 6;
     constexpr DWORD TASK_START_WAIT_MS = 250;
 

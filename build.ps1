@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds Easymic with MSVC + Ninja from any shell.
+    Builds EasyLauncher with MSVC + Ninja from any shell.
 .DESCRIPTION
     cl.exe never lands in the global PATH, so the MSVC environment is imported
     from vcvars64.bat (located via vswhere) before configuring.
@@ -49,7 +49,7 @@ if ($LASTEXITCODE -ne 0) { throw "configure failed" }
 cmake --build $buildDir
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-$exe = Join-Path $buildDir "Easymic.exe"
+$exe = Join-Path $buildDir "EasyLauncher.exe"
 Write-Host "`n$exe  ($([math]::Round((Get-Item $exe).Length / 1KB)) KB)" -ForegroundColor Green
 
 if ($Run) { & $exe }

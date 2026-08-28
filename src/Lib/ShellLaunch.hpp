@@ -17,7 +17,7 @@
  * @brief Launching through explorer.exe instead of out of this process, and putting what comes
  *        up in front.
  *
- * A child inherits the token of whoever started it, and Easymic runs elevated whenever the user
+ * A child inherits the token of whoever started it, and EasyLauncher runs elevated whenever the user
  * asked it to skip the UAC prompt - which would hand administrator rights to every bound app,
  * silently and for no reason. The desktop shell is the one process that can start it as the user
  * instead.

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.27)
 
 set(CMAKE_CXX_STANDARD 23)
-project(Easymic)
+project(EasyLauncher)
 
 option(ENABLE_UPX_COMPRESSION "Enable UPX compression for Release builds" ON)
 
@@ -124,7 +124,7 @@ endif()
 
 if(IS_DEBUG)
     # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint
-    target_compile_definitions(${PROJECT_NAME} PRIVATE EASYMIC_NO_GLOBAL_HOOKS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE APP_NO_GLOBAL_HOOKS)
 endif()
 
 if(IS_RELEASE AND ENABLE_UPX_COMPRESSION)
