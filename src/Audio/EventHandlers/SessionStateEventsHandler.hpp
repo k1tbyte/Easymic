@@ -2,8 +2,7 @@
 // Created by kitbyte on 25.10.2025.
 //
 
-#ifndef EASYMIC_SESSIONSTATEEVENTSHANDLER_HPP
-#define EASYMIC_SESSIONSTATEEVENTSHANDLER_HPP
+#pragma once
 #include <cstdint>
 #include <definitions.h>
 
@@ -81,4 +80,3 @@ public:
     }
 };
 
-#endif //EASYMIC_SESSIONSTATEEVENTSHANDLER_HPP

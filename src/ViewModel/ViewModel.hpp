@@ -2,8 +2,7 @@
 // Created by kitbyte on 31.10.2025.
 //
 
-#ifndef EASYMIC_BASEVIEWMODEL_HPP
-#define EASYMIC_BASEVIEWMODEL_HPP
+#pragma once
 
 class BaseWindow;
 
@@ -29,4 +28,3 @@ public:
     explicit BaseViewModel(BaseWindow* view) : _view(static_cast<T*>(view)) {
     }
 };
-#endif //EASYMIC_BASEVIEWMODEL_HPP

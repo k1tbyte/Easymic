@@ -1,5 +1,4 @@
-#ifndef EASYMIC_TRAYICON_HPP
-#define EASYMIC_TRAYICON_HPP
+#pragma once
 
 #include <windows.h>
 #include <shellapi.h>
@@ -70,4 +69,3 @@ private:
     bool isCreated_ = false;
 };
 
-#endif //EASYMIC_TRAYICON_HPP

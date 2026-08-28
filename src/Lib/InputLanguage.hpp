@@ -1,5 +1,4 @@
-#ifndef EASYMIC_INPUTLANGUAGE_HPP
-#define EASYMIC_INPUTLANGUAGE_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -170,4 +169,3 @@ namespace InputLanguage {
     }
 }
 
-#endif //EASYMIC_INPUTLANGUAGE_HPP

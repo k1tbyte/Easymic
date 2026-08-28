@@ -1,5 +1,4 @@
-#ifndef EASYMIC_ACTIONS_HPP
-#define EASYMIC_ACTIONS_HPP
+#pragma once
 
 #include <iterator>
 #include <string>
@@ -92,4 +91,3 @@ namespace BuiltInActions {
     }
 }
 
-#endif //EASYMIC_ACTIONS_HPP

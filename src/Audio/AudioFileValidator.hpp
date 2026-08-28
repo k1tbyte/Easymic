@@ -1,5 +1,4 @@
-#ifndef EASYMIC_AUDIOFILEVALIDATOR_HPP
-#define EASYMIC_AUDIOFILEVALIDATOR_HPP
+#pragma once
 
 #include <cstddef>
 #include <cstring>
@@ -153,4 +152,3 @@ namespace AudioFileValidator {
     }
 }
 
-#endif //EASYMIC_AUDIOFILEVALIDATOR_HPP

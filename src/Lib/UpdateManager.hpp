@@ -1,5 +1,4 @@
-#ifndef EASYMIC_UPDATEMANAGER_HPP
-#define EASYMIC_UPDATEMANAGER_HPP
+#pragma once
 
 #include <functional>
 #include <string>
@@ -49,4 +48,3 @@ private:
     static bool ApplyUpdate(const std::wstring& filePath);
 };
 
-#endif //EASYMIC_UPDATEMANAGER_HPP

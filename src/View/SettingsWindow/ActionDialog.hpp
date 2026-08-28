@@ -1,5 +1,4 @@
-#ifndef EASYMIC_ACTIONDIALOG_HPP
-#define EASYMIC_ACTIONDIALOG_HPP
+#pragma once
 
 #include <cstdint>
 #include <set>
@@ -48,4 +47,3 @@ namespace ActionDialog {
     bool Show(HINSTANCE hInstance, HWND owner, ActionEdit& action, std::set<std::string>& recentSounds);
 }
 
-#endif //EASYMIC_ACTIONDIALOG_HPP

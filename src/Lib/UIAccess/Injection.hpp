@@ -1,5 +1,4 @@
-#ifndef EASYMIC_INJECTION_HPP
-#define EASYMIC_INJECTION_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -37,4 +36,3 @@ inline bool InjectShellcode(DWORD pid, T params, PVOID pRemoteFunc, SIZE_T codeS
     return hThread != nullptr;
 }
 
-#endif //EASYMIC_INJECTION_HPP

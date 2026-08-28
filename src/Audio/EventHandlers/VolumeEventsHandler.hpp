@@ -1,5 +1,4 @@
-#ifndef EASYMIC_VOLUMENOTIFICATION_HPP
-#define EASYMIC_VOLUMENOTIFICATION_HPP
+#pragma once
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 
@@ -28,4 +27,3 @@ public:
     }
 };
 
-#endif //EASYMIC_VOLUMENOTIFICATION_HPP

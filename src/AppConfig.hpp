@@ -1,5 +1,4 @@
-#ifndef EASYMIC_CONFIG_HPP
-#define EASYMIC_CONFIG_HPP
+#pragma once
 #define CONFIG_ENABLED
 
 #include <cstdint>
@@ -152,4 +151,3 @@ private:
     }
 };
 
-#endif //EASYMIC_CONFIG_HPP

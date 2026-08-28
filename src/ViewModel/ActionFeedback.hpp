@@ -1,5 +1,4 @@
-#ifndef EASYMIC_ACTIONFEEDBACK_HPP
-#define EASYMIC_ACTIONFEEDBACK_HPP
+#pragma once
 
 #include <atomic>
 #include <functional>
@@ -137,4 +136,3 @@ private:
     }
 };
 
-#endif //EASYMIC_ACTIONFEEDBACK_HPP

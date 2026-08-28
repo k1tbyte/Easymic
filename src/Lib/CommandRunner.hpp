@@ -1,5 +1,4 @@
-#ifndef EASYMIC_COMMANDRUNNER_HPP
-#define EASYMIC_COMMANDRUNNER_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -308,4 +307,3 @@ namespace CommandRunner {
     }
 }
 
-#endif //EASYMIC_COMMANDRUNNER_HPP

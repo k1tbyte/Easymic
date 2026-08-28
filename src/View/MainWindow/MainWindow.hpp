@@ -1,5 +1,4 @@
-#ifndef EASYMIC_MAINWINDOW_V2_HPP
-#define EASYMIC_MAINWINDOW_V2_HPP
+#pragma once
 
 #include <functional>
 #include <memory>
@@ -100,4 +99,3 @@ private:
     static constexpr UINT WM_SHOW_NOTIFICATION = WM_APP + 1;
 };
 
-#endif //EASYMIC_MAINWINDOW_V2_HPP

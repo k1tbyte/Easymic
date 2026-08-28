@@ -2,8 +2,7 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMIC_DEFINITIONS_H
-#define EASYMIC_DEFINITIONS_H
+#pragma once
 
 #include <windows.h>
 #include <wrl/client.h>
@@ -42,4 +41,3 @@ using Microsoft::WRL::ComPtr;
 #define LOG_WARNING(...)
 #endif
 
-#endif //EASYMIC_DEFINITIONS_H

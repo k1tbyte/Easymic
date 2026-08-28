@@ -1,5 +1,4 @@
-#ifndef EASYMIC_GDIRENDERER_HPP
-#define EASYMIC_GDIRENDERER_HPP
+#pragma once
 
 #include <windows.h>
 #include <gdiplus.h>
@@ -36,4 +35,3 @@ namespace GDIRenderer {
     }
 };
 
-#endif //EASYMIC_GDIRENDERER_HPP

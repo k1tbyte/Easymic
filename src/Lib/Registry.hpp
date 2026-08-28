@@ -1,5 +1,4 @@
-#ifndef EASYMIC_REGISTRY_HPP
-#define EASYMIC_REGISTRY_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -28,4 +27,3 @@ namespace Registry {
     }
 }
 
-#endif //EASYMIC_REGISTRY_HPP

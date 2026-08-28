@@ -1,5 +1,4 @@
-#ifndef EASYMIC_SHELLCONTEXT_HPP
-#define EASYMIC_SHELLCONTEXT_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -132,4 +131,3 @@ namespace ShellContext {
     }
 }
 
-#endif //EASYMIC_SHELLCONTEXT_HPP

@@ -2,8 +2,7 @@
 // Created by kitbyte on 04.11.2025.
 //
 
-#ifndef EASYMIC_WIN32HOOK_H
-#define EASYMIC_WIN32HOOK_H
+#pragma once
 
 #include <windows.h>
 #include <memory>
@@ -32,4 +31,3 @@ public:
     }
 };
 
-#endif //EASYMIC_WIN32HOOK_H

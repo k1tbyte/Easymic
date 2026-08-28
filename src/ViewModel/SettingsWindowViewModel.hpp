@@ -2,8 +2,7 @@
 // Created by kitbyte on 31.10.2025.
 //
 
-#ifndef EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
-#define EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP
+#pragma once
 
 #include "AudioManager.hpp"
 #include "Audio/AudioFileValidator.hpp"
@@ -80,4 +79,3 @@ public:
     void Init() override;
 };
 
-#endif //EASYMIC_SETTINGSWINDOWVIEWMODEL_HPP

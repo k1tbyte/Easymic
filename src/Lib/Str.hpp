@@ -1,5 +1,4 @@
-#ifndef EASYMIC_STR_HPP
-#define EASYMIC_STR_HPP
+#pragma once
 
 #include <string>
 #include <string_view>
@@ -61,4 +60,3 @@ namespace Str {
 
 }
 
-#endif //EASYMIC_STR_HPP

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_COMOBJECT_HPP
-#define EASYMIC_COMOBJECT_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -34,4 +33,3 @@ protected:
     virtual ~ComObject() = default;
 };
 
-#endif //EASYMIC_COMOBJECT_HPP

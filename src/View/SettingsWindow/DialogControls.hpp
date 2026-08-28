@@ -1,5 +1,4 @@
-#ifndef EASYMIC_DIALOGCONTROLS_HPP
-#define EASYMIC_DIALOGCONTROLS_HPP
+#pragma once
 
 #include <commctrl.h>
 #include <filesystem>
@@ -150,4 +149,3 @@ namespace DialogControls {
     }
 }
 
-#endif //EASYMIC_DIALOGCONTROLS_HPP

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_TOKENS_HPP
-#define EASYMIC_TOKENS_HPP
+#pragma once
 
 #include <iterator>
 
@@ -47,4 +46,3 @@ namespace Tokens {
     inline constexpr int Count = static_cast<int>(std::size(All));
 }
 
-#endif //EASYMIC_TOKENS_HPP

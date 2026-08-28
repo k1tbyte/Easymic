@@ -1,5 +1,4 @@
-#ifndef EASYMIC_BASEWINDOW_HPP
-#define EASYMIC_BASEWINDOW_HPP
+#pragma once
 
 #include <algorithm>
 #include <memory>
@@ -212,4 +211,3 @@ protected:
     bool _isVisible = false;
 };
 
-#endif //EASYMIC_BASEWINDOW_HPP

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_INDICATORICONS_HPP
-#define EASYMIC_INDICATORICONS_HPP
+#pragma once
 
 #include <memory>
 #include <gdiplus.h>
@@ -81,4 +80,3 @@ public:
     Gdiplus::Bitmap* Active() const { return _activeBitmap.get(); }
 };
 
-#endif //EASYMIC_INDICATORICONS_HPP

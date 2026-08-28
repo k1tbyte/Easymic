@@ -2,8 +2,7 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMIC_EVENT_HPP
-#define EASYMIC_EVENT_HPP
+#pragma once
 
 #include <functional>
 #include <mutex>
@@ -56,4 +55,3 @@ public:
     }
 };
 
-#endif //EASYMIC_EVENT_HPP

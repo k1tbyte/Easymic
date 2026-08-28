@@ -2,8 +2,7 @@
 // Created by kitbyte on 20.11.2025.
 //
 
-#ifndef EASYMIC_RATELIMITER_H
-#define EASYMIC_RATELIMITER_H
+#pragma once
 
 #ifdef _DEBUG
 // Debug only: this header reaches every window through BaseWindow, and <iostream> would plant
@@ -52,4 +51,3 @@ private:
 #define MEASURE_RATE(name, maxCalls, intervalMs, alert)
 #endif
 
-#endif //EASYMIC_RATELIMITER_H

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_CRASHHANDLER_HPP
-#define EASYMIC_CRASHHANDLER_HPP
+#pragma once
 
 #include <string>
 #include <functional>
@@ -23,4 +22,3 @@ namespace CrashHandler {
 
 } // namespace CrashHandler
 
-#endif // EASYMIC_CRASHHANDLER_HPP

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_UACSERVICE_HPP
-#define EASYMIC_UACSERVICE_HPP
+#pragma once
 
 /**
  * @brief Elevation checks and the scheduled task that skips the UAC prompt.
@@ -27,4 +26,3 @@ namespace UAC {
 
 } // namespace UAC
 
-#endif // EASYMIC_UACSERVICE_HPP

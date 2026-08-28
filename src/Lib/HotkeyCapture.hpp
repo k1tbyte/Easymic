@@ -1,5 +1,4 @@
-#ifndef EASYMIC_HOTKEYCAPTURE_HPP
-#define EASYMIC_HOTKEYCAPTURE_HPP
+#pragma once
 
 #include <functional>
 #include <windows.h>
@@ -119,4 +118,3 @@ namespace HotkeyCapture {
     }
 }
 
-#endif //EASYMIC_HOTKEYCAPTURE_HPP

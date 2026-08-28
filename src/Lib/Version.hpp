@@ -1,5 +1,4 @@
-#ifndef EASYMIC_VERSION_HPP
-#define EASYMIC_VERSION_HPP
+#pragma once
 
 #include <string>
 
@@ -33,4 +32,3 @@ private:
 // Global version instance
 extern Version g_AppVersion;
 
-#endif //EASYMIC_VERSION_HPP

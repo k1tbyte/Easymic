@@ -1,5 +1,4 @@
-#ifndef EASYMIC_RESOURCE_HPP
-#define EASYMIC_RESOURCE_HPP
+#pragma once
 
 #include <memory>
 #include <string>
@@ -46,4 +45,3 @@ public:
 
 };
 
-#endif //EASYMIC_RESOURCE_HPP

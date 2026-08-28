@@ -2,8 +2,7 @@
 // Created by kitbyte on 24.10.2025.
 //
 
-#ifndef EASYMIC_AUDIODEVICECONTROLLER_HPP
-#define EASYMIC_AUDIODEVICECONTROLLER_HPP
+#pragma once
 
 
 #include <atomic>
@@ -349,4 +348,3 @@ private:
     }
 };
 
-#endif //EASYMIC_AUDIODEVICECONTROLLER_HPP

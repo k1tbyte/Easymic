@@ -1,5 +1,4 @@
-#ifndef EASYMIC_SETTINGSWINDOW_V2_HPP
-#define EASYMIC_SETTINGSWINDOW_V2_HPP
+#pragma once
 
 // BaseWindow first: it brings in windows.h, and commctrl.h does not compile without it
 #include "../Core/BaseWindow.hpp"
@@ -95,4 +94,3 @@ private:
     static const CategoryItem Categories[];
 };
 
-#endif //EASYMIC_SETTINGSWINDOW_V2_HPP

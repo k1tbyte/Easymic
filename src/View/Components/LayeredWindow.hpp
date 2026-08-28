@@ -2,8 +2,7 @@
 // Created by kitbyte on 01.11.2025.
 //
 
-#ifndef EASYMIC_LAYEREDWINDOW_H
-#define EASYMIC_LAYEREDWINDOW_H
+#pragma once
 
 #include <windows.h>
 #include <gdiplus.h>
@@ -118,4 +117,3 @@ namespace GDIRenderer {
     }
 }
 
-#endif //EASYMIC_LAYEREDWINDOW_H

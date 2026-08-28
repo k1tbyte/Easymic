@@ -1,5 +1,4 @@
-#ifndef EASYMIC_TRAYICONTHEME_HPP
-#define EASYMIC_TRAYICONTHEME_HPP
+#pragma once
 
 #include <gdiplus.h>
 #include <windows.h>
@@ -70,4 +69,3 @@ namespace TrayIconTheme {
     }
 }
 
-#endif //EASYMIC_TRAYICONTHEME_HPP

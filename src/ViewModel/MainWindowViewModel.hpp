@@ -2,8 +2,7 @@
 // Created by kitbyte on 31.10.2025.
 //
 
-#ifndef EASYMIC_MAINWINDOWVIEWMODEL_HPP
-#define EASYMIC_MAINWINDOWVIEWMODEL_HPP
+#pragma once
 
 #include <algorithm>
 #include <atomic>
@@ -508,4 +507,3 @@ public:
         RestoreConfig();
     }
 };
-#endif //EASYMIC_MAINWINDOWVIEWMODEL_HPP

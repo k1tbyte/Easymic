@@ -1,5 +1,4 @@
-#ifndef EASYMIC_INDICATORLAYOUT_HPP
-#define EASYMIC_INDICATORLAYOUT_HPP
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -132,4 +131,3 @@ private:
     }
 };
 
-#endif //EASYMIC_INDICATORLAYOUT_HPP

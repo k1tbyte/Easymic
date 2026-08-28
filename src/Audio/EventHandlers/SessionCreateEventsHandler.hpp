@@ -2,8 +2,7 @@
 // Created by kitbyte on 25.10.2025.
 //
 
-#ifndef EASYMIC_SESSIONCREATEEVENTSHANDLER_HPP
-#define EASYMIC_SESSIONCREATEEVENTSHANDLER_HPP
+#pragma once
 #include <audiopolicy.h>
 
 #include "ComObject.hpp"
@@ -32,4 +31,3 @@ public:
     }
 };
 
-#endif //EASYMIC_SESSIONCREATEEVENTSHANDLER_HPP

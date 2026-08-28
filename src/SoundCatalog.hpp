@@ -1,5 +1,4 @@
-#ifndef EASYMIC_SOUNDCATALOG_HPP
-#define EASYMIC_SOUNDCATALOG_HPP
+#pragma once
 
 #include <mmsystem.h>
 #include <mutex>
@@ -77,4 +76,3 @@ namespace SoundCatalog {
     }
 }
 
-#endif //EASYMIC_SOUNDCATALOG_HPP

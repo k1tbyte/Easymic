@@ -2,8 +2,7 @@
 // Created by kitbyte on 04.11.2025.
 //
 
-#ifndef EASYMIC_HOTKEYMANAGER_H
-#define EASYMIC_HOTKEYMANAGER_H
+#pragma once
 
 #include <cstdint>
 #include <windows.h>
@@ -70,4 +69,3 @@ namespace HotkeyManager {
 
 }
 
-#endif //EASYMIC_HOTKEYMANAGER_H

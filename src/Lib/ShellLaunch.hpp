@@ -1,5 +1,4 @@
-#ifndef EASYMIC_SHELLLAUNCH_HPP
-#define EASYMIC_SHELLLAUNCH_HPP
+#pragma once
 
 #include <windows.h>
 
@@ -164,4 +163,3 @@ namespace ShellLaunch {
     }
 }
 
-#endif //EASYMIC_SHELLLAUNCH_HPP

@@ -1,5 +1,4 @@
-#ifndef EASYMIC_LOGGER_HPP
-#define EASYMIC_LOGGER_HPP
+#pragma once
 
 #include <cstdarg>
 #include <mutex>
@@ -41,4 +40,3 @@ private:
     static void LogImpl(Level level, const std::string& message);
 };
 
-#endif //EASYMIC_LOGGER_HPP
