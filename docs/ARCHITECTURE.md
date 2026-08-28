@@ -349,17 +349,24 @@ feature can be written without touching anything that already exists.
 
 ### Step 1 - Extract the kernel plumbing
 
-- [ ] Move `KeysNameTable` + `ModifiersOrderedList` + `GetHotkeyName` out to `Core/KeyNames.hpp`
-- [ ] Add the inverse, `ParseHotkeyName(std::string_view) -> uint64_t` (0 when it does not parse).
-      Step 3 stores triggers as names, so the table has to work both ways. Round-trip it against
-      every entry in `KeysNameTable` plus the modifier combinations - that check is the test
-- [ ] Extract the action queue, worker thread, `_multiPressWindow` timing and `_pendingMask`
-      resolution out of `HotkeyManager.cpp` into `Core/Dispatcher.*`
-- [ ] Add `Dispatcher::ToUi(fn)`; port `ToggleBellSound`'s `PostMessageW(ID_APP_TOGGLE_BELL)`
-      hand-off to it
-- [ ] `HotkeyManager` -> `Core/HotkeyService`, now hooks + masks only (~230 lines)
-- **Done when:** `HotkeyService.cpp` is under 250 lines, multi-press and push-to-talk still behave,
-  and clean exit still joins the worker without a crash report.
+- [x] Move the name tables and `GetHotkeyName` out to `Core/KeyNames.*` as `KeyNames::Format`
+- [x] Add the inverse, `KeyNames::Parse` (0 when it does not parse). Round-tripped against every
+      named key, every modifier combination and multi-key sequences. It found one real collision:
+      VK_OEM_PLUS was named `"+"`, which is the separator - it is `"Plus"` now
+- [x] Extract the action queue and worker thread into `Core/Dispatcher.*`, with a deferred slot
+      in place of the worker re-reading the hotkey table. `_pendingMask` and the multi-press
+      timing stay in `HotkeyService`, where the counting belongs
+- [x] Add `Dispatcher::ToUi(fn)`; port `ToggleBellSound`'s hand-off to it. `ID_APP_TOGGLE_BELL`
+      stays - it turned out to be a real tray menu item, not only a self-post
+- [x] `HotkeyManager` -> `Core/HotkeyService`, now hooks + masks only
+- **Done when:** multi-press and push-to-talk still behave, and clean exit still joins the worker
+  without a crash report.
+- **Result:** 776 lines became 334 (`HotkeyService.cpp`) + 136 (`Dispatcher.cpp`) + 361
+  (`KeyNames.cpp`, almost all of it the table). The "~230 lines" estimate was wrong: about 90
+  lines of `HotkeyService.cpp` are the two hook procs, which are irreducible Win32 switches.
+  Dispatcher's ordering was checked directly - post order, deferred replacement, flush-before-post,
+  cancel and stop - since that is where multi-press semantics actually changed. Binary unchanged
+  at 854 KB.
 
 ### Step 2 - ActionRegistry, and the god object dies
 
