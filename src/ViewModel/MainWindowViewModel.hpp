@@ -11,6 +11,7 @@
 
 #include "ActionFeedback.hpp"
 #include "HotkeyManager.hpp"
+#include "../Lib/InputLanguage.hpp"
 #include "SettingsWindowViewModel.hpp"
 #include "UACService.hpp"
 #include "../Lib/UIAccess/UIAccessManager.hpp"
@@ -67,8 +68,9 @@ private:
     }
 
     /// What each built-in id actually does. No default label: adding an id without a case here
-    /// is a warning rather than an action that silently never fires.
-    std::function<void()> MakeBuiltInHandler(const BuiltInId id) {
+    /// is a warning rather than an action that silently never fires. The argument is whatever
+    /// the user typed in the action's own field, and only the ones with a label read it.
+    std::function<void()> MakeBuiltInHandler(const BuiltInId id, const std::string& args) {
         switch (id) {
             case BuiltInId::ToggleMute:
                 // The device only reports a new mute from its callback, so the action publishes
@@ -94,6 +96,8 @@ private:
                     _feedback.PublishBellEnabled(!_feedback.BellEnabled());
                     PostMessageW(_view->GetHandle(), WM_COMMAND, ID_APP_TOGGLE_BELL, 0);
                 };
+            case BuiltInId::SwitchLanguage:
+                return [args] { InputLanguage::SwitchNext(args); };
             case BuiltInId::Count:
                 break;
         }
@@ -148,11 +152,6 @@ private:
         }
     }
 
-    void AdjustAppVolume() const {
-        const WORD vol = static_cast<WORD>(_cfg.BellVolume * 0xFFFF / 100);
-        waveOutSetVolume(nullptr, MAKELONG(vol, vol));
-    }
-
     /// UI thread only - the hotkey worker asks for this through the command queue.
     void ToggleBellSound() {
         if (_cfg.BellVolume > 0) {
@@ -162,19 +161,19 @@ private:
             _cfg.BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
         }
         _feedback.PublishBellEnabled(_cfg.BellVolume > 0);
-        AdjustAppVolume();
         _cfg.Save();
     }
 
-    /// Everything an action needs to fire: its combination, how many presses of it, its feedback
-    /// and which edge it runs on.
+    /// Everything an action needs to fire: its combination, how many presses of it, its feedback,
+    /// which edge it runs on, whether the key reaches anything else and whether a tap is required.
     bool RegisterAction(const uint64_t hotkey, const uint8_t presses, std::function<void()> run,
-                        const bool onRelease, const bool holdOnly) {
+                        const bool onRelease, const bool holdOnly, const bool block, const bool tapOnly) {
         return HotkeyManager::RegisterHotkey(hotkey, presses ? presses : 1,
             holdOnly ? HotkeyManager::HotkeyBinding{.onPress = std::move(run),
-                                                    .onRelease = _releasePushToTalk}
-            : onRelease ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run)}
-                        : HotkeyManager::HotkeyBinding{.onPress = std::move(run)});
+                                                    .onRelease = _releasePushToTalk, .block = block}
+            : onRelease ? HotkeyManager::HotkeyBinding{.onRelease = std::move(run), .block = block,
+                                                       .tapOnly = tapOnly}
+                        : HotkeyManager::HotkeyBinding{.onPress = std::move(run), .block = block});
     }
 
     /// A configured hotkey is not a registered one - an action can carry no combination, and
@@ -182,46 +181,40 @@ private:
     bool RegisterConfiguredActions() {
         bool registered = false;
 
-        for (const auto& builtIn : BuiltInActions::All) {
-            const auto configured = _cfg.Actions.find(builtIn.Key);
-            if (configured == _cfg.Actions.end() || !configured->second.Hotkey) {
-                continue;
-            }
-
-            auto handler = MakeBuiltInHandler(builtIn.Id);
-            if (!handler) {
-                // Only reachable when a new id was added to the table without a case for it
-                LOG_ERROR("Built-in action '%s' has no handler", builtIn.Key);
-                continue;
-            }
-
-            const ActionBinding& binding = configured->second;
-            auto run = _feedback.Wrap(std::move(handler), binding.Sound,
-                binding.ShowNotification ? ActionFeedback::Compose(binding.Notification,
-                                                                   builtIn.DefaultNotification,
-                                                                   builtIn.Title, binding.Hotkey)
-                                         : std::string{});
-
-            registered |= RegisterAction(binding.Hotkey, binding.Presses, std::move(run),
-                                         binding.OnRelease, builtIn.HoldOnly);
-        }
-
-        for (const auto& action : _cfg.CustomActions) {
-            if (!action.Hotkey || action.Command.empty()) {
+        for (const auto& action : _cfg.Actions) {
+            const BuiltInAction* builtIn = action.BuiltIn.empty()
+                                               ? nullptr : BuiltInActions::Find(action.BuiltIn);
+            if (!action.Hotkey || (!builtIn && action.Command.empty())) {
                 continue;
             }
 
             const std::string text = action.ShowNotification
-                ? ActionFeedback::Compose(action.Notification, BuiltInActions::DefaultNotification,
+                ? ActionFeedback::Compose(action.Notification,
+                                          builtIn ? builtIn->DefaultNotification
+                                                  : BuiltInActions::DefaultNotification,
                                           action.Name, action.Hotkey)
                 : std::string{};
 
-            // A captured command announces itself when it is done, so the wrapper must not do it too
-            auto run = _feedback.Wrap(_feedback.ForCommand(action.Command, text), action.Sound,
-                                      text.contains(Tokens::Stdout) ? std::string{} : text);
+            std::function<void()> run;
+            if (builtIn) {
+                auto handler = MakeBuiltInHandler(builtIn->Id, action.Args);
+                if (!handler) {
+                    // Only reachable when a new id was added to the table without a case for it
+                    LOG_ERROR("Built-in action '%s' has no handler", builtIn->Key);
+                    continue;
+                }
+                run = _feedback.Wrap(std::move(handler), action.Sound, action.SoundVolume, text);
+            } else {
+                // A captured command announces itself when it is done, so the wrapper must not
+                // do it too
+                run = _feedback.Wrap(_feedback.ForCommand(action.Command, text), action.Sound,
+                                     action.SoundVolume,
+                                     text.contains(Tokens::Stdout) ? std::string{} : text);
+            }
 
             registered |= RegisterAction(action.Hotkey, action.Presses, std::move(run),
-                                         action.OnRelease, false);
+                                         action.OnRelease, builtIn && builtIn->HoldOnly,
+                                         action.Block, action.TapOnly);
         }
 
         return registered;
@@ -400,7 +393,8 @@ private:
         // Mic state feedback: fires for a mute from anywhere, not just from our own hotkey
         if (!silent && _cfg.BellVolume > 0) {
             SoundCatalog::Play(_view->GetHInstance(),
-                               _captureDeviceMuted ? _cfg.MuteSoundSource : _cfg.UnmuteSoundSource);
+                               _captureDeviceMuted ? _cfg.MuteSoundSource : _cfg.UnmuteSoundSource,
+                               static_cast<uint8_t>(_cfg.BellVolume));
         }
     }
 
@@ -414,7 +408,6 @@ private:
         _feedback.PublishVolumePercent(mic->GetVolumePercent());
 
         AdjustMicVolume();
-        AdjustAppVolume();
 
         CaptureDeviceStateChanged(true);
     }

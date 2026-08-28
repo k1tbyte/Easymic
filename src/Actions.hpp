@@ -16,6 +16,7 @@ enum class BuiltInId : int {
     MicVolumeUp,
     MicVolumeDown,
     ToggleBellSound,
+    SwitchLanguage,
     Count
 };
 
@@ -33,6 +34,10 @@ struct BuiltInAction {
     const char* DefaultSound;
     /// Notification text prefilled the same way. Empty means the action stays silent on screen.
     const char* DefaultNotification;
+    /// Label of the argument row, empty when the action takes none. The hint spells out the
+    /// format, since every action reads its argument its own way.
+    const char* ArgsLabel;
+    const char* ArgsHint;
     /// False when the action needs no sound of its own - muting already has its own feedback.
     bool HasSound;
     /// Fires on press and release by design (push to talk), so "trigger on release" is meaningless.
@@ -53,11 +58,12 @@ namespace BuiltInActions {
         // Push to talk says nothing: on a held key the text would flicker with every tap.
         // Toggle mute reports the state rather than the press - the indicator shows it too, but
         // it can be turned off, and then this is the only thing that says which way it went.
-        {BuiltInId::ToggleMute,      "Toggle mute",       "Toggle mute",       "",     "Mic {mic}",         false, false},
-        {BuiltInId::PushToTalk,      "Push to talk",      "Push to talk",      "",     "",                  false, true },
-        {BuiltInId::MicVolumeUp,     "Mic volume up",     "Mic volume up",     "Tick", "Mic {volume}%",     true,  false},
-        {BuiltInId::MicVolumeDown,   "Mic volume down",   "Mic volume down",   "Tick", "Mic {volume}%",     true,  false},
-        {BuiltInId::ToggleBellSound, "Toggle bell sound", "Toggle bell sound", "Tick", "Bell {bell}",       true,  false},
+        {BuiltInId::ToggleMute,      "Toggle mute",       "Toggle mute",       "",     "Mic {mic}",     "",        "",                            false, false},
+        {BuiltInId::PushToTalk,      "Push to talk",      "Push to talk",      "",     "",              "",        "",                            false, true },
+        {BuiltInId::MicVolumeUp,     "Mic volume up",     "Mic volume up",     "Tick", "Mic {volume}%", "",        "",                            true,  false},
+        {BuiltInId::MicVolumeDown,   "Mic volume down",   "Mic volume down",   "Tick", "Mic {volume}%", "",        "",                            true,  false},
+        {BuiltInId::ToggleBellSound, "Toggle bell sound", "Toggle bell sound", "Tick", "Bell {bell}",   "",        "",                            true,  false},
+        {BuiltInId::SwitchLanguage,  "Switch language",   "Switch language",   "",     "",              "Locales", "en, ru - empty for all",      true,  false},
     };
 
     static_assert(std::size(All) == static_cast<size_t>(BuiltInId::Count),

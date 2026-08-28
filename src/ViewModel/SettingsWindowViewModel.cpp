@@ -97,8 +97,7 @@ void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) const {
     DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
                                        _cfg.RecentSounds, _cfg.UnmuteSoundSource);
 }
-
-/// Built-ins first, in table order, then the custom ones, then the add row.
+/// One row per action in config order, then the row that adds another.
 void SettingsWindowViewModel::RefreshActionRows() const {
     const auto describe = [](const uint64_t mask, const bool onRelease, const uint8_t presses) {
         std::string hotkey = mask ? HotkeyManager::GetHotkeyName(mask) : "";
@@ -116,24 +115,16 @@ void SettingsWindowViewModel::RefreshActionRows() const {
     };
 
     std::vector<ActionRow> rows;
-    rows.reserve(BuiltInActions::Count + _cfg.CustomActions.size() + 1);
+    rows.reserve(_cfg.Actions.size() + 1);
 
-    for (const auto& builtIn : BuiltInActions::All) {
-        const auto it = _cfg.Actions.find(builtIn.Key);
-        const ActionBinding binding = it != _cfg.Actions.end() ? it->second : ActionBinding{};
-
-        rows.push_back({
-            .Name = builtIn.Title,
-            .Hotkey = describe(binding.Hotkey, binding.OnRelease, binding.Presses),
-        });
-    }
-
-    for (const auto& action : _cfg.CustomActions) {
+    for (const auto& action : _cfg.Actions) {
         rows.push_back({
             .Name = action.Name,
             .Hotkey = describe(action.Hotkey, action.OnRelease, action.Presses),
-            .Command = action.Command,
-            .IsCustom = true
+            // The last column is whatever the action was configured with, which is a command
+            // line for one kind and the built-in's own argument for the other
+            .Command = action.BuiltIn.empty() ? action.Command : action.Args,
+            .IsCustom = action.BuiltIn.empty()
         });
     }
 
@@ -143,84 +134,94 @@ void SettingsWindowViewModel::RefreshActionRows() const {
 
 /// Frees a combination from every other action. What has to be unique is the pair: the same
 /// combination may drive several actions as long as each wants a different number of presses.
-void SettingsWindowViewModel::ClearHotkey(uint64_t mask, uint8_t presses,
-                                          const std::string& exceptBuiltIn, int exceptCustomIndex) {
+void SettingsWindowViewModel::ClearHotkey(uint64_t mask, uint8_t presses, int exceptIndex) {
     if (!mask) {
         return;
     }
 
-    for (auto& [id, binding] : _cfg.Actions) {
-        if (id != exceptBuiltIn && binding.Hotkey == mask && binding.Presses == presses) {
-            binding.Hotkey = 0;
-        }
-    }
-
-    for (int i = 0; i < static_cast<int>(_cfg.CustomActions.size()); i++) {
-        if (i != exceptCustomIndex && _cfg.CustomActions[i].Hotkey == mask
-            && _cfg.CustomActions[i].Presses == presses) {
-            _cfg.CustomActions[i].Hotkey = 0;
+    for (int i = 0; i < static_cast<int>(_cfg.Actions.size()); i++) {
+        if (i != exceptIndex && _cfg.Actions[i].Hotkey == mask
+            && _cfg.Actions[i].Presses == presses) {
+            _cfg.Actions[i].Hotkey = 0;
         }
     }
 }
 
 void SettingsWindowViewModel::HandleActionActivated(int rowIndex) {
-    if (rowIndex < BuiltInActions::Count) {
-        EditBuiltInAction(BuiltInActions::All[rowIndex]);
+    if (rowIndex < static_cast<int>(_cfg.Actions.size())) {
+        EditAction(rowIndex, {});
     } else {
-        EditCustomAction(rowIndex - BuiltInActions::Count);
+        AddAction();
     }
 
     RefreshActionRows();
 }
 
-void SettingsWindowViewModel::EditBuiltInAction(const BuiltInAction& builtIn) {
-    const auto it = _cfg.Actions.find(builtIn.Key);
-    const bool isConfigured = it != _cfg.Actions.end();
+/**
+ * @brief Asks what the new action should be, then opens it for editing.
+ *
+ * A built-in is an entry like any other, so the list can hold several of the same one - which is
+ * the point of picking it here rather than having one fixed row per built-in.
+ */
+void SettingsWindowViewModel::AddAction() {
+    HMENU menu = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING, 1, L"Command");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-    ActionEdit edit{
-        .Title = builtIn.Title,
-        // An unconfigured action starts from the table default, so saving it as is keeps the
-        // behaviour the user was promised by the list
-        .Sound = isConfigured ? it->second.Sound : builtIn.DefaultSound,
-        // The box always shows what will actually appear on screen, table default included
-        .Notification = isConfigured && !it->second.Notification.empty() ? it->second.Notification
-                                                                        : builtIn.DefaultNotification,
-        .Hotkey = isConfigured ? it->second.Hotkey : 0,
-        .OnRelease = isConfigured && it->second.OnRelease,
-        .Presses = isConfigured ? it->second.Presses : uint8_t{1},
-        .ShowNotification = !isConfigured || it->second.ShowNotification,
-        .HasSound = builtIn.HasSound,
-        .HoldOnly = builtIn.HoldOnly,
-    };
+    for (int i = 0; i < BuiltInActions::Count; i++) {
+        AppendMenuW(menu, MF_STRING, i + 2, Str::Utf8ToWide(BuiltInActions::All[i].Title).c_str());
+    }
 
-    if (!_view->ShowActionDialog(edit, _cfg.RecentSounds)) {
+    POINT cursor;
+    GetCursorPos(&cursor);
+    const int chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, cursor.x, cursor.y, 0,
+                                      _view->GetHandle(), nullptr);
+    DestroyMenu(menu);
+
+    if (!chosen) {
         return;
     }
 
-    ClearHotkey(edit.Hotkey, edit.Presses, builtIn.Key, -1);
-    _cfg.Actions[builtIn.Key] = {.Hotkey = edit.Hotkey, .OnRelease = edit.OnRelease,
-                                 .Presses = edit.Presses, .Sound = edit.Sound,
-                                 .Notification = edit.Notification,
-                                 .ShowNotification = edit.ShowNotification};
+    Action seed{};
+    if (chosen > 1) {
+        const BuiltInAction& builtIn = BuiltInActions::All[chosen - 2];
+        seed.Name = builtIn.Title;
+        seed.BuiltIn = builtIn.Key;
+        seed.Sound = builtIn.DefaultSound;
+    }
+
+    EditAction(static_cast<int>(_cfg.Actions.size()), seed);
 }
 
-void SettingsWindowViewModel::EditCustomAction(int customIndex) {
-    const bool isExisting = customIndex < static_cast<int>(_cfg.CustomActions.size());
-    const CustomAction stored = isExisting ? _cfg.CustomActions[customIndex] : CustomAction{};
+/// An index past the end is a new action, and then the seed says what kind it is.
+void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
+    const bool isExisting = index < static_cast<int>(_cfg.Actions.size());
+    const Action stored = isExisting ? _cfg.Actions[index] : seed;
+    const BuiltInAction* builtIn = stored.BuiltIn.empty() ? nullptr
+                                                          : BuiltInActions::Find(stored.BuiltIn);
 
     ActionEdit edit{
-        .Title = isExisting ? stored.Name : "New action",
+        .Title = stored.Name.empty() ? "New action" : stored.Name,
         .Name = stored.Name,
         .Command = stored.Command,
+        .Args = stored.Args,
+        .ArgsLabel = builtIn ? builtIn->ArgsLabel : "",
+        .ArgsHint = builtIn ? builtIn->ArgsHint : "",
         .Sound = stored.Sound,
+        .SoundVolume = stored.SoundVolume,
         // The box always shows what will actually appear on screen, template included
-        .Notification = stored.Notification.empty() ? BuiltInActions::DefaultNotification
-                                                    : stored.Notification,
+        .Notification = !stored.Notification.empty() ? stored.Notification
+                        : builtIn ? builtIn->DefaultNotification
+                                  : BuiltInActions::DefaultNotification,
         .Hotkey = stored.Hotkey,
         .OnRelease = stored.OnRelease,
         .Presses = stored.Presses,
+        .Block = stored.Block,
+        .TapOnly = stored.TapOnly,
         .ShowNotification = stored.ShowNotification,
-        .IsCustom = true,
+        .IsCustom = !builtIn,
+        .HasSound = !builtIn || builtIn->HasSound,
+        .HoldOnly = builtIn && builtIn->HoldOnly,
         .AllowDelete = isExisting,
     };
 
@@ -229,23 +230,34 @@ void SettingsWindowViewModel::EditCustomAction(int customIndex) {
     }
 
     if (edit.Deleted) {
-        _cfg.CustomActions.erase(_cfg.CustomActions.begin() + customIndex);
+        _cfg.Actions.erase(_cfg.Actions.begin() + index);
         return;
     }
 
-    ClearHotkey(edit.Hotkey, edit.Presses, {}, isExisting ? customIndex : -1);
+    ClearHotkey(edit.Hotkey, edit.Presses, isExisting ? index : -1);
 
-    const CustomAction action{.Name = edit.Name, .Command = edit.Command, .Sound = edit.Sound,
-                              .Notification = edit.Notification, .Hotkey = edit.Hotkey,
-                              .OnRelease = edit.OnRelease, .Presses = edit.Presses,
-                              .ShowNotification = edit.ShowNotification};
+    // Starts from what was stored so the built-in the action points at survives the edit
+    Action action = stored;
+    action.Name = edit.Name;
+    action.Command = edit.Command;
+    action.Args = edit.Args;
+    action.Sound = edit.Sound;
+    action.Notification = edit.Notification;
+    action.Hotkey = edit.Hotkey;
+    action.OnRelease = edit.OnRelease;
+    action.Presses = edit.Presses;
+    action.Block = edit.Block;
+    action.TapOnly = edit.TapOnly;
+    action.SoundVolume = edit.SoundVolume;
+    action.ShowNotification = edit.ShowNotification;
 
     if (isExisting) {
-        _cfg.CustomActions[customIndex] = action;
+        _cfg.Actions[index] = action;
     } else {
-        _cfg.CustomActions.push_back(action);
+        _cfg.Actions.push_back(action);
     }
 }
+
 
 void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
     SetDlgItemTextW(hWnd, IDC_ABOUT_VERSION_INFO, Str::Utf8ToWide("Version " + g_AppVersion.GetFullFormat()).c_str());

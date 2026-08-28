@@ -72,15 +72,15 @@ public:
     /// Wraps an action so it announces itself. Runs on the hotkey worker, never in the hook.
     /// The sound comes first because it is the instant feedback, the text last because it reports.
     std::function<void()> Wrap(std::function<void()> handler, std::string sound,
-                               std::string notification) const {
+                               const uint8_t soundVolume, std::string notification) const {
         if (sound.empty() && notification.empty()) {
             return handler;
         }
 
-        return [this, handler = std::move(handler), sound = std::move(sound),
+        return [this, handler = std::move(handler), sound = std::move(sound), soundVolume,
                 notification = std::move(notification)] {
             if (!sound.empty()) {
-                SoundCatalog::Play(_instance, sound);
+                SoundCatalog::Play(_instance, sound, soundVolume);
             }
             handler();
             Show(notification);

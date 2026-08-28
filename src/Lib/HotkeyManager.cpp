@@ -280,11 +280,24 @@ namespace  HotkeyManager {
     /// is a default entry, and _enqueue already ignores an empty function - so an exact match is
     /// all this has to express, and a gap in the range costs no branch of its own.
     using MaskBindings = std::vector<HotkeyBinding>;
-    std::unordered_map<uint64_t, MaskBindings> _hotkeys;
+
+    struct MaskEntry {
+        MaskBindings bindings;
+        /// True when any count bound here asked to swallow the key - see HotkeyBinding::block.
+        bool block = false;
+    };
+
+    std::unordered_map<uint64_t, MaskEntry> _hotkeys;
     BindingCallback _onBindingCallback = nullptr;
 
 
     uint8_t _keys[256];
+    /// Keys swallowed on the way down. Their release has to go the same way, or the app below is
+    /// left with a key it never saw go down - and an autorepeat has to keep being swallowed too.
+    uint8_t _blockedKeys[256];
+    /// The last key that went down. A key still holding this slot when it is released was tapped
+    /// by itself; anything else means it was held while another key was pressed.
+    uint8_t _lastDownVk = 0;
     std::unique_ptr<Win32Hook> _keyboardHook = nullptr;
     std::unique_ptr<Win32Hook> _mouseHook = nullptr;
     constexpr auto ModifierTable = MakeModifierTable();
@@ -334,8 +347,8 @@ namespace  HotkeyManager {
     /// The window closed without another press, so the count is final. Caller holds _actionMutex.
     void _resolvePending() {
         if (const auto it = _hotkeys.find(_pendingMask);
-            it != _hotkeys.end() && _pendingCount && _pendingCount <= it->second.size()) {
-            _enqueue(it->second[_pendingCount - 1].onPress);
+            it != _hotkeys.end() && _pendingCount && _pendingCount <= it->second.bindings.size()) {
+            _enqueue(it->second.bindings[_pendingCount - 1].onPress);
         }
         _clearPending();
     }
@@ -396,25 +409,35 @@ namespace  HotkeyManager {
      * fires at once, anything below it waits for the window to close. A mask with nothing but a
      * single press bound has a maximum of one, so it still fires on the press itself - the wait
      * is paid only where the user actually bound more than one count.
+     *
+     * @param alone false when another key went down while this one was held - what a tapOnly
+     *        binding asks about, since that is the key being used as a modifier.
+     * @return true when the combination is bound to swallow the key.
      */
-    void _fire(const Keys::State state, const uint64_t mask) {
+    bool _fire(const Keys::State state, const uint64_t mask, const bool alone) {
         const auto it = _hotkeys.find(mask);
-        if (it == _hotkeys.end() || it->second.empty()) {
-            return;
+        if (it == _hotkeys.end() || it->second.bindings.empty()) {
+            return false;
         }
 
-        const MaskBindings& bindings = it->second;
+        const MaskEntry& entry = it->second;
+        const MaskBindings& bindings = entry.bindings;
 
         if (bindings.size() == 1) {
-            _dispatch(state == Keys::State::KEY_PRESSED ? bindings[0].onPress : bindings[0].onRelease);
-            return;
+            const HotkeyBinding& binding = bindings[0];
+            if (state == Keys::State::KEY_PRESSED) {
+                _dispatch(binding.onPress);
+            } else if (alone || !binding.tapOnly) {
+                _dispatch(binding.onRelease);
+            }
+            return entry.block;
         }
 
         // Counting only means anything on the press, and a mask that counts cannot also answer
         // the release: it would run the single-press action on the way up and again when the
         // window closed. Held actions keep both edges - nothing above one count is bound to them.
         if (state != Keys::State::KEY_PRESSED) {
-            return;
+            return entry.block;
         }
 
         {
@@ -438,16 +461,22 @@ namespace  HotkeyManager {
             }
         }
         _actionCv.notify_one();
+        return entry.block;
     }
 
-    void _raiseAction(const Keys::State state, const uint8_t vkCode) {
+    /// The single key and the whole sequence are separate bindings, so both have to be offered
+    /// the event - the operand order keeps the second _fire out of reach of short-circuiting.
+    bool _raiseAction(const Keys::State state, const uint8_t vkCode) {
         const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
+        const bool alone = _lastDownVk == vkCode;
 
-        _fire(state, singleMask);
+        bool blocked = _fire(state, singleMask, alone);
 
         if (singleMask != _sequenceMask) {
-            _fire(state, _sequenceMask);
+            blocked = _fire(state, _sequenceMask, alone) || blocked;
         }
+
+        return blocked;
     }
 
     void _onKeyRelease(const uint8_t vkCode) {
@@ -473,7 +502,9 @@ namespace  HotkeyManager {
         }
     }
 
-    void _onKeyPress(const uint8_t vkCode) {
+    bool _onKeyPress(const uint8_t vkCode) {
+        _lastDownVk = vkCode;
+
         if (const auto modifierBit = ModifierTable[vkCode]) {
             _sequenceMask |= modifierBit;
         } else {
@@ -491,11 +522,11 @@ namespace  HotkeyManager {
         if (_onBindingCallback) {
             _onBindingCallback(vkCode, Keys::State::KEY_PRESSED, _sequenceMask);
             // Skip hotkey handling if in binding mode
-            return;
+            return false;
         }
 
 
-        _raiseAction(Keys::State::KEY_PRESSED, vkCode);
+        return _raiseAction(Keys::State::KEY_PRESSED, vkCode);
     }
 
     LRESULT CALLBACK _lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -505,12 +536,23 @@ namespace  HotkeyManager {
 
         const auto *const pKbdStruct = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
         const auto code = pKbdStruct->vkCode;
-        if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) && !_keys[code]) {
-            _keys[code] = Keys::KEY_PRESSED;
-            _onKeyPress(pKbdStruct->vkCode);
+        if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+            if (!_keys[code]) {
+                _keys[code] = Keys::KEY_PRESSED;
+                _blockedKeys[code] = _onKeyPress(static_cast<uint8_t>(code));
+            }
+            // Autorepeat lands here with the key already down, and it has to be eaten as well
+            if (_blockedKeys[code]) {
+                return 1;
+            }
         } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
             _keys[code] = Keys::KEY_RELEASED;
-            _onKeyRelease(pKbdStruct->vkCode);
+            _onKeyRelease(static_cast<uint8_t>(code));
+
+            if (_blockedKeys[code]) {
+                _blockedKeys[code] = false;
+                return 1;
+            }
         }
 
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -564,9 +606,18 @@ namespace  HotkeyManager {
             if (keyup && _keys[vkCode] == Keys::KEY_PRESSED) {
                 _keys[vkCode] = Keys::KEY_RELEASED;
                 _onKeyRelease(vkCode);
+
+                if (_blockedKeys[vkCode]) {
+                    _blockedKeys[vkCode] = false;
+                    return 1;
+                }
             } else if (!keyup && _keys[vkCode] == Keys::KEY_RELEASED) {
                 _keys[vkCode] = Keys::KEY_PRESSED;
-                _onKeyPress(vkCode);
+                _blockedKeys[vkCode] = _onKeyPress(vkCode);
+
+                if (_blockedKeys[vkCode]) {
+                    return 1;
+                }
             }
         }
 
@@ -634,7 +685,8 @@ namespace  HotkeyManager {
             return false;
         }
 
-        MaskBindings& bindings = _hotkeys[keysMask];
+        MaskEntry& entry = _hotkeys[keysMask];
+        MaskBindings& bindings = entry.bindings;
 
         // Checked before the resize, or a rejected registration would still raise the maximum
         // and make every count below it start waiting for a press that can never resolve
@@ -649,6 +701,7 @@ namespace  HotkeyManager {
         }
 
         bindings[presses - 1] = binding;
+        entry.block |= binding.block;
         return true;
     }
 
@@ -715,6 +768,8 @@ namespace  HotkeyManager {
         _hotkeys.clear();
         _clearPending();
         memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));
+        memset(_blockedKeys, 0, sizeof(_blockedKeys));
+        _lastDownVk = 0;
     }
 }
 
