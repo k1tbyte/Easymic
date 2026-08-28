@@ -26,3 +26,8 @@ Toolchain: global cmake + ninja, MSVC from Visual Studio, resources via `rc.exe`
 - `src/View/`, `src/ViewModel/` - Win32 windows and their view models. Settings pages are
   DIALOGEX resources in `src/Resources/Resource.rc`, loaded by `CreateDialogParamW`.
 - `vendor/glaze` - submodule, BEVE config serialization (`AppConfig`).
+
+## Refactor in progress
+
+`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist.
+Read it before adding a feature - the Layout section above describes what we are moving away from.
