@@ -11,7 +11,11 @@
 using Microsoft::WRL::ComPtr;
 
 #define APP_NAME L"Easymic"
-#define MUTEX_NAME APP_NAME L"-8963D562-E35B-492A-A3D2-5FD724CE24B2"
+
+/// Identity only, no app name in it: the name never bought uniqueness - the GUID does that - nor
+/// a namespace, which is what a Local\ or Global\ prefix is for. Carrying one only means a rename
+/// can silently break the single-instance check.
+#define MUTEX_NAME L"{8963D562-E35B-492A-A3D2-5FD724CE24B2}"
 #define CONFIG_NAME L"conf.b"
 
 #define REPO_NAME   "Easymic"
