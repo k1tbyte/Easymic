@@ -29,6 +29,17 @@ constexpr struct {
     { 0x80, "RALT" }
 };
 
+/// Names accepted on the way in but never printed. The unprefixed name is the left key, so a
+/// config written with the explicit prefix has to land on the same bit.
+constexpr struct {
+    uint8_t bit;
+    const char* name;
+} ModifierAliases[] = {
+    { 0x04, "LCTRL" },
+    { 0x08, "LSHIFT" },
+    { 0x10, "LALT" }
+};
+
 constexpr const char* KeysNameTable[256] = {
     nullptr,             // 0x00
     "MouseLeft",         // VK_LBUTTON 	0x01
@@ -268,6 +279,11 @@ uint8_t ModifierBit(const std::string_view token) {
             return modifier.bit;
         }
     }
+    for (const auto& alias : ModifierAliases) {
+        if (EqualsIgnoreCase(token, alias.name)) {
+            return alias.bit;
+        }
+    }
     return 0;
 }
 
@@ -276,8 +292,9 @@ uint8_t ModifierBit(const std::string_view token) {
 int KeyCode(const std::string_view token) {
     if (token.size() > 2 && (token[0] == '0') && (token[1] == 'x' || token[1] == 'X')) {
         unsigned value = 0;
-        if (std::from_chars(token.data() + 2, token.data() + token.size(), value, 16).ec == std::errc{}
-            && value && value <= 0xFF) {
+        const char* const last = token.data() + token.size();
+        if (const auto [ptr, ec] = std::from_chars(token.data() + 2, last, value, 16);
+            ec == std::errc{} && ptr == last && value && value <= 0xFF) {
             return static_cast<int>(value);
         }
         return -1;
@@ -372,6 +389,12 @@ uint64_t Parse(const std::string_view name) {
 
         const int code = KeyCode(token);
         if (code < 0 || keyCount == std::size(keys)) {
+            return 0;
+        }
+
+        // A key named twice would take two bytes of the mask, and the hook only ever writes it
+        // to one - the combination could never match
+        if (std::find(keys, keys + keyCount, static_cast<uint8_t>(code)) != keys + keyCount) {
             return 0;
         }
         keys[keyCount++] = static_cast<uint8_t>(code);
