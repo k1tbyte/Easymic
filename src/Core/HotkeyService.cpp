@@ -3,6 +3,7 @@
 //
 #include "HotkeyService.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <stdexcept>
@@ -216,6 +217,11 @@ namespace HotkeyService {
 
         const auto *const pKbdStruct = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
         const auto code = pKbdStruct->vkCode;
+        // The struct carries a raw DWORD, and injected input is free to put anything in it
+        if (code >= 256) {
+            return CallNextHookEx(nullptr, nCode, wParam, lParam);
+        }
+
         if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
             if (!_keys[code]) {
                 _keys[code] = Keys::KEY_PRESSED;
@@ -333,7 +339,10 @@ namespace HotkeyService {
         }
 
         bindings[presses - 1] = binding;
-        entry.block |= binding.block;
+
+        // Recomputed rather than or-ed in: an overwrite that drops block would otherwise leave
+        // the combination swallowed by a binding that no longer asks for it
+        entry.block = std::ranges::any_of(bindings, [](const HotkeyBinding& b) { return b.block; });
         return true;
     }
 
@@ -346,6 +355,9 @@ namespace HotkeyService {
         if (!callback) {
             throw std::runtime_error("HotkeyService::BindStart: callback is null");
         }
+
+        Dispatcher::CancelDeferred();
+        _clearPending();
 
         _onBindingCallback = callback;
         if (_sequenceMask != 0) {
@@ -395,6 +407,7 @@ namespace HotkeyService {
     void Dispose() {
         _keyboardHook = nullptr;
         _mouseHook = nullptr;
+        _onBindingCallback = nullptr;
         Dispatcher::Stop();
         _sequenceMask = 0;
         _hotkeys.clear();
