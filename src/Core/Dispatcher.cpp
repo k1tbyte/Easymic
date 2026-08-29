@@ -2,9 +2,12 @@
 
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <thread>
+
+#include "definitions.h"
 
 namespace Dispatcher {
 
@@ -20,6 +23,19 @@ namespace {
     /// its place - see Defer.
     std::function<void()> _deferred;
     std::chrono::steady_clock::time_point _deferredAt{};
+
+    /// An action is user code and may throw. Both places one runs sit under something that
+    /// cannot take an exception - the worker thread's root, where one escaping calls
+    /// std::terminate, and a window procedure, which would unwind through Win32.
+    void _run(const std::function<void()>& action) {
+        try {
+            action();
+        } catch (const std::exception& e) {
+            LOG_ERROR("Dispatcher: action threw: %s", e.what());
+        } catch (...) {
+            LOG_ERROR("Dispatcher: action threw an unknown exception");
+        }
+    }
 
     /// Caller holds _mutex.
     void _enqueue(std::function<void()> action) {
@@ -47,7 +63,7 @@ namespace {
                 auto action = std::move(_queue.front());
                 _queue.pop_front();
                 lock.unlock();
-                action();
+                _run(action);
                 lock.lock();
                 continue;
             }
@@ -155,7 +171,7 @@ void RunPosted(const LPARAM lParam) {
     const std::unique_ptr<std::function<void()>> posted(
         reinterpret_cast<std::function<void()>*>(lParam));
     if (posted && *posted) {
-        (*posted)();
+        _run(*posted);
     }
 }
 
