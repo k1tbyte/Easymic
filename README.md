@@ -1,16 +1,16 @@
-# Easymic
+# EasyLauncher
 
-**Easymic** is a lightweight and high-performance desktop application for global microphone control on Windows. Forget about memorizing hotkeys for individual apps like Teams, Discord, TeamSpeak, etc. Easymic centralizes microphone management while ensuring 100% reliability in muting.
+**EasyLauncher** is a lightweight and high-performance desktop application for global microphone control on Windows. Forget about memorizing hotkeys for individual apps like Teams, Discord, TeamSpeak, etc. EasyLauncher centralizes microphone management while ensuring 100% reliability in muting.
 
-By intercepting **system-level microphone callbacks**, Easymic guarantees that your microphone is muted when you need it to be, preventing awkward moments during calls or streams. The app is designed for speed, efficiency, and simplicity, all while consuming minimal system resources.
+By intercepting **system-level microphone callbacks**, EasyLauncher guarantees that your microphone is muted when you need it to be, preventing awkward moments during calls or streams. The app is designed for speed, efficiency, and simplicity, all while consuming minimal system resources.
 
 Built using **Native WinAPI** in **C++**, sacrificing UI beauty for maximum performance.
 
 ---
 
 ## ⚠️ Attention
-VirusTotal may flag Easymic as potentially unwanted due to its global hotkey and system-level audio control features/UAC bypass/UPX compression.
-Rest assured, Easymic is open-source and free of malware. 
+VirusTotal may flag EasyLauncher as potentially unwanted due to its global hotkey and system-level audio control features/UAC bypass/UPX compression.
+Rest assured, EasyLauncher is open-source and free of malware. 
 
 **You can review the source code yourself. Please don't create issues regarding false positives**
 
@@ -97,7 +97,7 @@ Rest assured, Easymic is open-source and free of malware.
 ## ❓ How to Use
 
 1. **Download** the latest release from the [Releases](https://github.com/k1tbyte/Easymic/releases) page.
-2. **Run** `Easymic.exe`.
+2. **Run** `EasyLauncher.exe`.
 3. Find it in the **system tray** (bottom right corner).
 4. **Double-click** the tray icon or right-click → `Settings` to configure.
 5. Set up your preferred **hotkeys** and **indicator** options.
@@ -129,7 +129,7 @@ Rest assured, Easymic is open-source and free of malware.
 
 3. **Run the Application**
    ```bash
-   ./build/Easymic.exe
+   ./build/EasyLauncher.exe
    ```
 
 ### Build Options

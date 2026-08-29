@@ -1,4 +1,4 @@
-# Easymic
+# EasyLauncher
 
 Native WinAPI C++23 tray app: global mic control via low-level keyboard/mouse hooks.
 Priorities in order: input latency and idle footprint (this thing runs all day in the background),
@@ -7,7 +7,7 @@ binary size, simplicity.
 ## Build
 
 ```powershell
-.\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/Easymic.exe
+.\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/EasyLauncher.exe
 .\build.ps1 -Config Debug -Run
 .\build.ps1 -Clean
 ```
@@ -20,8 +20,9 @@ Toolchain: global cmake + ninja, MSVC from Visual Studio, resources via `rc.exe`
 
 ## Layout
 
-- `src/Lib/HotkeyManager.*` - LL hooks, key masks, action dispatch. Hook procs must stay O(1):
-  actions run on the worker thread, never inside the proc.
+- `src/Core/` - `HotkeyService` (LL hooks and key masks), `Dispatcher` (worker thread and the
+  hop back to the UI thread), `KeyNames` (mask <-> text). Hook procs must stay O(1): actions run
+  on the worker thread, never inside the proc.
 - `src/Audio/` - WASAPI device/session control and event handlers.
 - `src/View/`, `src/ViewModel/` - Win32 windows and their view models. Settings pages are
   DIALOGEX resources in `src/Resources/Resource.rc`, loaded by `CreateDialogParamW`.
