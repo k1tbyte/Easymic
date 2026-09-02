@@ -47,7 +47,7 @@ namespace BuiltInActions {
 
     /**
      * @brief What a notification says. {name} and {key} are resolved when the hotkey is registered,
-     * {volume}, {mic} and {bell} when it fires - see ActionFeedback.
+     * {volume}, {mic} and {bell} when it fires - see Feedback.
      */
     inline constexpr char DefaultNotification[] = "{name} triggered";
 

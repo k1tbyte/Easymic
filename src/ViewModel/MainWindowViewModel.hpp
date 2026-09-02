@@ -8,7 +8,7 @@
 #include <atomic>
 #include <memory>
 
-#include "ActionFeedback.hpp"
+#include "Core/Feedback.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/HotkeyService.hpp"
 #include "../Lib/InputLanguage.hpp"
@@ -38,7 +38,7 @@ private:
 
     AudioManager &_audio;
     AppConfig &_cfg;
-    ActionFeedback _feedback;
+    Feedback _feedback;
 
     std::unique_ptr<IndicatorIcons> _icons;
     Bitmap* _bitmapToDisplay = nullptr;
@@ -189,7 +189,7 @@ private:
             }
 
             const std::string text = action.ShowNotification
-                ? ActionFeedback::Compose(action.Notification,
+                ? Feedback::Compose(action.Notification,
                                           builtIn ? builtIn->DefaultNotification
                                                   : BuiltInActions::DefaultNotification,
                                           action.Name, action.Hotkey)

@@ -20,7 +20,7 @@
  * thread calls. Nothing writes the config: the tokens that depend on state read values the
  * action itself published, so a press reports what it just did rather than the previous value.
  */
-class ActionFeedback {
+class Feedback {
     const AppConfig& _cfg;
     HWND _target = nullptr;
     HINSTANCE _instance = nullptr;
@@ -32,7 +32,7 @@ class ActionFeedback {
     std::atomic<bool> _bellEnabled = true;
 
 public:
-    explicit ActionFeedback(const AppConfig& config) : _cfg(config) {}
+    explicit Feedback(const AppConfig& config) : _cfg(config) {}
 
     void Bind(HWND target, HINSTANCE instance) {
         _target = target;
