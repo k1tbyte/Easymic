@@ -45,8 +45,8 @@ module describes its actions as `ActionDesc` entries and registers them in `Regi
 
 ## Refactor in progress
 
-`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-4 are
-done; the settings UI (steps 5-6) is still the old `Categories[]` + `IDD_SETTINGS_*` + one
+`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-5 are
+done; step 6 is not - the settings pages are still `IDD_SETTINGS_*` templates with one
 `Initialize*Section` per page. Read it before touching settings.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

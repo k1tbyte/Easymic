@@ -565,6 +565,32 @@ look at. It wants a pair of eyes on the screen, one page at a time.
 
 ---
 
+### What the reviews caught
+
+Each step was put through a recall-then-verify review pass. Recording the classes of defect
+rather than the individual fixes, because the pattern is what the next step should watch for:
+
+- **Behaviour that was preserved in the letter and lost in the order.** Moving the microphone
+  state into a module and the device callbacks onto the UI thread changed *when* things ran. Two
+  of the three real defects were ordering: a chime that read the mute state when its hop ran
+  instead of when the event arrived, and a volume published before the adjust that was supposed
+  to set it. Both compiled, both looked right, and neither was visible without walking the old
+  call order next to the new one.
+- **Lifetimes that the old shape happened to get right.** `AudioManager` moved from a `WinMain`
+  static to a namespace-scope one and started outliving the config its callbacks read. A captured
+  command's callback started holding a `Feedback*` where the old code had held an `HWND` by value.
+  Neither was a decision; both were what the move did by default.
+- **Comments that documented the intent rather than the code.** Two findings were the doc comment
+  and the implementation disagreeing after an edit - which is the cheapest kind to find and the
+  easiest to leave behind.
+
+The one that was rejected: an intra-slice `#include "Wasapi/AudioManager.hpp"` reported as
+fragile. It is well-defined - a quoted include searches the includer's directory first - and it
+is the convention this tree uses on purpose, so that a *cross*-slice include has to be spelled in
+full and the build can grep for it.
+
+---
+
 ## 10. Open questions
 
 - **Where the indicator lives.** It is microphone-shaped today (mute state, peak meter) but the
