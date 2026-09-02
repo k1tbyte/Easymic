@@ -79,57 +79,47 @@ namespace HotkeyService {
         _pendingCount = 0;
     }
 
+    /// Bindings registered on a mask, or nullptr when there are none.
+    const MaskEntry* _lookup(const uint64_t mask) {
+        const auto it = _hotkeys.find(mask);
+        return it == _hotkeys.end() || it->second.bindings.empty() ? nullptr : &it->second;
+    }
+
     /**
-     * @brief Hands one combination's action to the worker, counting presses when it has to.
+     * @brief Runs a mask that is not counting this event.
      *
-     * One rule decides everything: a count that has reached the highest one bound on this mask
-     * fires at once, anything below it waits for the window to close. A mask with nothing but a
-     * single press bound has a maximum of one, so it still fires on the press itself - the wait
-     * is paid only where the user actually bound more than one count.
-     *
-     * The action for the count reached so far is handed to Dispatcher as it is counted, rather
-     * than looked up again when the window closes. That is what keeps the press count here and
-     * the waiting out of the worker's way.
+     * A mask with more than one bound count only ever acts through _count: firing bindings[0]
+     * here would run the single-press action on the way up as well, and again when the window
+     * closed. Held actions keep both edges - nothing above one count is ever bound to them.
      *
      * @param alone false when another key went down while this one was held - what a tapOnly
      *        binding asks about, since that is the key being used as a modifier.
      * @return true when the combination is bound to swallow the key.
      */
-    bool _fire(const Keys::State state, const uint64_t mask, const bool alone) {
-        const auto it = _hotkeys.find(mask);
-        if (it == _hotkeys.end() || it->second.bindings.empty()) {
-            return false;
+    bool _fireOnce(const MaskEntry& entry, const Keys::State state, const bool alone) {
+        if (entry.bindings.size() > 1) {
+            return entry.block;
         }
 
-        const MaskEntry& entry = it->second;
+        const HotkeyBinding& binding = entry.bindings[0];
+        if (state == Keys::State::KEY_PRESSED) {
+            Dispatcher::Post(binding.onPress);
+        } else if (alone || !binding.tapOnly) {
+            Dispatcher::Post(binding.onRelease);
+        }
+        return entry.block;
+    }
+
+    /**
+     * @brief Advances the press count on the mask that holds the wait.
+     *
+     * One rule decides everything: a count that has reached the highest one bound on this mask
+     * fires at once, anything below it waits for the window to close. The action for the count
+     * reached so far is handed to Dispatcher as it is counted, rather than looked up again when
+     * the window closes - that is what keeps the counting here and out of the worker's way.
+     */
+    bool _count(const MaskEntry& entry, const uint64_t mask) {
         const MaskBindings& bindings = entry.bindings;
-
-        if (bindings.size() == 1) {
-            const HotkeyBinding& binding = bindings[0];
-            if (state == Keys::State::KEY_PRESSED) {
-                Dispatcher::Post(binding.onPress);
-            } else if (alone || !binding.tapOnly) {
-                Dispatcher::Post(binding.onRelease);
-            }
-            return entry.block;
-        }
-
-        // Counting only means anything on the press, and a mask that counts cannot also answer
-        // the release: it would run the single-press action on the way up and again when the
-        // window closed. Held actions keep both edges - nothing above one count is bound to them.
-        if (state != Keys::State::KEY_PRESSED) {
-            return entry.block;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-
-        // Another combination, or too long a pause, ends the previous wait on its own terms
-        // rather than swallowing the action the user already asked for
-        if (_pendingMask && (_pendingMask != mask || now >= _pendingDeadline)) {
-            Dispatcher::FlushDeferred();
-            _clearPending();
-        }
-
         _pendingMask = mask;
         _pendingCount++;
 
@@ -138,23 +128,60 @@ namespace HotkeyService {
             Dispatcher::Post(bindings[_pendingCount - 1].onPress);
             _clearPending();
         } else {
-            _pendingDeadline = now + _multiPressWindow;
+            _pendingDeadline = std::chrono::steady_clock::now() + _multiPressWindow;
             Dispatcher::Defer(_pendingDeadline, bindings[_pendingCount - 1].onPress);
         }
 
         return entry.block;
     }
 
-    /// The single key and the whole sequence are separate bindings, so both have to be offered
-    /// the event - the operand order keeps the second _fire out of reach of short-circuiting.
+    /**
+     * @brief Offers one key event to the single key and to the whole sequence.
+     *
+     * The two are separate bindings, so both have to be offered. Counting is the exception: the
+     * wait is a single slot in Dispatcher, so exactly one mask may hold it per event. The
+     * sequence takes it when both could count - it is the more specific of the two, and a
+     * modifier held down is what tells them apart.
+     */
     bool _raiseAction(const Keys::State state, const uint8_t vkCode) {
         const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
         const bool alone = _lastDownVk == vkCode;
+        const bool pressed = state == Keys::State::KEY_PRESSED;
 
-        bool blocked = _fire(state, singleMask, alone);
+        const MaskEntry* const single = _lookup(singleMask);
+        const MaskEntry* const sequence =
+            singleMask == _sequenceMask ? nullptr : _lookup(_sequenceMask);
 
-        if (singleMask != _sequenceMask) {
-            blocked = _fire(state, _sequenceMask, alone) || blocked;
+        const MaskEntry* counting = nullptr;
+        uint64_t countingMask = 0;
+        if (pressed) {
+            if (sequence && sequence->bindings.size() > 1) {
+                counting = sequence;
+                countingMask = _sequenceMask;
+            } else if (single && single->bindings.size() > 1) {
+                counting = single;
+                countingMask = singleMask;
+            }
+        }
+
+        // Every press closes a wait that is not its own - bound or not, and whether or not it
+        // opens one of its own. Leaving it open lets an intervening key pass unnoticed and the
+        // press after it count as the second of a pair.
+        if (pressed && _pendingMask
+            && (_pendingMask != countingMask
+                || std::chrono::steady_clock::now() >= _pendingDeadline)) {
+            Dispatcher::FlushDeferred();
+            _clearPending();
+        }
+
+        bool blocked = false;
+        for (const MaskEntry* const entry : {single, sequence}) {
+            if (!entry) {
+                continue;
+            }
+            blocked = (entry == counting ? _count(*entry, countingMask)
+                                         : _fireOnce(*entry, state, alone))
+                      || blocked;
         }
 
         return blocked;
@@ -232,8 +259,13 @@ namespace HotkeyService {
                 return 1;
             }
         } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
-            _keys[code] = Keys::KEY_RELEASED;
-            _onKeyRelease(static_cast<uint8_t>(code));
+            // A release with no press behind it - the key went down before the hook was up, or
+            // something injected it. Acting on it truncates _sequenceMask to the modifiers and
+            // drops keys that really are held. The mouse proc has always guarded this.
+            if (_keys[code] == Keys::KEY_PRESSED) {
+                _keys[code] = Keys::KEY_RELEASED;
+                _onKeyRelease(static_cast<uint8_t>(code));
+            }
 
             if (_blockedKeys[code]) {
                 _blockedKeys[code] = false;
@@ -381,10 +413,12 @@ namespace HotkeyService {
         _keyboardHook = Win32Hook::Create(WH_KEYBOARD_LL, _lowLevelKeyboardProc, nullptr, 0);
         _mouseHook = Win32Hook::Create(WH_MOUSE_LL, _lowLevelMouseProc, nullptr, 0);
         if (!_keyboardHook->IsValid() || !_mouseHook->IsValid()) {
+            // Read before the cleanup - unhooking and joining the worker both overwrite it
+            const DWORD error = GetLastError();
             _keyboardHook = nullptr;
             _mouseHook = nullptr;
             Dispatcher::Stop();
-            LOG_ERROR("SetWindowsHookEx failed: 0x%08lX", GetLastError());
+            LOG_ERROR("SetWindowsHookEx failed: 0x%08lX", error);
             return false;
         }
 
