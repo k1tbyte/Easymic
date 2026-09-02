@@ -88,25 +88,25 @@ namespace HotkeyService {
     /**
      * @brief Runs a mask that is not counting this event.
      *
-     * A mask with more than one bound count only ever acts through _count: firing bindings[0]
-     * here would run the single-press action on the way up as well, and again when the window
-     * closed. Held actions keep both edges - nothing above one count is ever bound to them.
-     *
      * @param alone false when another key went down while this one was held - what a tapOnly
      *        binding asks about, since that is the key being used as a modifier.
      * @return true when the combination is bound to swallow the key.
      */
     bool _fireOnce(const MaskEntry& entry, const Keys::State state, const bool alone) {
-        if (entry.bindings.size() > 1) {
-            return entry.block;
-        }
-
         const HotkeyBinding& binding = entry.bindings[0];
+
         if (state == Keys::State::KEY_PRESSED) {
-            Dispatcher::Post(binding.onPress);
+            // A mask with more than one bound count acts through _count alone: firing bindings[0]
+            // here would run the single-press action now and again when the window closed
+            if (entry.bindings.size() == 1) {
+                Dispatcher::Post(binding.onPress);
+            }
         } else if (alone || !binding.tapOnly) {
+            // Only count 1 can carry a release - the dialog pins Presses to 1 for both kinds that
+            // do - so a mask that counts still owes its held action the key going up
             Dispatcher::Post(binding.onRelease);
         }
+
         return entry.block;
     }
 
@@ -166,8 +166,9 @@ namespace HotkeyService {
 
         // Every press closes a wait that is not its own - bound or not, and whether or not it
         // opens one of its own. Leaving it open lets an intervening key pass unnoticed and the
-        // press after it count as the second of a pair.
-        if (pressed && _pendingMask
+        // press after it count as the second of a pair. A modifier is exempt: it is chord state
+        // rather than a combination, so re-taking Ctrl between two taps must not end the count.
+        if (pressed && !ModifierTable[vkCode] && _pendingMask
             && (_pendingMask != countingMask
                 || std::chrono::steady_clock::now() >= _pendingDeadline)) {
             Dispatcher::FlushDeferred();
@@ -413,8 +414,10 @@ namespace HotkeyService {
         _keyboardHook = Win32Hook::Create(WH_KEYBOARD_LL, _lowLevelKeyboardProc, nullptr, 0);
         _mouseHook = Win32Hook::Create(WH_MOUSE_LL, _lowLevelMouseProc, nullptr, 0);
         if (!_keyboardHook->IsValid() || !_mouseHook->IsValid()) {
-            // Read before the cleanup - unhooking and joining the worker both overwrite it
-            const DWORD error = GetLastError();
+            // Each hook kept its own error: by now the second SetWindowsHookEx has overwritten
+            // the first one's, and the cleanup below overwrites both
+            const DWORD error = _keyboardHook->IsValid() ? _mouseHook->LastError()
+                                                         : _keyboardHook->LastError();
             _keyboardHook = nullptr;
             _mouseHook = nullptr;
             Dispatcher::Stop();

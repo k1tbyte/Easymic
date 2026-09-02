@@ -9,9 +9,13 @@
 
 class Win32Hook {
     HHOOK _hook;
+    /// Sampled right here because nothing else can: the next Win32 call, ours or the caller's
+    /// second hook, overwrites the thread's last error before anyone gets to read it.
+    DWORD _error;
 
     Win32Hook(int idHook, HOOKPROC callback, HINSTANCE hInstance, DWORD dwThreadId) {
         _hook = SetWindowsHookEx(idHook, callback, hInstance, dwThreadId);
+        _error = _hook ? ERROR_SUCCESS : GetLastError();
     }
 public:
     Win32Hook() = delete;
@@ -23,6 +27,9 @@ public:
     }
 
     bool IsValid() const { return _hook != nullptr; }
+
+    /// Why SetWindowsHookEx failed. Meaningless once IsValid is true.
+    DWORD LastError() const { return _error; }
 
     ~Win32Hook() {
         if (_hook) {
