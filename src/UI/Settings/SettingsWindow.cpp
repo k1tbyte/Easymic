@@ -162,14 +162,6 @@ namespace {
     }
 }
 
-const SettingsWindow::CategoryItem SettingsWindow::Categories[] = {
-    {IDD_SETTINGS_GENERAL, L"General"},
-    {IDD_SETTINGS_INDICATOR, L"Indicator"},
-    {IDD_SETTINGS_SOUNDS, L"Sounds"},
-    {IDD_SETTINGS_HOTKEYS, L"Hotkeys"},
-    {IDD_SETTINGS_ABOUT, L"About"},
-};
-
 SettingsWindow::SettingsWindow(HINSTANCE hInstance)
     : BaseWindow(hInstance)
 {
@@ -307,16 +299,18 @@ INT_PTR SettingsWindow::OnDestroy() {
     return TRUE;
 }
 
+/// One row per registered page, carrying its index rather than its template id - the window has
+/// no business knowing one template from another.
 void SettingsWindow::PopulateTreeView() const {
     HTREEITEM firstItem = nullptr;
 
-    for (const auto& category : Categories) {
+    for (size_t i = 0; i < SettingsHost::Pages.size(); i++) {
         TVINSERTSTRUCTW insert{};
         insert.hParent = TVI_ROOT;
         insert.hInsertAfter = TVI_LAST;
         insert.item.mask = TVIF_TEXT | TVIF_PARAM;
-        insert.item.pszText = const_cast<wchar_t*>(category.name);
-        insert.item.lParam = category.resourceId;
+        insert.item.pszText = const_cast<wchar_t*>(SettingsHost::Pages[i].Title);
+        insert.item.lParam = static_cast<LPARAM>(i);
 
         const auto item = (HTREEITEM)SendMessageW(_hwndTreeView, TVM_INSERTITEMW, 0, (LPARAM)&insert);
         firstItem = firstItem ? firstItem : item;
@@ -341,12 +335,17 @@ void SettingsWindow::OnTreeViewSelectionChanged(HTREEITEM hItem) {
         return;
     }
 
-    const auto categoryId = static_cast<int>(item.lParam);
-    SetWindowTextW(_hwndGroupBox, title);
-    LoadCategoryContent(categoryId);
+    const auto index = static_cast<size_t>(item.lParam);
+    if (index >= SettingsHost::Pages.size()) {
+        return;
+    }
 
-    if (OnSectionChange) {
-        OnSectionChange(_hwndContentDialog, categoryId);
+    const SettingsPage& page = SettingsHost::Pages[index];
+    SetWindowTextW(_hwndGroupBox, title);
+    LoadCategoryContent(page.TemplateId);
+
+    if (_hwndContentDialog && page.Build) {
+        page.Build(_hwndContentDialog);
     }
 }
 

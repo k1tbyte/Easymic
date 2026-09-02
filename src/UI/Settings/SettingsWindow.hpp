@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "Core/SettingsHost.hpp"
 #include "Resources/Resource.h"
 #include "ActionDialog.hpp"
 #include "Event.hpp"
@@ -38,10 +39,6 @@ public:
         HWND parentHwnd = nullptr;
     };
 
-    struct CategoryItem {
-        int resourceId;
-        const wchar_t* name;
-    };
 
     explicit SettingsWindow(HINSTANCE hInstance);
     ~SettingsWindow() override = default;
@@ -64,7 +61,6 @@ public:
     std::function<void(HWND hWnd, int buttonId)> OnButtonClick;
     std::function<void(HWND hWnd, int comboBoxId)> OnComboBoxChange;
     std::function<void(HWND hWnd, int trackbarId, int value)> OnTrackbarChange;
-    std::function<void(HWND hWnd, int sectionId)> OnSectionChange;
     std::function<void(int rowIndex)> OnActionActivated;
 
 private:
@@ -91,6 +87,5 @@ private:
     HWND _hwndGroupBox = nullptr;
     HWND _hwndContentDialog = nullptr;
 
-    static const CategoryItem Categories[];
 };
 

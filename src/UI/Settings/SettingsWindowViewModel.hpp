@@ -64,14 +64,12 @@ public:
         : BaseViewModel(baseView), _audioManager(audioManager), _cfg(config) {
     }
 
-    ~SettingsWindowViewModel() override {
-        CleanupLogDisplay();
-        if (_linkFont) {
-            DeleteObject(_linkFont);
-        }
-    }
+    ~SettingsWindowViewModel() override;
 
-    void HandleSectionChange(HWND hWnd, int sectionId);
+    /// Puts the frame's own pages in the settings registry. Once, at startup - a feature module
+    /// adds its own the same way, from its own Register.
+    static void RegisterPages();
+
     void HandleButtonClick(HWND hWnd, int buttonId);
     void HandleComboBoxChange(HWND hWnd, int comboBoxId) const;
     void HandleTrackbarChange(HWND hWnd, int trackbarId, int value) const;

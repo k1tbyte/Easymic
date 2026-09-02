@@ -102,6 +102,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Before the window: restoring the config resolves every binding through the registry, and an
     // empty one would drop them all without saying so
+    // Before the modules, so a page a module contributes lands after the frame's own middle
+    // pages and still ahead of About, which pins itself last
+    SettingsWindowViewModel::RegisterPages();
+
     for (const auto& registerModule : Modules) {
         registerModule(host);
     }

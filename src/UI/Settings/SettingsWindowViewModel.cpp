@@ -10,26 +10,45 @@
 #include <windows.h>
 #include <commctrl.h>
 
-void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
-    switch (sectionId) {
-        case IDD_SETTINGS_GENERAL:
-            InitializeGeneralSection(hWnd);
-            break;
-        case IDD_SETTINGS_INDICATOR:
-            InitializeIndicatorSection(hWnd);
-            break;
-        case IDD_SETTINGS_SOUNDS:
-            InitializeSoundsSection(hWnd);
-            break;
-        case IDD_SETTINGS_HOTKEYS:
-            InitializeHotkeysSection(hWnd);
-            break;
-        case IDD_SETTINGS_ABOUT:
-            InitializeAboutSection(hWnd);
-            break;
-        default:
-            break;
+namespace {
+    /// At most one settings window is ever open - MainWindowViewModel::OpenSettings brings the
+    /// existing one forward instead of making a second - so a page builder can be the plain
+    /// function pointer the registry wants and still find the live view model.
+    SettingsWindowViewModel* _current = nullptr;
+}
+
+SettingsWindowViewModel::~SettingsWindowViewModel() {
+    CleanupLogDisplay();
+    if (_linkFont) {
+        DeleteObject(_linkFont);
     }
+    if (_current == this) {
+        _current = nullptr;
+    }
+}
+
+void SettingsWindowViewModel::RegisterPages() {
+    SettingsHost::AddPage({.Title = L"General",
+                           .TemplateId = IDD_SETTINGS_GENERAL,
+                           .Build = [](HWND page) { _current->InitializeGeneralSection(page); },
+                           .Order = SettingsHost::First});
+
+    SettingsHost::AddPage({.Title = L"Indicator",
+                           .TemplateId = IDD_SETTINGS_INDICATOR,
+                           .Build = [](HWND page) { _current->InitializeIndicatorSection(page); }});
+
+    SettingsHost::AddPage({.Title = L"Sounds",
+                           .TemplateId = IDD_SETTINGS_SOUNDS,
+                           .Build = [](HWND page) { _current->InitializeSoundsSection(page); }});
+
+    SettingsHost::AddPage({.Title = L"Hotkeys",
+                           .TemplateId = IDD_SETTINGS_HOTKEYS,
+                           .Build = [](HWND page) { _current->InitializeHotkeysSection(page); }});
+
+    SettingsHost::AddPage({.Title = L"About",
+                           .TemplateId = IDD_SETTINGS_ABOUT,
+                           .Build = [](HWND page) { _current->InitializeAboutSection(page); },
+                           .Order = SettingsHost::Last});
 }
 
 void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) const {
@@ -495,6 +514,7 @@ void SettingsWindowViewModel::HandleSoundBrowse(HWND hWnd, int comboBoxId, const
 }
 
 void SettingsWindowViewModel::Init() {
+    _current = this;
     _cfgPrev = _cfg;
     _autoStartInitial = Registry::IsInAutoStartup(APP_NAME);
     _autoStartRequested = _autoStartInitial;
@@ -508,7 +528,6 @@ void SettingsWindowViewModel::Init() {
     _view->OnTrackbarChange = [this](HWND hWnd, int trackbarId, int value) {
         HandleTrackbarChange(hWnd, trackbarId, value);
     };
-    _view->OnSectionChange = [this](HWND hWnd, int sectionId) { HandleSectionChange(hWnd, sectionId); };
     _view->OnActionActivated = [this](int rowIndex) { HandleActionActivated(rowIndex); };
 
     _view->OnApply += [this] {
