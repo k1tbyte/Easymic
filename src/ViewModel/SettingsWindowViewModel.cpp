@@ -35,7 +35,7 @@ void SettingsWindowViewModel::HandleSectionChange(HWND hWnd, int sectionId) {
 void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) const {
     RefreshActionRows();
     DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_HOTKEYS_WINDOW_TRACKBAR),
-                                 10, MAKELONG(100, 600), _cfg.MultiPressWindowMs);
+                                 10, MAKELONG(100, 600), _cfg.Core.MultiPressWindowMs);
 }
 
 void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) const {
@@ -44,24 +44,24 @@ void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) const {
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTOSTART), BM_SETCHECK, _autoStartRequested, 0);
 
     // Left enabled without elevation on purpose - clicking it is what offers the restart
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC), BM_SETCHECK, _cfg.IsSkipUACEnabled, 0);
+    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC), BM_SETCHECK, _cfg.Core.SkipUac, 0);
 
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_UPDATES_ENABLED), BM_SETCHECK,
-                _cfg.IsUpdatesEnabled, 0);
+                _cfg.Core.Updates, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), BM_SETCHECK,
-                _cfg.IsAutoUpdateEnabled, 0);
-    EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.IsUpdatesEnabled);
+                _cfg.Core.AutoUpdate, 0);
+    EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.Core.Updates);
 }
 
 void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) const {
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_CAPTURE), BM_SETCHECK,
-                _cfg.ExcludeFromCapture, 0);
+                _cfg.Indicator.ExcludeFromCapture, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_ON_TOP), BM_SETCHECK,
-                _cfg.OnTopExclusive, 0);
+                _cfg.Indicator.OnTopExclusive, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_HIDE_INACTIVE), BM_SETCHECK,
-                _cfg.HideWhenInactive, 0);
+                _cfg.Indicator.HideWhenInactive, 0);
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_NOTIFICATIONS), BM_SETCHECK,
-                _cfg.NotificationsEnabled, 0);
+                _cfg.Core.Notifications, 0);
 
     // Setup indicator state combo box
     HWND hCombo = GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_COMBO);
@@ -70,61 +70,62 @@ void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) const {
     for (const auto& state : IndicatorStates) {
         SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)state);
     }
-    SendMessage(hCombo, CB_SETCURSEL, (WPARAM)_cfg.IndicatorState, 0);
+    SendMessage(hCombo, CB_SETCURSEL, (WPARAM)_cfg.Indicator.State, 0);
 
     // Setup trackbars
     DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR),
-                       1, MAKELONG(10, 32), _cfg.IndicatorSize);
+                       1, MAKELONG(10, 32), _cfg.Indicator.Size);
     DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
-                       1, MAKELONG(0, 100), static_cast<int>(_cfg.IndicatorVolumeThreshold * 100));
+                       1, MAKELONG(0, 100), static_cast<int>(_cfg.Indicator.VolumeThreshold * 100));
 }
 
 void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) const {
     // -1 means "never set", so the slider opens on whatever the device is actually at
-    const int micVolume = _cfg.MicVolume == -1 ? _audioManager.CaptureDevice()->GetVolumePercent()
-                                               : _cfg.MicVolume;
+    const int micVolume = _cfg.Mic.Volume == -1 ? _audioManager.CaptureDevice()->GetVolumePercent()
+                                               : _cfg.Mic.Volume;
     DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
                        1, MAKELONG(0, 100), micVolume);
 
     DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
-                       1, MAKELONG(0, 100), _cfg.BellVolume);
+                       1, MAKELONG(0, 100), _cfg.Mic.BellVolume);
 
     SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME), BM_SETCHECK,
-                _cfg.IsMicKeepVolume, 0);
+                _cfg.Mic.KeepVolume, 0);
 
     // Setup sound combo boxes
     DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
-                                       _cfg.RecentSounds, _cfg.MuteSoundSource);
+                                       _cfg.RecentSounds, _cfg.Mic.MuteSound);
     DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
-                                       _cfg.RecentSounds, _cfg.UnmuteSoundSource);
+                                       _cfg.RecentSounds, _cfg.Mic.UnmuteSound);
 }
-/// One row per action in config order, then the row that adds another.
+/// One row per binding in config order, then the row that adds another.
 void SettingsWindowViewModel::RefreshActionRows() const {
-    const auto describe = [](const uint64_t mask, const bool onRelease, const uint8_t presses) {
-        std::string hotkey = mask ? KeyNames::Format(mask) : "";
+    // The trigger already stores the display name, so there is nothing to format here
+    const auto describe = [](const HotkeyTrigger& trigger) {
+        std::string hotkey = trigger.Keys;
         if (hotkey.empty()) {
             return hotkey;
         }
 
-        if (presses > 1) {
-            hotkey += " x" + std::to_string(presses);
+        if (trigger.Presses > 1) {
+            hotkey += " x" + std::to_string(trigger.Presses);
         }
-        if (onRelease) {
+        if (trigger.OnRelease) {
             hotkey += " (release)";
         }
         return hotkey;
     };
 
     std::vector<ActionRow> rows;
-    rows.reserve(_cfg.Actions.size() + 1);
+    rows.reserve(_cfg.Bindings.size() + 1);
 
-    for (const auto& action : _cfg.Actions) {
-        const ActionDesc* const desc = ActionRegistry::Find(action.ActionId);
+    for (const auto& binding : _cfg.Bindings) {
+        const ActionDesc* const desc = ActionRegistry::Find(binding.ActionId);
         rows.push_back({
-            .Name = action.Name,
-            .Hotkey = describe(action.Hotkey, action.OnRelease, action.Presses),
+            .Name = binding.Name,
+            .Hotkey = describe(binding.Trigger),
             // The last column is the action's own argument, whatever that action reads it as
-            .Command = action.Args,
+            .Command = binding.Args,
             .RunsCommand = desc && HasFlag(desc->Flags, ActionFlags::RunsCommand)
         });
     }
@@ -133,23 +134,29 @@ void SettingsWindowViewModel::RefreshActionRows() const {
     _view->SetActionRows(rows);
 }
 
-/// Frees a combination from every other action. What has to be unique is the pair: the same
-/// combination may drive several actions as long as each wants a different number of presses.
-void SettingsWindowViewModel::ClearHotkey(uint64_t mask, uint8_t presses, int exceptIndex) {
-    if (!mask) {
+/**
+ * @brief Frees a combination from every other binding.
+ *
+ * What has to be unique is the pair: the same combination may drive several bindings as long as
+ * each wants a different number of presses. Comparing the names rather than the masks is safe
+ * because every stored name came out of KeyNames::Format, which is canonical.
+ */
+void SettingsWindowViewModel::ClearHotkey(const std::string& keys, const uint8_t presses,
+                                          const int exceptIndex) {
+    if (keys.empty()) {
         return;
     }
 
-    for (int i = 0; i < static_cast<int>(_cfg.Actions.size()); i++) {
-        if (i != exceptIndex && _cfg.Actions[i].Hotkey == mask
-            && _cfg.Actions[i].Presses == presses) {
-            _cfg.Actions[i].Hotkey = 0;
+    for (int i = 0; i < static_cast<int>(_cfg.Bindings.size()); i++) {
+        if (i != exceptIndex && _cfg.Bindings[i].Trigger.Keys == keys
+            && _cfg.Bindings[i].Trigger.Presses == presses) {
+            _cfg.Bindings[i].Trigger.Keys.clear();
         }
     }
 }
 
 void SettingsWindowViewModel::HandleActionActivated(int rowIndex) {
-    if (rowIndex < static_cast<int>(_cfg.Actions.size())) {
+    if (rowIndex < static_cast<int>(_cfg.Bindings.size())) {
         EditAction(rowIndex, {});
     } else {
         AddAction();
@@ -191,16 +198,16 @@ void SettingsWindowViewModel::AddAction() {
     }
 
     const ActionDesc& desc = ActionRegistry::All[chosen - 1];
-    EditAction(static_cast<int>(_cfg.Actions.size()),
+    EditAction(static_cast<int>(_cfg.Bindings.size()),
                {.Name = std::string{desc.Title},
                 .ActionId = std::string{desc.Id},
                 .Sound = std::string{desc.DefaultSound}});
 }
 
-/// An index past the end is a new action, and then the seed says which action it runs.
-void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
-    const bool isExisting = index < static_cast<int>(_cfg.Actions.size());
-    const Action stored = isExisting ? _cfg.Actions[index] : seed;
+/// An index past the end is a new binding, and then the seed says which action it runs.
+void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
+    const bool isExisting = index < static_cast<int>(_cfg.Bindings.size());
+    const Binding stored = isExisting ? _cfg.Bindings[index] : seed;
     const ActionDesc* const desc = ActionRegistry::Find(stored.ActionId);
     const bool runsCommand = desc && HasFlag(desc->Flags, ActionFlags::RunsCommand);
 
@@ -219,11 +226,12 @@ void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
         .Notification = !stored.Notification.empty() ? stored.Notification
                         : desc ? std::string{desc->DefaultNotification}
                                : std::string{ActionRegistry::DefaultNotification},
-        .Hotkey = stored.Hotkey,
-        .OnRelease = stored.OnRelease,
-        .Presses = stored.Presses,
-        .Block = stored.Block,
-        .TapOnly = stored.TapOnly,
+        // The dialog and the capture both work in masks; the name is what goes to disk
+        .Hotkey = KeyNames::Parse(stored.Trigger.Keys),
+        .OnRelease = stored.Trigger.OnRelease,
+        .Presses = stored.Trigger.Presses,
+        .Block = stored.Trigger.Block,
+        .TapOnly = stored.Trigger.TapOnly,
         .ShowNotification = stored.ShowNotification,
         .RunsCommand = runsCommand,
         .HasSound = !desc || !HasFlag(desc->Flags, ActionFlags::NoSound),
@@ -237,30 +245,31 @@ void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
     }
 
     if (edit.Deleted) {
-        _cfg.Actions.erase(_cfg.Actions.begin() + index);
+        _cfg.Bindings.erase(_cfg.Bindings.begin() + index);
         return;
     }
 
-    ClearHotkey(edit.Hotkey, edit.Presses, isExisting ? index : -1);
+    const std::string keys = edit.Hotkey ? KeyNames::Format(edit.Hotkey) : std::string{};
+    ClearHotkey(keys, edit.Presses, isExisting ? index : -1);
 
     // Starts from what was stored so the action id the entry points at survives the edit
-    Action action = stored;
-    action.Name = edit.Name;
-    action.Args = runsCommand ? edit.Command : edit.Args;
-    action.Sound = edit.Sound;
-    action.Notification = edit.Notification;
-    action.Hotkey = edit.Hotkey;
-    action.OnRelease = edit.OnRelease;
-    action.Presses = edit.Presses;
-    action.Block = edit.Block;
-    action.TapOnly = edit.TapOnly;
-    action.SoundVolume = edit.SoundVolume;
-    action.ShowNotification = edit.ShowNotification;
+    Binding binding = stored;
+    binding.Name = edit.Name;
+    binding.Args = runsCommand ? edit.Command : edit.Args;
+    binding.Sound = edit.Sound;
+    binding.Notification = edit.Notification;
+    binding.SoundVolume = edit.SoundVolume;
+    binding.ShowNotification = edit.ShowNotification;
+    binding.Trigger = {.Keys = keys,
+                       .Presses = edit.Presses,
+                       .OnRelease = edit.OnRelease,
+                       .Block = edit.Block,
+                       .TapOnly = edit.TapOnly};
 
     if (isExisting) {
-        _cfg.Actions[index] = action;
+        _cfg.Bindings[index] = binding;
     } else {
-        _cfg.Actions.push_back(action);
+        _cfg.Bindings.push_back(binding);
     }
 }
 
@@ -330,19 +339,19 @@ void SettingsWindowViewModel::CommitPrivilegedSettings() const {
                             : Registry::RemoveFromAutoStartup(APP_NAME);
     }
 
-    if (_cfg.IsSkipUACEnabled == _cfgPrev.IsSkipUACEnabled) {
+    if (_cfg.Core.SkipUac == _cfgPrev.Core.SkipUac) {
         return;
     }
 
-    if (_cfg.IsSkipUACEnabled ? UAC::EnableSkipUAC() : UAC::DisableSkipUAC()) {
+    if (_cfg.Core.SkipUac ? UAC::EnableSkipUAC() : UAC::DisableSkipUAC()) {
         return;
     }
 
     MessageBoxW(_view->GetHandle(),
-                _cfg.IsSkipUACEnabled ? L"Failed to create UAC bypass task."
+                _cfg.Core.SkipUac ? L"Failed to create UAC bypass task."
                                       : L"Failed to remove UAC bypass task.",
                 L"Error", MB_OK | MB_ICONERROR);
-    _cfg.IsSkipUACEnabled = _cfgPrev.IsSkipUACEnabled;
+    _cfg.Core.SkipUac = _cfgPrev.Core.SkipUac;
 }
 
 void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
@@ -355,71 +364,71 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
             const bool requested = DialogControls::IsChecked(hWnd, buttonId);
 
             if (!UAC::IsElevated()) {
-                _cfg.IsSkipUACEnabled = requested;
+                _cfg.Core.SkipUac = requested;
                 if (!RequestElevationFor(hWnd, L"UAC bypass")) {
                     // Declined, or the OS refused - put the file back the way we found it
-                    _cfg.IsSkipUACEnabled = !requested;
+                    _cfg.Core.SkipUac = !requested;
                     _cfg.Save();
                     SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, !requested, 0);
                 }
                 return;
             }
 
-            _cfg.IsSkipUACEnabled = requested;
+            _cfg.Core.SkipUac = requested;
             break;
         }
 
         case IDC_SETTINGS_UPDATES_ENABLED: {
-            _cfg.IsUpdatesEnabled = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Core.Updates = DialogControls::IsChecked(hWnd, buttonId);
 
             // Auto-update cannot outlive the check that feeds it
-            if (!_cfg.IsUpdatesEnabled) {
-                _cfg.IsAutoUpdateEnabled = false;
+            if (!_cfg.Core.Updates) {
+                _cfg.Core.AutoUpdate = false;
                 SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), BM_SETCHECK, FALSE, 0);
             }
 
-            EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.IsUpdatesEnabled);
+            EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.Core.Updates);
             break;
         }
         case IDC_SETTINGS_AUTO_UPDATE_ENABLED:
-            _cfg.IsAutoUpdateEnabled = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Core.AutoUpdate = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_INDICATOR_CAPTURE:
-            _cfg.ExcludeFromCapture = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Indicator.ExcludeFromCapture = DialogControls::IsChecked(hWnd, buttonId);
             break;
 
         case IDC_SETTINGS_INDICATOR_ON_TOP: {
             const bool requested = DialogControls::IsChecked(hWnd, buttonId);
 
             if (requested && !UAC::IsElevated()) {
-                _cfg.OnTopExclusive = true;
+                _cfg.Indicator.OnTopExclusive = true;
                 if (!RequestElevationFor(hWnd, L"the 'On top of all windows' feature")) {
                     // Declined, or the OS refused - put the file back the way we found it
-                    _cfg.OnTopExclusive = false;
+                    _cfg.Indicator.OnTopExclusive = false;
                     _cfg.Save();
                     SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, FALSE, 0);
                 }
                 return;
             }
 
-            _cfg.OnTopExclusive = requested;
+            _cfg.Indicator.OnTopExclusive = requested;
             break;
         }
 
         case IDC_SETTINGS_INDICATOR_HIDE_INACTIVE:
-            _cfg.HideWhenInactive = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Indicator.HideWhenInactive = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_INDICATOR_NOTIFICATIONS:
-            _cfg.NotificationsEnabled = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Core.Notifications = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
-            _cfg.IsMicKeepVolume = DialogControls::IsChecked(hWnd, buttonId);
+            _cfg.Mic.KeepVolume = DialogControls::IsChecked(hWnd, buttonId);
             break;
         case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
-            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file", _cfg.MuteSoundSource);
+            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file", _cfg.Mic.MuteSound);
             break;
         case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
-            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file", _cfg.UnmuteSoundSource);
+            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file", _cfg.Mic.UnmuteSound);
             break;
         case IDC_ABOUT_GITHUB_LINK:
             ShellExecuteW(nullptr, L"open", Str::Utf8ToWide(REPO_URL).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -432,14 +441,14 @@ void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
 void SettingsWindowViewModel::HandleComboBoxChange(HWND hWnd, int comboBoxId) const {
     switch (comboBoxId) {
         case IDC_SETTINGS_INDICATOR_COMBO:
-            _cfg.IndicatorState = static_cast<IndicatorState>(
+            _cfg.Indicator.State = static_cast<IndicatorState>(
                 SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
             break;
         case IDC_SETTINGS_SOUNDS_MUTE_COMBO:
-            HandleSoundSelection(hWnd, comboBoxId, _cfg.MuteSoundSource);
+            HandleSoundSelection(hWnd, comboBoxId, _cfg.Mic.MuteSound);
             break;
         case IDC_SETTINGS_SOUNDS_UNMUTE_COMBO:
-            HandleSoundSelection(hWnd, comboBoxId, _cfg.UnmuteSoundSource);
+            HandleSoundSelection(hWnd, comboBoxId, _cfg.Mic.UnmuteSound);
             break;
         default:
             break;
@@ -449,20 +458,20 @@ void SettingsWindowViewModel::HandleComboBoxChange(HWND hWnd, int comboBoxId) co
 void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, int value) const {
     switch (trackbarId) {
         case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
-            _cfg.IndicatorSize = static_cast<BYTE>(value);
+            _cfg.Indicator.Size = static_cast<BYTE>(value);
             _mainWindow->Relayout();
             break;
         case IDC_HOTKEYS_WINDOW_TRACKBAR:
-            _cfg.MultiPressWindowMs = static_cast<uint16_t>(value);
+            _cfg.Core.MultiPressWindowMs = static_cast<uint16_t>(value);
             break;
         case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
-            _cfg.IndicatorVolumeThreshold = static_cast<float>(value) / 100.0f;
+            _cfg.Indicator.VolumeThreshold = static_cast<float>(value) / 100.0f;
             break;
         case IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR:
-            _cfg.MicVolume = static_cast<int8_t>(value);
+            _cfg.Mic.Volume = static_cast<int8_t>(value);
             break;
         case IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR:
-            _cfg.BellVolume = static_cast<int8_t>(value);
+            _cfg.Mic.BellVolume = static_cast<int8_t>(value);
             break;
         default:
             break;
@@ -504,8 +513,8 @@ void SettingsWindowViewModel::Init() {
 
     _view->OnApply += [this] {
         _mainWindow->UpdateRect();
-        _cfg.WindowPosX = _mainWindow->GetPositionX();
-        _cfg.WindowPosY = _mainWindow->GetPositionY();
+        _cfg.Indicator.PosX = _mainWindow->GetPositionX();
+        _cfg.Indicator.PosY = _mainWindow->GetPositionY();
 
         CommitPrivilegedSettings();
 

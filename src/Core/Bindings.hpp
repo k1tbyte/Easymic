@@ -7,35 +7,37 @@
 #include "AppConfig.hpp"
 #include "Feedback.hpp"
 #include "HotkeyService.hpp"
+#include "KeyNames.hpp"
 
 /// Turning what the config says into what the hotkey service holds - the one place that knows
 /// both shapes, and the only reason either has to know the other exists.
 namespace Bindings {
 
     /**
-     * @brief Registers every configured action that can actually be registered.
+     * @brief Registers every configured binding that can actually be registered.
      *
-     * A configured hotkey is not a registered one: the combination can be missing, the id can name
-     * an action no module registered, and the action itself can decline the argument it was given -
-     * hooking the desktop for any of those is not free.
+     * A configured trigger is not a registered one: the combination can be missing or unparseable,
+     * the id can name an action no module registered, and the action itself can decline the
+     * argument it was given - hooking the desktop for any of those is not free. None of them drops
+     * the binding; it stays in the list, visible in settings, and simply never fires.
      *
      * @return true when at least one hotkey took, which is what makes installing the hooks worth it.
      */
-    inline bool Apply(const std::vector<Action>& actions, Feedback& feedback) {
+    inline bool Apply(const std::vector<Binding>& bindings, Feedback& feedback) {
         bool registered = false;
 
-        for (const auto& action : actions) {
-            const ActionDesc* const desc = ActionRegistry::Find(action.ActionId);
-            if (!action.Hotkey || !desc) {
+        for (const auto& entry : bindings) {
+            const ActionDesc* const desc = ActionRegistry::Find(entry.ActionId);
+            const uint64_t mask = KeyNames::Parse(entry.Trigger.Keys);
+            if (!mask || !desc) {
                 continue;
             }
 
-            const std::string text = action.ShowNotification
-                ? Feedback::Compose(action.Notification, desc->DefaultNotification, action.Name,
-                                    action.Hotkey)
+            const std::string text = entry.ShowNotification
+                ? Feedback::Compose(entry.Notification, desc->DefaultNotification, entry.Name, mask)
                 : std::string{};
 
-            const ActionContext context{action.Args, text, feedback};
+            const ActionContext context{entry.Args, text, feedback};
             auto handler = desc->Make(context);
             if (!handler) {
                 continue;
@@ -43,23 +45,23 @@ namespace Bindings {
 
             // An action that runs a command announces itself once the command answers, which can
             // be minutes later, so the wrapper must not announce it as well
-            auto run = feedback.Wrap(std::move(handler), action.Sound, action.SoundVolume,
+            auto run = feedback.Wrap(std::move(handler), entry.Sound, entry.SoundVolume,
                                      HasFlag(desc->Flags, ActionFlags::RunsCommand)
                                          ? std::string{} : text);
 
-            HotkeyService::HotkeyBinding binding{.block = action.Block};
+            HotkeyService::HotkeyBinding hotkey{.block = entry.Trigger.Block};
             if (desc->MakeRelease) {
-                binding.onPress = std::move(run);
-                binding.onRelease = desc->MakeRelease(context);
-            } else if (action.OnRelease) {
-                binding.onRelease = std::move(run);
-                binding.tapOnly = action.TapOnly;
+                hotkey.onPress = std::move(run);
+                hotkey.onRelease = desc->MakeRelease(context);
+            } else if (entry.Trigger.OnRelease) {
+                hotkey.onRelease = std::move(run);
+                hotkey.tapOnly = entry.Trigger.TapOnly;
             } else {
-                binding.onPress = std::move(run);
+                hotkey.onPress = std::move(run);
             }
 
             registered |= HotkeyService::RegisterHotkey(
-                action.Hotkey, action.Presses ? action.Presses : 1, binding);
+                mask, entry.Trigger.Presses ? entry.Trigger.Presses : 1, hotkey);
         }
 
         return registered;

@@ -44,7 +44,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Static: the update thread and the statics below hold references to it and outlive WinMain
     static AppConfig config = AppConfig::Load();
 
-    if (config.IsSkipUACEnabled && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
+    if (config.Core.SkipUac && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
         // The elevated instance claims this very name, and the name lives as long as a handle is
         // open - hand it over before starting it, or it shuts itself down as a duplicate
         CloseHandle(mutex);
@@ -76,7 +76,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());
 
-    if (config.IsUpdatesEnabled) {
+    if (config.Core.Updates) {
         static UpdateManager updateManager(config);
         updateManager.CheckForUpdatesAsync([](bool hasUpdate, const std::string& error) {
             if (!error.empty()) {

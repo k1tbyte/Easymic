@@ -124,7 +124,7 @@ void UpdateManager::ShowUpdateNotification() {
     }
 
     // If auto-update is enabled, skip the dialog and install directly
-    if (_cfg.IsAutoUpdateEnabled) {
+    if (_cfg.Core.AutoUpdate) {
         LOG_INFO("Auto-update enabled - installing update automatically");
         DownloadAndInstallUpdate();
         return;
@@ -247,12 +247,12 @@ bool UpdateManager::ApplyUpdate(const std::wstring& filePath) {
 }
 
 bool UpdateManager::IsVersionSkipped(const std::string& version) const {
-    return _cfg.SkippedVersions.contains(version);
+    return _cfg.Core.SkippedVersions.contains(version);
 }
 
 void UpdateManager::SkipVersion() {
     if (!_latestRelease.tag_name.empty()) {
-        _cfg.SkippedVersions.insert(_latestRelease.tag_name);
+        _cfg.Core.SkippedVersions.insert(_latestRelease.tag_name);
         _cfg.Save();
         LOG_INFO("Skipped version: %s", _latestRelease.tag_name.c_str());
     }

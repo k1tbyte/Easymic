@@ -108,7 +108,7 @@ public:
     /// Puts text that is already resolved on the indicator, from any thread - it travels through
     /// the window's own message queue.
     void Post(const std::string& resolved) const {
-        if (resolved.empty() || !_cfg.NotificationsEnabled) {
+        if (resolved.empty() || !_cfg.Core.Notifications) {
             return;
         }
 
@@ -119,6 +119,22 @@ public:
     // every hotkey before it can be edited, and Dispose joins this thread.
     void Notify(const std::string& text) const {
         Post(Expand(text));
+    }
+
+    /**
+     * @brief A poster that can outlive this object.
+     *
+     * What an action that answers on a thread of its own needs - a captured command can finish
+     * minutes later, and by then the process may be shutting down. The handle and the switch are
+     * taken by value here, so a late answer posts to a window that may be gone rather than
+     * through an object that is.
+     */
+    std::function<void(const std::string&)> Poster() const {
+        return [target = _target, enabled = _cfg.Core.Notifications](const std::string& resolved) {
+            if (!resolved.empty() && enabled) {
+                MainWindow::PostNotification(target, Str::Utf8ToWide(resolved));
+            }
+        };
     }
 };
 

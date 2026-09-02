@@ -24,8 +24,8 @@ namespace {
             return {};
         }
 
-        // Safe to hold onto across a launch that answers that late: Feedback is created once in
-        // main and outlives every action and every command thread
+        // Safe to hold for the action body itself: that runs on the Dispatcher worker, which is
+        // joined while Feedback is still alive. Nothing that outlives the worker may hold it.
         Feedback* const feedback = &context.Fb;
         const std::string text = context.Notification;
 
@@ -42,8 +42,8 @@ namespace {
             const std::string resolved = feedback->Expand(text);
 
             CommandRunner::RunCaptured(command, GetForegroundWindow(),
-                [feedback, resolved](const std::string& output) {
-                    feedback->Post(Str::Replace(resolved, Tokens::Stdout, output));
+                [post = feedback->Poster(), resolved](const std::string& output) {
+                    post(Str::Replace(resolved, Tokens::Stdout, output));
                 });
         };
     }

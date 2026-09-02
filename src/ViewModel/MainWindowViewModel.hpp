@@ -88,7 +88,7 @@ private:
     }
 
     void ApplyDisplayAffinity() const {
-        const auto affinity = _cfg.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+        const auto affinity = _cfg.Indicator.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
         DWORD existingAffinity = 0;
         GetWindowDisplayAffinity(_view->GetEffectiveHandle(), &existingAffinity);
 
@@ -104,15 +104,15 @@ private:
     void RestoreConfig() {
         Mic::Audio().WatchForCaptureSessions();
         HotkeyService::ClearHotkeys();
-        HotkeyService::SetMultiPressWindow(_cfg.MultiPressWindowMs);
+        HotkeyService::SetMultiPressWindow(_cfg.Core.MultiPressWindowMs);
 
 #ifndef APP_NO_GLOBAL_HOOKS
-        if (Bindings::Apply(_cfg.Actions, _feedback)) {
+        if (Bindings::Apply(_cfg.Bindings, _feedback)) {
             HotkeyService::Initialize();
         }
 #endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
 
-        if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
+        if (_cfg.Indicator.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             _view->Hide();
             auto *shadowHwnd = UIAccessManager::GetOrCreateWindow(SHADOW_WINDOW_KEY, MainWindow::StyleEx,
                                                                   MainWindow::Style);
@@ -126,8 +126,8 @@ private:
 
     /// Whether the mic pill may be on screen at all - config and live sessions, no mute state.
     bool MicAllowed() const {
-        return Mic::HasDevice() && _cfg.IndicatorState != IndicatorState::Hidden
-               && (!_cfg.HideWhenInactive
+        return Mic::HasDevice() && _cfg.Indicator.State != IndicatorState::Hidden
+               && (!_cfg.Indicator.HideWhenInactive
                    || Mic::Audio().CaptureDevice()->GetActiveSessionsCount() > 0);
     }
 
@@ -158,12 +158,12 @@ private:
             _anchor = {_view->GetPositionX(), _view->GetPositionY()};
         }
 
-        _layout = IndicatorLayout::Compute(_cfg.IndicatorSize, _bitmapToDisplay != nullptr,
+        _layout = IndicatorLayout::Compute(_cfg.Indicator.Size, _bitmapToDisplay != nullptr,
                                            _notificationText);
 
         // "Muted or talking" keeps an empty window up on purpose: the peak meter only ticks while
         // the indicator is visible, and it is what discovers that the mic went live
-        const bool waitsForPeak = _cfg.IndicatorState == IndicatorState::MutedOrTalk && MicAllowed();
+        const bool waitsForPeak = _cfg.Indicator.State == IndicatorState::MutedOrTalk && MicAllowed();
 
         if (!_layout.hasText && !_layout.hasMic && !waitsForPeak) {
             KillPeakMeter();
@@ -260,7 +260,7 @@ private:
     /// change something: visible indicator, live device, and not muted.
     void SyncPeakMeter() {
         const bool wanted = _view->IsVisible() && Mic::HasDevice() && !Mic::Muted()
-                            && _cfg.IndicatorState == IndicatorState::MutedOrTalk;
+                            && _cfg.Indicator.State == IndicatorState::MutedOrTalk;
 
         if (wanted == _isPeakMeterActive) {
             return;
@@ -286,7 +286,7 @@ private:
             return;
         }
 
-        if (Mic::Audio().CaptureDevice()->GetPeak() > _cfg.IndicatorVolumeThreshold) {
+        if (Mic::Audio().CaptureDevice()->GetPeak() > _cfg.Indicator.VolumeThreshold) {
             if (!_peakMeterPhase) {
                 _bitmapToDisplay = _icons->Active();
                 _peakMeterPhase = PEAK_METER_DEBOUNCE_PHASES;

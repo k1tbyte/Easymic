@@ -17,7 +17,7 @@ using Microsoft::WRL::ComPtr;
 /// can silently break the single-instance check.
 #define MUTEX_NAME L"{8963D562-E35B-492A-A3D2-5FD724CE24B2}"
 
-#define CONFIG_NAME L"conf.b"
+#define CONFIG_NAME L"config.json"
 
 /// Still the old name - the GitHub repository has not been renamed, and this feeds the update
 /// check's API URL.

@@ -18,19 +18,19 @@ bool MainWindow::Initialize(WindowConfig config) {
     // Restoring the tray icon on an Explorer restart
     _taskbarCreatedMessage = RegisterWindowMessageA("TaskbarCreated");
 
-    const int windowSize = IndicatorLayout::PillSize(_config.IndicatorSize);
+    const int windowSize = IndicatorLayout::PillSize(_config.Indicator.Size);
     SetWidth(windowSize);
     SetHeight(windowSize);
-    SetPositionX(_config.WindowPosX);
-    SetPositionY(_config.WindowPosY);
+    SetPositionX(_config.Indicator.PosX);
+    SetPositionY(_config.Indicator.PosY);
 
     _hwnd = CreateWindowExW(
         StyleEx,
         config.className,
         config.windowTitle,
         Style,
-        _config.WindowPosX,
-        _config.WindowPosY,
+        _config.Indicator.PosX,
+        _config.Indicator.PosY,
         windowSize,
         windowSize,
         nullptr,
@@ -223,7 +223,7 @@ void MainWindow::ShowTrayContextMenu() {
         return;
     }
 
-    const bool bellEnabled = _config.BellVolume > 0;
+    const bool bellEnabled = _config.Mic.BellVolume > 0;
     InsertMenuW(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
                ID_APP_TOGGLE_BELL,
                bellEnabled ? L"Disable bell sound" : L"Enable bell sound");

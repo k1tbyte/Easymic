@@ -42,9 +42,9 @@ private:
     void InitializeIndicatorSection(HWND hWnd) const;
     void InitializeSoundsSection(HWND hWnd) const;
     void RefreshActionRows() const;
-    void ClearHotkey(uint64_t mask, uint8_t presses, int exceptIndex);
+    void ClearHotkey(const std::string& keys, uint8_t presses, int exceptIndex);
     void AddAction();
-    void EditAction(int index, const Action& seed);
+    void EditAction(int index, const Binding& seed);
     void InitializeAboutSection(HWND hWnd);
 
     void SetupLogDisplay(HWND hWnd);

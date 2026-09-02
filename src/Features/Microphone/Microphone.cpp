@@ -13,24 +13,26 @@
 
 namespace {
 
-    AudioManager _audio;
     Event<> _stateChanged;
 
-    AppConfig* _cfg = nullptr;
+    MicSettings* _settings = nullptr;
+    /// Only to persist a bell toggle - the module reads nothing outside its own section
+    AppConfig* _config = nullptr;
     Feedback* _fb = nullptr;
     HINSTANCE _instance = nullptr;
 
-    bool _hasDevice = false;
-    /// Written from the WASAPI notification thread, read from the hotkey worker and the UI
+    // Written from the WASAPI notification thread, read from the hotkey worker and the UI
+    std::atomic<bool> _hasDevice = false;
     std::atomic<bool> _muted = false;
-    float _deviceVolume = -1.0f;
-    /// What the chime was set to before it was silenced, so toggling it back restores the level
+    std::atomic<float> _deviceVolume = -1.0f;
+    /// UI thread only. What the chime was set to before it was silenced, so toggling it back
+    /// restores the level.
     int8_t _prevBellVolume = 25;
 
     void _shiftVolume(const int delta) {
         // Keeps the controller alive for the call: the shared_ptr is returned by value, and the
         // device-change task can drop the last other reference at any moment
-        const auto mic = _audio.CaptureDevice();
+        const auto mic = Mic::Audio().CaptureDevice();
         const int target = std::clamp(mic->GetVolumePercent() + delta, 0, 100);
         mic->SetVolumePercent(static_cast<BYTE>(target));
         _fb->PublishVolumePercent(static_cast<uint8_t>(target));
@@ -38,8 +40,8 @@ namespace {
 
     /// The user asked for one level and expects the device to keep it across reconnects.
     void _adjustVolume() {
-        if (_cfg->IsMicKeepVolume && _cfg->MicVolume != -1) {
-            _audio.CaptureDevice()->SetVolumePercent(_cfg->MicVolume);
+        if (_settings->KeepVolume && _settings->Volume != -1) {
+            Mic::Audio().CaptureDevice()->SetVolumePercent(_settings->Volume);
         }
     }
 
@@ -52,21 +54,26 @@ namespace {
     void _settle(const bool silent) {
         if (_hasDevice) {
             // The device has spoken, so whatever an action optimistically published is now stale
-            _fb->PublishVolumePercent(_audio.CaptureDevice()->GetVolumePercent());
+            _fb->PublishVolumePercent(Mic::Audio().CaptureDevice()->GetVolumePercent());
         }
 
-        _stateChanged();
+        // The device speaks on its own COM thread, and everything below either draws or reads the
+        // config - both belong to the UI thread. A Refresh already on that thread pays one message
+        // hop for the same rule, which is cheaper than two ways of getting here.
+        Dispatcher::ToUi([silent] {
+            _stateChanged();
 
-        if (!silent && _hasDevice && _cfg->BellVolume > 0) {
-            SoundCatalog::Play(_instance,
-                               _muted ? _cfg->MuteSoundSource : _cfg->UnmuteSoundSource,
-                               static_cast<uint8_t>(_cfg->BellVolume));
-        }
+            if (!silent && _hasDevice && _settings->BellVolume > 0) {
+                SoundCatalog::Play(_instance,
+                                   _muted ? _settings->MuteSound : _settings->UnmuteSound,
+                                   static_cast<uint8_t>(_settings->BellVolume));
+            }
+        });
     }
 
     /// Subscribed once for the lifetime of the app - the module outlives every device.
     void _attachListeners() {
-        _audio.OnCaptureStateChanged += [](const bool muted, const float level) {
+        Mic::Audio().OnCaptureStateChanged += [](const bool muted, const float level) {
             const bool silent = _muted == muted;
             _muted = muted;
             _fb->PublishMicMuted(muted);
@@ -74,18 +81,20 @@ namespace {
 
             if (level != _deviceVolume) {
                 _deviceVolume = level;
-                _adjustVolume();
+                // Posted after _settle so it keeps its old place in the order, and posted at all
+                // because it reads the config
+                Dispatcher::ToUi(_adjustVolume);
             }
         };
 
-        _audio.OnCaptureSessionPropertyChanged += [](const ComPtr<IAudioSessionControl>&,
-                                                     const EAudioSessionProperty property) {
+        Mic::Audio().OnCaptureSessionPropertyChanged += [](const ComPtr<IAudioSessionControl>&,
+                                                           const EAudioSessionProperty property) {
             if (property == Disconnected || property == Connected || property == State) {
                 Mic::Refresh();
             }
         };
 
-        _audio.OnDefaultCaptureChanged += [] { Mic::Refresh(); };
+        Mic::Audio().OnDefaultCaptureChanged += [] { Mic::Refresh(); };
     }
 
     constexpr ActionDesc Actions[] = {
@@ -101,7 +110,7 @@ namespace {
          // microphone was in before the key was pressed
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
-                 _audio.CaptureDevice()->ToggleMute();
+                 Mic::Audio().CaptureDevice()->ToggleMute();
                  _fb->PublishMicMuted(!_fb->MicMuted());
              };
          }},
@@ -113,13 +122,13 @@ namespace {
          .Flags = ActionFlags::NoSound,
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
-                 _audio.CaptureDevice()->SetMute(false);
+                 Mic::Audio().CaptureDevice()->SetMute(false);
                  _fb->PublishMicMuted(false);
              };
          },
          .MakeRelease = [](const ActionContext&) -> ActionFn {
              return [] {
-                 _audio.CaptureDevice()->SetMute(true);
+                 Mic::Audio().CaptureDevice()->SetMute(true);
                  _fb->PublishMicMuted(true);
              };
          }},
@@ -160,11 +169,12 @@ namespace Mic {
     IEvent<>& OnStateChanged = _stateChanged;
 
     void Register(Host& host) {
-        _cfg = &host.Config;
+        _settings = &host.Config.Mic;
+        _config = &host.Config;
         _fb = &host.Fb;
         _instance = host.Instance;
 
-        if (!_audio.Init()) {
+        if (!Mic::Audio().Init()) {
             LOG_ERROR("AudioManager failed to initialize - continuing without microphone control");
         }
 
@@ -176,7 +186,11 @@ namespace Mic {
     }
 
     AudioManager& Audio() {
-        return _audio;
+        // Function-local so it is built inside Register, after the config and the feedback its
+        // callbacks reach into. A namespace-scope one is constructed before main and torn down
+        // after them, and a device event arriving in that window fires into freed memory.
+        static AudioManager audio;
+        return audio;
     }
 
     bool HasDevice() {
@@ -188,26 +202,29 @@ namespace Mic {
     }
 
     void Refresh() {
-        const auto mic = _audio.CaptureDevice();
+        const auto mic = Mic::Audio().CaptureDevice();
         _hasDevice = mic->IsInitialized();
         _muted = mic->IsMuted();
         // No device is not "live" either, so {mic} reads off rather than claiming an open mic
         _fb->PublishMicMuted(!_hasDevice || _muted);
         _deviceVolume = mic->GetVolumeLevel();
-        _fb->PublishBellEnabled(_cfg->BellVolume > 0);
 
-        _adjustVolume();
+        // Both read the config, so both go the same way _settle does
+        Dispatcher::ToUi([] {
+            _fb->PublishBellEnabled(_settings->BellVolume > 0);
+            _adjustVolume();
+        });
         _settle(true);
     }
 
     void ToggleBell() {
-        if (_cfg->BellVolume > 0) {
-            _prevBellVolume = _cfg->BellVolume;
-            _cfg->BellVolume = 0;
+        if (_settings->BellVolume > 0) {
+            _prevBellVolume = _settings->BellVolume;
+            _settings->BellVolume = 0;
         } else {
-            _cfg->BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
+            _settings->BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
         }
-        _fb->PublishBellEnabled(_cfg->BellVolume > 0);
-        _cfg->Save();
+        _fb->PublishBellEnabled(_settings->BellVolume > 0);
+        _config->Save();
     }
 }

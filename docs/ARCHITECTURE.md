@@ -225,12 +225,19 @@ A module takes `MicSettings&`, not `AppConfig&`. That is what collapses the incl
 ### Serialization format: JSON, not BEVE
 
 The config moves from BEVE (`conf.b`) to prettified JSON (`config.json`). Read with
-`glz::read_file_jsonc`, write with `glz::write_file_json` under `glz::opts{.prettify = true}`.
+`glz::read_file_json`, write with `glz::write_file_json` under `glz::opts{.prettify = true}`.
 
-This does not grow the binary. glaze's JSON codec is **already** linked in: `UpdateManager`
-parses the GitHub releases API with `glz::read`, and `glz::opts::format` defaults to `JSON`.
-Today the binary carries both codecs; after the switch it carries one. Anything else we ever
-fetch or parse will be JSON too, so BEVE was always going to be the odd one out.
+**It costs 50 KB, and the prediction that it would not was wrong.** The reasoning was that
+glaze's JSON codec is already linked in - `UpdateManager` parses the GitHub releases API with
+`glz::read` - so dropping BEVE would leave one codec instead of two. That is true of the shared
+machinery and false of what actually dominates: glaze instantiates a reader and a writer per
+type, and the config tree is far larger than the two structs `UpdateManager` parses. Measured on
+MinSizeRel: 854 KB before, 904 KB after.
+
+`read_file_jsonc` would allow comments in a hand-edited file and costs another 31 KB on top of
+that. It was measured and dropped: the settings Apply rewrites the whole file, so a comment does
+not survive the next save anyway, and 31 KB for a note that disappears is the wrong trade against
+priority three.
 
 The config is a cold path - read once at startup, written on Apply - so parse speed and file
 size were never arguments for either side.
@@ -451,24 +458,37 @@ not fine in a release.
 **No migration.** Pre-refactor config files are discarded, not converted. The user reconfigures
 their bindings once.
 
-- [ ] Split `AppConfig` into `CoreSettings`, `MicSettings`, `IndicatorSettings` + `Bindings`
-- [ ] Replace `Action` with `Binding`, hotkey fields nested under `Trigger`
-- [ ] Swap BEVE for JSON: `read_file_jsonc` / `write_file_json` with `.prettify = true`,
-      `CONFIG_NAME` `conf.b` -> `config.json`. Confirm no `*_beve` call sites remain, so the
-      BEVE codec drops out of the binary entirely
-- [ ] `Trigger` stores `Keys` as a display-name string, not a packed mask; convert through
-      `GetHotkeyName` / `ParseHotkeyName` on save and load. An unparseable name means an unbound
-      trigger, not a dropped binding
-- [ ] Bump `CurrentVersion` 2 -> 3
-- [ ] On load, a `Version` that is not the current one means the whole file is ignored and
-      defaults are used. One `if`, no mapping tables - this is what `Version` is for now that
-      nothing migrates. It has to be checked *before* the fields are used, or an old file
-      half-loads: unknown keys are already dropped silently, so stale `BuiltIn` strings would
-      leave bindings pointing at actions the registry has never heard of
-- [ ] Each module takes its own settings struct by reference, never the whole `Config`
+- [x] Split `AppConfig` into `CoreSettings`, `MicSettings`, `IndicatorSettings` + `Bindings`
+- [x] Replace `Action` with `Binding`, hotkey fields nested under `Trigger`
+- [x] Swap BEVE for JSON: `read_file_json` / `write_file_json` with `.prettify = true`,
+      `CONFIG_NAME` `conf.b` -> `config.json`. No `*_beve` call site remains
+- [x] `Trigger` stores `Keys` as a display-name string, not a packed mask; converted through
+      `KeyNames::Format` / `KeyNames::Parse` at the two boundaries that need a mask - the action
+      dialog and `Bindings::Apply`. An unparseable name means an unbound trigger, not a dropped
+      binding. `ClearHotkey` compares the names directly, which is sound because every stored
+      name came out of `Format` and is therefore canonical
+- [x] Bump `CurrentVersion` 2 -> 3
+- [x] On load, a `Version` that is not the current one means the whole file is ignored and
+      defaults are used. One `if`, no mapping tables. It is checked *before* the fields are used:
+      the file is read into a scratch config and only moved across once the revision matches
+- [x] `IndicatorState` gets a `glz::meta` so it is written by name - "2" in a file whose point is
+      being hand-editable is not much better than BEVE
+- [x] Each module takes its own settings struct by reference, never the whole `AppConfig`. The
+      microphone keeps a second pointer to the whole thing purely to persist a bell toggle, since
+      writing the file is not any one section's business
 - **Done when:** a config written by 1.3.0.0 is ignored cleanly - app starts with defaults, no
       error dialog, no half-populated action list - and `config.json` is legible enough to
       hand-edit a binding and have the app pick it up on restart.
+- **Result:** met. Checked with a standalone round-trip harness against the real header, 8 for 8:
+  identity across save and load, the version stamped on the way out, the enum surviving as
+  `"MutedOrTalk"`, the trigger nested, the file prettified, the combination stored as
+  `"CTRL + SHIFT + M"`, and a `Version: 2` file falling back to defaults whole. The app starts
+  with the same footprint as the step 0 baseline - 10 threads, 22.6 MB. Binary 854 -> 904 KB;
+  see the serialization note in section 4 for where that went and why the earlier estimate of
+  zero was wrong.
+
+  The struct is still called `AppConfig` rather than `Config`. The rename buys nothing, and
+  `Config` is a name that collides with every other meaning of the word in a Win32 codebase.
 
 ### Step 4 - Folder layout
 
