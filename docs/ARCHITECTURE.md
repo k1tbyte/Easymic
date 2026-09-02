@@ -121,6 +121,10 @@ struct ActionDesc {
 `Make` is a plain function pointer, not `std::function`: `ActionDesc` stays POD, can be
 `constexpr`, and costs nothing in binary size.
 
+The registry has to be **enumerable**, not only `Find(id)`. The "Add action" menu is built by
+walking every registered action and grouping by `Group`, which is the whole reason `Group` is on
+`ActionDesc`. Enumeration order must be stable across runs or the menu reshuffles itself.
+
 ### Host
 
 The only thing a feature module ever sees:
@@ -382,8 +386,33 @@ feature can be written without touching anything that already exists.
       `desc->Make({args, feedback})`
 - [ ] Delete `src/Actions.hpp`, `BuiltInId`, `BuiltInActions::All`, `MakeBuiltInHandler`
 - [ ] `MainWindowViewModel` keeps only indicator, tray and settings launch
+
+The call sites that hold the old table in place, found while extracting the kernel:
+
+- [ ] `SettingsWindowViewModel::AddAction` (`:172-190`) builds the menu by walking
+      `BuiltInActions::All` and indexes back into it with `All[chosen - 2]`. Walking the registry
+      instead means the menu command id can no longer be a position in a fixed array
+- [ ] `SettingsWindowViewModel::EditAction` (`:202-225`) reads `ArgsLabel`, `ArgsHint`,
+      `DefaultNotification`, `HasSound` and `HoldOnly` off `BuiltInActions::Find`. `ActionDesc`
+      carries all five, but `HasSound` inverts into `ActionFlags::NoSound` and `HoldOnly` becomes
+      a flag - the dialog reads flags, not bools
+- [ ] `AppConfig.hpp:10` includes `Actions.hpp`. Config must not know the action table at all;
+      the include goes when the header does
+- [ ] `MainWindowViewModel.hpp:50` `_prevBellVolume` is microphone state parked in the window's
+      view model. It moves into `Features/Microphone` alongside `mic.toggle_bell`
+- [ ] Modules must register before `RestoreConfig` runs - it calls `RegisterConfiguredActions`
+      (`MainWindowViewModel.hpp:244`), which will resolve ids through the registry. An empty
+      registry at that point drops every binding silently rather than failing
 - **Done when:** `MainWindowViewModel.hpp` is under 250 lines, `src/Actions.hpp` is gone, and
   adding a new action means editing exactly one file inside one `Features/` folder.
+
+**`Action::BuiltIn` changes meaning, and that is a Step 3 problem.** It stores a title today
+(`"Toggle mute"`); the registry keys on an id (`"mic.toggle_mute"`). `AppConfig::Version` cannot
+police this - `Load` stamps the field on the way in and never compares it, so bumping
+`CurrentVersion` rejects nothing. The only thing that actually breaks the old file is the Step 3
+filename change, `conf.b` -> `config.json`: the new binary does not find it and starts clean.
+So the id rename must not ship before that change, or there is a build in between that reads the
+old config, fails every `Find`, and comes up with every binding quietly unbound.
 
 ### Step 3 - Config split
 
