@@ -30,20 +30,22 @@ keyboard and mouse procs merge - the bookkeeping is cheaper to add once, in one 
 
 ---
 
-## A modifier alias is not printed back verbatim
+## A modifier alias is rewritten, not preserved
 
-**Where:** `src/Core/KeyNames.cpp`
-**Severity:** cosmetic
+**Where:** `src/Core/KeyNames.cpp`, `AppConfig::Load`
+**Severity:** cosmetic, and deliberate
 
 `Parse` accepts `LCTRL`, `LSHIFT` and `LALT` as aliases of the unprefixed left-key names, but
-`Format` only ever walks `ModifiersOrderedList`, so `Format(Parse("LCTRL"))` is `"CTRL"`.
+`Format` only ever walks `ModifiersOrderedList`, so `Format(Parse("LCTRL"))` is `"CTRL"`. A
+`config.json` hand-edited to say `LCTRL + M` comes back as `CTRL + M`.
 
-The mask round-trip holds - `Parse(Format(m)) == m` for every valid mask - only the spelling is
-canonicalised. It becomes visible in step 3, where the trigger is stored as a display name: a
-config hand-edited to say `LCTRL + M` is rewritten as `CTRL + M` on the next Apply.
+That rewriting is now done on load rather than left until the next Apply, because two spellings
+of one combination is worse than one surprising spelling: `ClearHotkey` compares trigger names,
+so `LCTRL + A` and `CTRL + A` would look like different combinations to the settings UI and the
+same one to `RegisterHotkey`, and the second binding would quietly fail to register behind the
+first.
 
-**Why it waits:** it is the intended behaviour of a canonical form. Recorded so that nobody
-reports it twice.
+**Why it stays:** it is what a canonical form is for. Recorded so nobody reports it twice.
 
 ---
 
