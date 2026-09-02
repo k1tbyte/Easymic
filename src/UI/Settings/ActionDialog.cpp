@@ -3,11 +3,11 @@
 #include "DialogControls.hpp"
 #include "Tokens.hpp"
 #include "Resources/Resource.h"
-#include "../../Audio/AudioFileValidator.hpp"
-#include "../../Lib/HotkeyCapture.hpp"
+#include "AudioFileValidator.hpp"
+#include "HotkeyCapture.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Core/KeyNames.hpp"
-#include "../../Lib/Str.hpp"
+#include "Str.hpp"
 
 namespace {
 

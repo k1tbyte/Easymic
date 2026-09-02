@@ -2,8 +2,8 @@
 
 #include "Core/Dispatcher.hpp"
 
-#include "../../Resources/Resource.h"
-#include "../Components/IndicatorLayout.hpp"
+#include "Resources/Resource.h"
+#include "IndicatorLayout.hpp"
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance), _config(appConfig)

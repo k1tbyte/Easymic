@@ -6,20 +6,20 @@
 
 #include <memory>
 
-#include "AudioManager.hpp"
+#include "Features/Microphone/Wasapi/AudioManager.hpp"
 #include "Core/Bindings.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Features/Microphone/Microphone.hpp"
-#include "SettingsWindowViewModel.hpp"
+#include "Settings/SettingsWindowViewModel.hpp"
 #include "UACService.hpp"
-#include "../Lib/UIAccess/UIAccessManager.hpp"
+#include "UIAccess/UIAccessManager.hpp"
 #include "ViewModel.hpp"
-#include "MainWindow/MainWindow.hpp"
-#include "View/Components/IndicatorIcons.hpp"
-#include "View/Components/IndicatorLayout.hpp"
-#include "View/Core/BaseWindow.hpp"
+#include "MainWindow.hpp"
+#include "IndicatorIcons.hpp"
+#include "IndicatorLayout.hpp"
+#include "BaseWindow.hpp"
 
 using namespace Gdiplus;
 

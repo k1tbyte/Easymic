@@ -4,7 +4,7 @@
 #include <atomic>
 
 #include "AppConfig.hpp"
-#include "AudioManager.hpp"
+#include "Wasapi/AudioManager.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"

@@ -20,7 +20,7 @@ Toolchain: global cmake + ninja, MSVC from Visual Studio, resources via `rc.exe`
 
 ## Layout
 
-- `src/Core/` - `HotkeyService` (LL hooks and key masks), `Dispatcher` (worker thread and the
+X
   hop back to the UI thread), `KeyNames` (mask <-> text). Hook procs must stay O(1): actions run
   on the worker thread, never inside the proc.
 - `src/Audio/` - WASAPI device/session control and event handlers.

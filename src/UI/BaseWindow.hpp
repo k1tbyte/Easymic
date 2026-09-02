@@ -7,7 +7,7 @@
 
 #include "definitions.h"
 #include "RateLimiter.hpp"
-#include "ViewModel/ViewModel.hpp"
+#include "ViewModel.hpp"
 
 template<typename T>
 concept IViewModelType = std::is_base_of_v<IViewModel, T>;

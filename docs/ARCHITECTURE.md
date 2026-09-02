@@ -492,10 +492,24 @@ their bindings once.
 
 ### Step 4 - Folder layout
 
-- [ ] `git mv` into `Core/ Platform/ Features/ UI/` per section 3
-- [ ] Update `target_include_directories` in `CMakeLists.txt`
-- [ ] Add the slice-rule grep to `build.ps1`: fail the build if `Features/X` includes `Features/Y`
+- [x] `git mv` into `Core/ Platform/ Features/ UI/` per section 3
+- [x] Update `target_include_directories` in `CMakeLists.txt`
+- [x] Add the slice-rule grep to `build.ps1`: fail the build if `Features/X` includes `Features/Y`
 - **Done when:** the tree matches section 3 and the slice check passes.
+- **Result:** met, binary unchanged at 904 KB. The include path is `src`, `src/Core`,
+  `src/Platform`, `src/UI` - deliberately **not** `src/Features`, so reaching into another
+  feature has to be spelled `"Features/X/..."` and the slice check has something to grep for. A
+  file inside its own slice still says `"CommandRunner.hpp"`, which a quoted include resolves
+  relative to the includer.
+
+  The check was tested both ways: it passes on the tree as it stands, and an `#include
+  "Features/Launcher/Launcher.hpp"` added to `Features/Keyboard/Keyboard.cpp` fails the build
+  with the file and line.
+
+  Two deviations from the sketch in section 3. `Platform/` is flat rather than carrying
+  `Uac/ Shell/ Crash/ Update/ Version/` - those are one or two files each, and a folder per file
+  is filing, not structure; only `UIAccess/` stayed a folder because it is one. And `UI/` is flat
+  apart from `Settings/`, since `Core/` and `Components/` were splitting eight files four ways.
 
 ### Step 5 - Settings page registry
 

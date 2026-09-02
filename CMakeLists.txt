@@ -70,10 +70,9 @@ target_sources(${PROJECT_NAME} PRIVATE ${RESOURCE}
 
 target_include_directories(${PROJECT_NAME} PUBLIC
         src
-        src/Lib
-        src/Audio
-        src/View
         src/Core
+        src/Platform
+        src/UI
 )
 
 if(MINGW)

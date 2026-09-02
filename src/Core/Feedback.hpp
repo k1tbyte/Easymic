@@ -7,7 +7,7 @@
 #include "AppConfig.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Core/KeyNames.hpp"
-#include "MainWindow/MainWindow.hpp"
+#include "MainWindow.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
 #include "Tokens.hpp"

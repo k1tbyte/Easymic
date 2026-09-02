@@ -4,17 +4,17 @@
 
 #pragma once
 
-#include "AudioManager.hpp"
+#include "Features/Microphone/Wasapi/AudioManager.hpp"
 #include "Core/ActionRegistry.hpp"
-#include "Audio/AudioFileValidator.hpp"
-#include "Lib/Registry.hpp"
-#include "SettingsWindow/DialogControls.hpp"
+#include "AudioFileValidator.hpp"
+#include "Registry.hpp"
+#include "Settings/DialogControls.hpp"
 #include "ViewModel.hpp"
-#include "SettingsWindow/SettingsWindow.hpp"
-#include "View/Core/BaseWindow.hpp"
+#include "Settings/SettingsWindow.hpp"
+#include "BaseWindow.hpp"
 #include "AppConfig.hpp"
-#include "MainWindow/MainWindow.hpp"
-#include "Lib/Logger.hpp"
+#include "MainWindow.hpp"
+#include "Logger.hpp"
 
 class SettingsWindowViewModel final : public BaseViewModel<SettingsWindow> {
 private:

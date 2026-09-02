@@ -2,11 +2,11 @@
 #include "HotkeyCapture.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Core/KeyNames.hpp"
-#include "MainWindow/MainWindow.hpp"
+#include "MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
-#include "Lib/Version.hpp"
-#include "Lib/UACService.hpp"
+#include "Version.hpp"
+#include "UACService.hpp"
 #include <windows.h>
 #include <commctrl.h>
 

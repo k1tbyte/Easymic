@@ -6,9 +6,9 @@
 #include "ActionDialog.hpp"
 #include "DialogControls.hpp"
 #include "UACService.hpp"
-#include "../../Resources/Resource.h"
-#include "../../Lib/Version.hpp"
-#include "../../Lib/Logger.hpp"
+#include "Resources/Resource.h"
+#include "Version.hpp"
+#include "Logger.hpp"
 #include "Str.hpp"
 
 namespace {

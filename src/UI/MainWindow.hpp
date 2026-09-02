@@ -4,11 +4,11 @@
 #include <memory>
 #include <string>
 
-#include "../Core/BaseWindow.hpp"
-#include "../Components/TrayIcon.hpp"
-#include "../Components/TrayIconTheme.hpp"
-#include "../Components/GdiRenderer.hpp"
-#include "../Components/LayeredWindow.hpp"
+#include "BaseWindow.hpp"
+#include "TrayIcon.hpp"
+#include "TrayIconTheme.hpp"
+#include "GdiRenderer.hpp"
+#include "LayeredWindow.hpp"
 #include "AppConfig.hpp"
 
 class MainWindow final : public BaseWindow {

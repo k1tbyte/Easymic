@@ -42,6 +42,27 @@ if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
     }
 }
 
+# The slice rule, docs/ARCHITECTURE.md section 3: no file under Features/X may include
+# Features/Y. Only Core/ and Platform/ are shared, and anything two features both need is a
+# Core/ concern. It is checked here rather than trusted because it is the one rule that keeps
+# the design from rotting back into the old catch-all Lib/.
+$featuresDir = Join-Path $root "src\Features"
+$leaks = Get-ChildItem $featuresDir -Recurse -File -Include *.hpp, *.cpp | ForEach-Object {
+    $slice = ($_.FullName.Substring($featuresDir.Length + 1) -split '[\\/]')[0]
+    Select-String -Path $_.FullName -Pattern '#include\s+"Features/([^/"]+)/' | ForEach-Object {
+        $target = $_.Matches[0].Groups[1].Value
+        if ($target -ne $slice) {
+            "  $($_.Path):$($_.LineNumber): Features/$slice includes Features/$target"
+        }
+    }
+}
+
+if ($leaks) {
+    Write-Host "slice rule violated - a feature may only include Core/ and Platform/:" -ForegroundColor Red
+    $leaks | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+    throw "slice rule violated"
+}
+
 # Quotes are required: PS 5.1 does not expand variables in unquoted "-D...=" arguments
 cmake -S "$root" -B "$buildDir" -G Ninja "-DCMAKE_BUILD_TYPE=$Config"
 if ($LASTEXITCODE -ne 0) { throw "configure failed" }

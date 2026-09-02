@@ -1,7 +1,7 @@
 #pragma once
 
 // BaseWindow first: it brings in windows.h, and commctrl.h does not compile without it
-#include "../Core/BaseWindow.hpp"
+#include "BaseWindow.hpp"
 
 #include <commctrl.h>
 #include <functional>
