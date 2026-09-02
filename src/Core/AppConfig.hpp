@@ -8,6 +8,7 @@
 #include <set>
 #include <windows.h>
 #include "definitions.h"
+#include "KeyNames.hpp"
 
 #ifdef CONFIG_ENABLED
 #include <glaze/glaze.hpp>
@@ -182,6 +183,16 @@ struct AppConfig {
         }
 
         config = std::move(loaded);
+
+        // Whatever the file says becomes the canonical spelling, so two bindings that mean the
+        // same combination compare equal - KeyNames::Parse accepts LCTRL, which Format never
+        // prints, and a hand-edited file is exactly where that shows up. A name that does not
+        // parse is left as the user wrote it: the binding shows up unbound rather than blank.
+        for (auto& binding : config.Bindings) {
+            if (const uint64_t mask = KeyNames::Parse(binding.Trigger.Keys)) {
+                binding.Trigger.Keys = KeyNames::Format(mask);
+            }
+        }
 #endif // CONFIG_ENABLED
         return config;
     }
