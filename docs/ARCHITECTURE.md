@@ -24,7 +24,7 @@ Baseline for this work: tag `1.3.0.0`.
 | `src/AppConfig.hpp` | One flat struct holding every feature's settings; a magnet node in the include graph |
 | Settings UI | `SettingsWindow::Categories[]` + `IDD_SETTINGS_*` + `HandleSectionChange` switch + one `Initialize*Section` per page + a single giant `HandleButtonClick` switch |
 
-Cost of adding something today:
+Cost of adding something, before this refactor:
 
 - **A built-in action**: 3 edits across 2 layers - `BuiltInId` enum, `BuiltInActions::All`, and a
   `case` in `MainWindowViewModel::MakeBuiltInHandler`.
@@ -51,6 +51,7 @@ dispatcher; features register into it.
 src/
   Core/                    the kernel - no knowledge of any feature
     ActionRegistry.hpp       id -> ActionDesc {title, args, factory}
+    Bindings.hpp             configured actions -> registered hotkeys
     HotkeyService.*          LL hooks, key masks, multi-press (today's HotkeyManager, minus queue)
     KeyNames.hpp             the 256-entry VK name table, on its own
     Dispatcher.*             worker thread + PostToUi
@@ -95,14 +96,15 @@ whole design from rotting back into `Lib/`.
 using ActionFn = std::function<void()>;
 
 struct ActionContext {
-    std::string_view Args;   // whatever the user typed in this binding's argument row
-    Feedback&        Fb;
+    const std::string& Args;          // whatever the user typed in this binding's argument row
+    const std::string& Notification;  // already composed; only an action that delivers its own reads it
+    Feedback&          Fb;
 };
 
-enum ActionFlags : uint32_t {
-    None     = 0,
-    HoldOnly = 1u << 0,   // both edges, "trigger on release" is meaningless (push to talk)
-    NoSound  = 1u << 1,   // feedback is already covered elsewhere (toggle mute)
+enum class ActionFlags : uint32_t {
+    None        = 0,
+    NoSound     = 1u << 0,  // feedback is already covered elsewhere (toggle mute)
+    RunsCommand = 1u << 1,  // the argument is a command line: command tokens, command row
 };
 
 struct ActionDesc {
@@ -114,12 +116,22 @@ struct ActionDesc {
     std::string_view DefaultNotification;
     std::string_view ArgsLabel; // empty means the action takes no argument
     std::string_view ArgsHint;
-    ActionFn (*Make)(const ActionContext&);
+    ActionFn (*Make)(const ActionContext&);         // empty return = the action declines
+    ActionFn (*MakeRelease)(const ActionContext&);  // the release edge, when it needs both
 };
 ```
 
 `Make` is a plain function pointer, not `std::function`: `ActionDesc` stays POD, can be
-`constexpr`, and costs nothing in binary size.
+`constexpr`, and costs nothing in binary size. Returning an empty `ActionFn` is how an action
+refuses an argument it cannot use, and the binding is then not registered at all - that is what
+replaced the "custom action with no command line" check in the binding loop.
+
+`HoldOnly` is not a flag. Carrying a `MakeRelease` is what makes "trigger on release" meaningless
+for an action, so one fact says it rather than two that can disagree.
+
+`ActionFlags` is scoped and `ActionContext::Args` is a reference rather than a view: an unscoped
+`None` in the global namespace is a collision waiting to happen, and `[args = c.Args]` on a view
+compiles and dangles.
 
 The registry has to be **enumerable**, not only `Find(id)`. The "Add action" menu is built by
 walking every registered action and grouping by `Group`, which is the whole reason `Group` is on
@@ -132,38 +144,44 @@ The only thing a feature module ever sees:
 ```cpp
 // Core/Host.hpp
 struct Host {
-    ActionRegistry&   Actions;
-    SettingsHost&     Settings;
-    ConfigStore&      Config;
-    Dispatcher&       Dispatch;
-    Feedback&         Fb;
-    HINSTANCE         Instance;
+    AppConfig& Config;    // ConfigStore in step 3
+    Feedback&  Fb;
+    HINSTANCE  Instance;
 };
 ```
+
+`ActionRegistry`, `Dispatcher` and `HotkeyService` are free namespaces a module reaches by
+including them, so `Host` does not carry them - it holds only what a module cannot reach on its
+own. `SettingsHost` joins it in step 5.
 
 ### Module registration
 
 ```cpp
-// Features/Microphone/Module.cpp
-void Microphone::Register(Host& host) {
-    host.Actions.Add({
-        .Id = "mic.toggle_mute", .Title = "Toggle mute", .Group = "Microphone",
-        .Flags = NoSound, .DefaultNotification = "Mic {mic}",
-        .Make = [](const ActionContext& c) -> ActionFn { /* ... */ }});
-
-    host.Settings.AddPage({.Title = L"Microphone", .Build = &BuildPage});
+// Features/Microphone/Microphone.cpp - namespace Mic, because the Windows SDK already has a
+// Microphone (an EndpointFormFactor enumerator in mmdeviceapi.h)
+void Mic::Register(Host& host) {
+    for (const auto& desc : Actions) {
+        ActionRegistry::Add(desc);
+    }
 }
 ```
 
 ```cpp
 // main.cpp
 constexpr void (*Modules[])(Host&) = {
-    &Microphone::Register, &Keyboard::Register, &Launcher::Register,
+    &Mic::Register, &Keyboard::Register, &Launcher::Register,
 };
 ```
 
 One line per feature. `BuiltInId`, `BuiltInActions::All` and the `MakeBuiltInHandler` switch
 all disappear.
+
+### Bindings
+
+`Core/Bindings.hpp` is the one place that knows both the config shape and the hotkey service:
+`Bindings::Apply(actions, feedback)` resolves each `ActionId` through the registry, composes the
+notification, wraps the handler and registers the combination. It was the view model's job until
+step 2 and belongs to neither the view nor a feature.
 
 ### Binding
 
@@ -374,67 +392,59 @@ feature can be written without touching anything that already exists.
 
 ### Step 2 - ActionRegistry, and the god object dies
 
-- [ ] Add `Core/ActionRegistry.hpp` with `ActionDesc` / `ActionContext` / `ActionFlags`
-- [ ] Add `Core/Host.hpp`
-- [ ] Move `ActionFeedback` from `ViewModel/` to `Core/Feedback.hpp`
-- [ ] Create `Features/Microphone/Module.cpp` - registers `mic.toggle_mute`, `mic.push_to_talk`,
-      `mic.volume_up`, `mic.volume_down`, `mic.toggle_bell`
-- [ ] Create `Features/Keyboard/Module.cpp` - registers `kbd.switch_layout`
-- [ ] Custom commands become an action too: `launcher.run` in `Features/Launcher/Module.cpp`,
+- [x] Add `Core/ActionRegistry.hpp` with `ActionDesc` / `ActionContext` / `ActionFlags`
+- [x] Add `Core/Host.hpp`
+- [x] Move `ActionFeedback` from `ViewModel/` to `Core/Feedback.hpp`, as `Feedback`
+- [x] Create `Features/Microphone/Microphone.cpp` - registers `mic.toggle_mute`,
+      `mic.push_to_talk`, `mic.volume_up`, `mic.volume_down`, `mic.toggle_bell`
+- [x] Create `Features/Keyboard/Keyboard.cpp` - registers `kbd.switch_layout`
+- [x] Custom commands become an action too: `launcher.run` in `Features/Launcher/Launcher.cpp`,
       with the command line as its argument. Removes the built-in/custom fork in the binding loop
-- [ ] Rewrite `RegisterConfiguredActions` against the registry: `Find(binding.ActionId)` ->
-      `desc->Make({args, feedback})`
-- [ ] Delete `src/Actions.hpp`, `BuiltInId`, `BuiltInActions::All`, `MakeBuiltInHandler`
-- [ ] `MainWindowViewModel` keeps only indicator, tray and settings launch
+- [x] Rewrite the binding loop against the registry, as `Bindings::Apply`
+- [x] Delete `src/Actions.hpp`, `BuiltInId`, `BuiltInActions::All`, `MakeBuiltInHandler`
+- [x] `MainWindowViewModel` keeps only indicator, tray and settings launch
 
-The call sites that hold the old table in place, found while extracting the kernel:
+The call sites that held the old table in place, found while extracting the kernel:
 
-- [ ] `SettingsWindowViewModel::AddAction` (`:172-190`) builds the menu by walking
-      `BuiltInActions::All` and indexes back into it with `All[chosen - 2]`. Walking the registry
-      instead means the menu command id can no longer be a position in a fixed array
-- [ ] `SettingsWindowViewModel::EditAction` (`:202-225`) reads `ArgsLabel`, `ArgsHint`,
-      `DefaultNotification`, `HasSound` and `HoldOnly` off `BuiltInActions::Find`. `ActionDesc`
-      carries all five, but `HasSound` inverts into `ActionFlags::NoSound` and `HoldOnly` becomes
-      a flag - the dialog reads flags, not bools
-- [ ] `AppConfig.hpp:10` includes `Actions.hpp`. Config must not know the action table at all;
-      the include goes when the header does
-- [ ] `MainWindowViewModel.hpp:50` `_prevBellVolume` is microphone state parked in the window's
-      view model. It moves into `Features/Microphone` alongside `mic.toggle_bell`
-- [ ] Modules must register before `RestoreConfig` runs - it calls `RegisterConfiguredActions`
-      (`MainWindowViewModel.hpp:244`), which will resolve ids through the registry. An empty
-      registry at that point drops every binding silently rather than failing
-- [ ] The built-in/custom fork reaches the settings list, not only the binding loop:
-      `SettingsWindowViewModel.cpp:127-128` derives both the last column and the `IsCustom` row
-      flag from `action.BuiltIn.empty()`. Once `launcher.run` is an action like any other there
-      is no second kind, so `IsCustom` goes and the column reads the action's argument always
-- [ ] `AddAction` also seeds `Sound` from the table (`SettingsWindowViewModel.cpp:190`,
-      `seed.Sound = builtIn.DefaultSound`) - `ActionDesc::DefaultSound` covers it
-- [ ] `AppConfig.hpp:32` documents the field as holding a `BuiltInAction::Key`. The comment has
-      to say action id, or it outlives the type it names
-- [ ] `MakeBuiltInHandler` (`MainWindowViewModel.hpp:73`) is a `switch` over `BuiltInId` with no
-      default, so a missing case is a compiler warning today. `ActionDesc::Make` restores that
-      guarantee more strongly - an action cannot be registered without its factory - which makes
-      the `"Built-in action '%s' has no handler"` path at `:200-205` dead code to delete, not port
+- [x] `SettingsWindowViewModel::AddAction` walked `BuiltInActions::All` and indexed back into it
+      with `All[chosen - 2]`. It walks the registry now; the id is a position in that vector, read
+      back in the same call, and a separator goes in wherever `Group` changes
+- [x] `SettingsWindowViewModel::EditAction` read `ArgsLabel`, `ArgsHint`, `DefaultNotification`,
+      `HasSound` and `HoldOnly` off `BuiltInActions::Find`. `HasSound` inverted into
+      `ActionFlags::NoSound`; `HoldOnly` became `MakeRelease != nullptr`
+- [x] `AppConfig.hpp` no longer includes anything that knows the action table
+- [x] `_prevBellVolume` moved into `Features/Microphone` alongside `mic.toggle_bell`
+- [x] Modules register in `main` before the window exists, so the registry is full before
+      `RestoreConfig` resolves anything - an empty one would drop every binding silently
+- [x] The fork reached the settings list too, through `action.BuiltIn.empty()`. The last column
+      is the action's argument always. The row flag survives as `RunsCommand`, read off the
+      action's own flags: it drives a tint that says "this row launches a command line", which is
+      still true and still worth showing
+- [x] `AddAction` seeds `Sound` from `ActionDesc::DefaultSound`
+- [x] `MakeBuiltInHandler` was a `switch` with no default, so a missing case was a warning.
+      `ActionDesc::Make` is stronger - an action cannot be registered without its factory - and
+      the `"Built-in action '%s' has no handler"` path is gone rather than ported
 - **Done when:** `MainWindowViewModel.hpp` is under 250 lines, `src/Actions.hpp` is gone, and
   adding a new action means editing exactly one file inside one `Features/` folder.
+- **Result:** two of the three met. `Actions.hpp` is gone and an action is one entry in one
+  module file. `MainWindowViewModel.hpp` went 511 -> 330 lines, not under 250: what is left is
+  the indicator itself (layout, anchor, notification pill, peak meter), the tray, the settings
+  window and `RestoreConfig`. None of it is microphone state any more. Getting under 250 means
+  moving the indicator out, which is open question 10, not this step. Binary unchanged at 854 KB.
 
-The microphone surface to move is larger than the action bodies. `MainWindowViewModel` is 510
-lines today, and the mic cluster inside it is roughly: `ID_PEAK_TIMER`,
-`PEAK_TIMER_INTERVAL_MS`, `PEAK_METER_DEBOUNCE_PHASES`, `_hasCaptureDevice`,
-`_captureDeviceMuted`, `_captureDeviceVolume`, `_prevBellVolume`, `_isPeakMeterActive`,
-`_peakMeterPhase`, `_releasePushToTalk`, `ShiftMicVolume`, `AdjustMicVolume`, `ToggleBellSound`,
-`KillPeakMeter`, `SyncPeakMeter`, `UpdateDevice`, `CaptureDeviceStateChanged` and the
-`AudioManager` hookup in `AttachListeners`. `MicAllowed` and `RefreshMicBitmap` sit on the fence -
-they answer what the indicator draws, using mic state - so they stay with the indicator and read
-the module instead. That boundary is what the 250-line target is actually measuring.
+  Three things the plan did not have. The namespace is `Mic`, not `Microphone` - the Windows SDK
+  claims that name in `mmdeviceapi.h`. `Core/Bindings.hpp` exists because the binding loop is
+  kernel work and belonged in neither the view model nor a feature. And the module owns the
+  `AudioManager` outright, so `main` no longer creates one and `Host` never had to carry it.
 
-**`Action::BuiltIn` changes meaning, and that is a Step 3 problem.** It stores a title today
-(`"Toggle mute"`); the registry keys on an id (`"mic.toggle_mute"`). `AppConfig::Version` cannot
-police this - `Load` stamps the field on the way in and never compares it, so bumping
-`CurrentVersion` rejects nothing. The only thing that actually breaks the old file is the Step 3
-filename change, `conf.b` -> `config.json`: the new binary does not find it and starts clean.
-So the id rename must not ship before that change, or there is a build in between that reads the
-old config, fails every `Find`, and comes up with every binding quietly unbound.
+**Steps 2 and 3 have to ship together.** `Action::BuiltIn` stored a title (`"Toggle mute"`) and
+`Action::ActionId` stores an id (`"mic.toggle_mute"`); `Action::Command` is gone and a command
+line lives in `Args`. `AppConfig::Version` cannot police either change - `Load` stamps the field
+on the way in and never compares it, so bumping `CurrentVersion` rejects nothing. The only thing
+that actually breaks the old file is the step 3 filename change, `conf.b` -> `config.json`: the
+new binary does not find it and starts clean. Until that lands, this branch reads a pre-refactor
+config, fails every `Find`, and comes up with every binding quietly unbound - fine on a branch,
+not fine in a release.
 
 ### Step 3 - Config split
 
