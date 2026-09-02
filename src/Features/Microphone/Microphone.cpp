@@ -52,20 +52,23 @@ namespace {
      *        anywhere, not only from our own hotkey, so it is gated on a real change alone.
      */
     void _settle(const bool silent) {
-        if (_hasDevice) {
-            // The device has spoken, so whatever an action optimistically published is now stale
-            _fb->PublishVolumePercent(Mic::Audio().CaptureDevice()->GetVolumePercent());
-        }
+        // The device speaks on its own COM thread, and everything below draws, plays or reads the
+        // config - all three belong to the UI thread. A Refresh already on that thread pays one
+        // message hop for the same rule, which is cheaper than two ways of getting here.
+        //
+        // The state is taken now rather than read inside the lambda: a second event can land
+        // before the first hop runs, and then the chime would report the wrong direction.
+        Dispatcher::ToUi([silent, muted = _muted.load(), hasDevice = _hasDevice.load()] {
+            if (hasDevice) {
+                // The device has spoken, so whatever an action optimistically published is stale
+                _fb->PublishVolumePercent(Mic::Audio().CaptureDevice()->GetVolumePercent());
+            }
 
-        // The device speaks on its own COM thread, and everything below either draws or reads the
-        // config - both belong to the UI thread. A Refresh already on that thread pays one message
-        // hop for the same rule, which is cheaper than two ways of getting here.
-        Dispatcher::ToUi([silent] {
             _stateChanged();
 
-            if (!silent && _hasDevice && _settings->BellVolume > 0) {
+            if (!silent && hasDevice && _settings->BellVolume > 0) {
                 SoundCatalog::Play(_instance,
-                                   _muted ? _settings->MuteSound : _settings->UnmuteSound,
+                                   muted ? _settings->MuteSound : _settings->UnmuteSound,
                                    static_cast<uint8_t>(_settings->BellVolume));
             }
         });
@@ -209,7 +212,8 @@ namespace Mic {
         _fb->PublishMicMuted(!_hasDevice || _muted);
         _deviceVolume = mic->GetVolumeLevel();
 
-        // Both read the config, so both go the same way _settle does
+        // Both read the config, so both go the same way _settle does - and posted first, because
+        // the volume _settle publishes has to be the one _adjustVolume has already set
         Dispatcher::ToUi([] {
             _fb->PublishBellEnabled(_settings->BellVolume > 0);
             _adjustVolume();

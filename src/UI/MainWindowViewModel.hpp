@@ -301,7 +301,7 @@ private:
 public:
     void Init() override {
         _icons = std::make_unique<IndicatorIcons>(_view->GetHInstance());
-        _feedback.Bind(_view->GetHandle(), _view->GetHInstance());
+        _feedback.Bind(_view->GetHandle(), _view->GetHInstance(), &MainWindow::PostNotification);
         Mic::OnStateChanged += [this] { OnMicStateChanged(); };
         _view->CreateTrayIcon(nullptr, L"");
 

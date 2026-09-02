@@ -237,7 +237,10 @@ void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
         // business, and no action has both
         .Command = runsCommand ? stored.Args : "",
         .Args = runsCommand ? "" : stored.Args,
-        .ArgsLabel = desc && !runsCommand ? std::string{desc->ArgsLabel} : "",
+        // An id no module registered still shows its argument: the binding cannot fire, and a row
+        // the user cannot even read is a worse way to say so than a labelled one they can fix
+        .ArgsLabel = desc ? (runsCommand ? "" : std::string{desc->ArgsLabel})
+                          : (stored.Args.empty() ? "" : "Argument"),
         .ArgsHint = desc ? std::string{desc->ArgsHint} : "",
         .Sound = stored.Sound,
         .SoundVolume = stored.SoundVolume,

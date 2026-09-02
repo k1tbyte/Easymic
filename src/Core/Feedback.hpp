@@ -7,7 +7,6 @@
 #include "AppConfig.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Core/KeyNames.hpp"
-#include "MainWindow.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
 #include "Tokens.hpp"
@@ -20,9 +19,16 @@
  * action itself published, so a press reports what it just did rather than the previous value.
  */
 class Feedback {
+public:
+    /// How text reaches the screen. The kernel has no business knowing which window shows it or
+    /// what message carries it, so whoever owns the window hands this in at Bind time.
+    using PostFn = void (*)(HWND target, const std::wstring& text);
+
+private:
     const AppConfig& _cfg;
     HWND _target = nullptr;
     HINSTANCE _instance = nullptr;
+    PostFn _post = nullptr;
 
     /// The device only publishes a new level from its callback, so the action that changed it
     /// posts the value it just asked for - otherwise {volume} shows the previous one.
@@ -33,9 +39,10 @@ class Feedback {
 public:
     explicit Feedback(const AppConfig& config) : _cfg(config) {}
 
-    void Bind(HWND target, HINSTANCE instance) {
+    void Bind(HWND target, HINSTANCE instance, PostFn post) {
         _target = target;
         _instance = instance;
+        _post = post;
     }
 
     uint8_t VolumePercent() const { return _volumePercent.load(); }
@@ -108,11 +115,11 @@ public:
     /// Puts text that is already resolved on the indicator, from any thread - it travels through
     /// the window's own message queue.
     void Post(const std::string& resolved) const {
-        if (resolved.empty() || !_cfg.Core.Notifications) {
+        if (resolved.empty() || !_cfg.Core.Notifications || !_post) {
             return;
         }
 
-        MainWindow::PostNotification(_target, Str::Utf8ToWide(resolved));
+        _post(_target, Str::Utf8ToWide(resolved));
     }
 
     // Reading the config from the worker is safe by construction: the settings window disposes
@@ -130,9 +137,10 @@ public:
      * through an object that is.
      */
     std::function<void(const std::string&)> Poster() const {
-        return [target = _target, enabled = _cfg.Core.Notifications](const std::string& resolved) {
-            if (!resolved.empty() && enabled) {
-                MainWindow::PostNotification(target, Str::Utf8ToWide(resolved));
+        return [target = _target, post = _post,
+                enabled = _cfg.Core.Notifications](const std::string& resolved) {
+            if (!resolved.empty() && enabled && post) {
+                post(target, Str::Utf8ToWide(resolved));
             }
         };
     }
