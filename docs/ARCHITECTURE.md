@@ -403,8 +403,30 @@ The call sites that hold the old table in place, found while extracting the kern
 - [ ] Modules must register before `RestoreConfig` runs - it calls `RegisterConfiguredActions`
       (`MainWindowViewModel.hpp:244`), which will resolve ids through the registry. An empty
       registry at that point drops every binding silently rather than failing
+- [ ] The built-in/custom fork reaches the settings list, not only the binding loop:
+      `SettingsWindowViewModel.cpp:127-128` derives both the last column and the `IsCustom` row
+      flag from `action.BuiltIn.empty()`. Once `launcher.run` is an action like any other there
+      is no second kind, so `IsCustom` goes and the column reads the action's argument always
+- [ ] `AddAction` also seeds `Sound` from the table (`SettingsWindowViewModel.cpp:190`,
+      `seed.Sound = builtIn.DefaultSound`) - `ActionDesc::DefaultSound` covers it
+- [ ] `AppConfig.hpp:32` documents the field as holding a `BuiltInAction::Key`. The comment has
+      to say action id, or it outlives the type it names
+- [ ] `MakeBuiltInHandler` (`MainWindowViewModel.hpp:73`) is a `switch` over `BuiltInId` with no
+      default, so a missing case is a compiler warning today. `ActionDesc::Make` restores that
+      guarantee more strongly - an action cannot be registered without its factory - which makes
+      the `"Built-in action '%s' has no handler"` path at `:200-205` dead code to delete, not port
 - **Done when:** `MainWindowViewModel.hpp` is under 250 lines, `src/Actions.hpp` is gone, and
   adding a new action means editing exactly one file inside one `Features/` folder.
+
+The microphone surface to move is larger than the action bodies. `MainWindowViewModel` is 510
+lines today, and the mic cluster inside it is roughly: `ID_PEAK_TIMER`,
+`PEAK_TIMER_INTERVAL_MS`, `PEAK_METER_DEBOUNCE_PHASES`, `_hasCaptureDevice`,
+`_captureDeviceMuted`, `_captureDeviceVolume`, `_prevBellVolume`, `_isPeakMeterActive`,
+`_peakMeterPhase`, `_releasePushToTalk`, `ShiftMicVolume`, `AdjustMicVolume`, `ToggleBellSound`,
+`KillPeakMeter`, `SyncPeakMeter`, `UpdateDevice`, `CaptureDeviceStateChanged` and the
+`AudioManager` hookup in `AttachListeners`. `MicAllowed` and `RefreshMicBitmap` sit on the fence -
+they answer what the indicator draws, using mic state - so they stay with the indicator and read
+the module instead. That boundary is what the 250-line target is actually measuring.
 
 **`Action::BuiltIn` changes meaning, and that is a Step 3 problem.** It stores a title today
 (`"Toggle mute"`); the registry keys on an id (`"mic.toggle_mute"`). `AppConfig::Version` cannot
