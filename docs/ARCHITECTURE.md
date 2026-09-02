@@ -513,10 +513,27 @@ their bindings once.
 
 ### Step 5 - Settings page registry
 
-- [ ] Add `Core/SettingsHost.hpp` - modules contribute `{title, build}` pages
-- [ ] `SettingsWindow` walks the registry instead of the static `Categories[]`
-- [ ] `HandleSectionChange` switch replaced by the page's own `Build`
+- [x] Add `Core/SettingsHost.hpp` - modules contribute `{title, build}` pages
+- [x] `SettingsWindow` walks the registry instead of the static `Categories[]`
+- [x] `HandleSectionChange` switch replaced by the page's own `Build`
 - **Done when:** `SettingsWindow.cpp` has no `IDD_SETTINGS_*` knowledge beyond the frame itself.
+- **Result:** met. The tree view carries a page index rather than a template id, and the only
+  `IDD_SETTINGS_*` left in the window is `IDD_SETTINGS_MAIN`, the frame.
+
+  Ordering is a sort key, which settles open question 10: `SettingsHost::First` and
+  `SettingsHost::Last` pin General and About, everything else keeps registration order at the
+  default key, and `main` registers the frame's pages before the modules so a module's page lands
+  after Hotkeys and ahead of About.
+
+  `SettingsPage::Build` is a plain function pointer, so a page cannot capture a view model that
+  is created per window. The frame's pages reach the live one through a file-static `_current`,
+  which is sound because `MainWindowViewModel::OpenSettings` refuses to make a second window.
+
+  **No module contributes a page yet**, and the Sounds page - which is microphone settings
+  through and through - is still registered by the frame. Moving it would split it in half: its
+  builder would go to `Features/Microphone` while its five `IDC_SETTINGS_SOUNDS_*` cases stayed
+  behind in the view model's switches. That is step 6's job, and until then a whole page is
+  better than half of one in each place.
 
 ### Step 6 - Declarative settings rows
 
@@ -529,13 +546,30 @@ their bindings once.
 - [ ] Keep `IDD_ACTION_EDIT` and `IDD_UPDATE_DIALOG` as DIALOGEX
 - **Done when:** adding a settings checkbox is one row plus one config field.
 
+**Not started, deliberately.** Two notes for whoever picks it up.
+
+It has to be done whole. A half-step - a binding table over the controls the DIALOGEX templates
+already place - was considered and rejected: roughly twelve of the twenty cases in
+`HandleButtonClick`, `HandleComboBoxChange` and `HandleTrackbarChange` are a plain field
+assignment and would collapse into rows, but the rest are not (the UAC and on-top boxes prompt
+for elevation and revert themselves on refusal, the updates box disables the auto-update box,
+the size slider relayouts the indicator, autostart writes the registry rather than the config).
+Those would stay as switch cases, so the table would be a second mechanism next to the one it was
+meant to replace. That is a net loss by the rule at the top of this document. The switches only
+disappear once a page is data, and a page is only data once its controls are generated too.
+
+The other reason it is untouched: replacing five working DIALOGEX layouts with ~300 lines of
+`CreateWindowExW` is the one part of this refactor whose result cannot be checked by compiling
+and running - DPI scaling, fonts, tab order and group-box geometry are all things you have to
+look at. It wants a pair of eyes on the screen, one page at a time.
+
 ---
 
 ## 10. Open questions
 
-- **`SettingsHost` page ordering.** Registration order is the module order in `main`, which puts
-  About in the middle. Needs either an explicit sort key on the page or a fixed head and tail for
-  General and About.
 - **Where the indicator lives.** It is microphone-shaped today (mute state, peak meter) but the
   notification overlay is used by every action. Likely split: `Core/Feedback` owns the overlay,
-  `Features/Microphone` owns the mic pill and the peak meter.
+  `Features/Microphone` owns the mic pill and the peak meter. This is also what stands between
+  `MainWindowViewModel` and the 250-line target step 2 set for it.
+
+*Settled: page ordering, answered by the sort key in step 5.*
