@@ -34,7 +34,8 @@ struct ActionEdit {
     bool TapOnly = false;
     bool ShowNotification = false;
 
-    bool IsCustom = false;    // shows the command row
+    /// The argument is a command line: shows the command row and offers the command tokens.
+    bool RunsCommand = false;
     bool HasSound = true;     // shows the sound row
     bool HoldOnly = false;    // hides "trigger on release" - the action needs both edges
     bool AllowDelete = false; // shows the Delete button

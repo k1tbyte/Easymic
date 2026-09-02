@@ -119,13 +119,13 @@ void SettingsWindowViewModel::RefreshActionRows() const {
     rows.reserve(_cfg.Actions.size() + 1);
 
     for (const auto& action : _cfg.Actions) {
+        const ActionDesc* const desc = ActionRegistry::Find(action.ActionId);
         rows.push_back({
             .Name = action.Name,
             .Hotkey = describe(action.Hotkey, action.OnRelease, action.Presses),
-            // The last column is whatever the action was configured with, which is a command
-            // line for one kind and the built-in's own argument for the other
-            .Command = action.BuiltIn.empty() ? action.Command : action.Args,
-            .IsCustom = action.BuiltIn.empty()
+            // The last column is the action's own argument, whatever that action reads it as
+            .Command = action.Args,
+            .RunsCommand = desc && HasFlag(desc->Flags, ActionFlags::RunsCommand)
         });
     }
 
@@ -159,18 +159,25 @@ void SettingsWindowViewModel::HandleActionActivated(int rowIndex) {
 }
 
 /**
- * @brief Asks what the new action should be, then opens it for editing.
+ * @brief Asks which action the new entry runs, then opens it for editing.
  *
- * A built-in is an entry like any other, so the list can hold several of the same one - which is
- * the point of picking it here rather than having one fixed row per built-in.
+ * An action is an entry like any other, so the list can hold several of the same one - which is
+ * the point of picking it here rather than having one fixed row per action.
  */
 void SettingsWindowViewModel::AddAction() {
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, 1, L"Command");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-    for (int i = 0; i < BuiltInActions::Count; i++) {
-        AppendMenuW(menu, MF_STRING, i + 2, Str::Utf8ToWide(BuiltInActions::All[i].Title).c_str());
+    const int count = static_cast<int>(ActionRegistry::All.size());
+    std::string_view group;
+    for (int i = 0; i < count; i++) {
+        const ActionDesc& desc = ActionRegistry::All[i];
+        // Registration order is the module order in main, so one group's actions are contiguous.
+        // Anything that breaks that has to sort the menu rather than separate it.
+        if (i && desc.Group != group) {
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        }
+        group = desc.Group;
+        AppendMenuW(menu, MF_STRING, i + 1, Str::Utf8ToWide(std::string{desc.Title}).c_str());
     }
 
     POINT cursor;
@@ -183,46 +190,45 @@ void SettingsWindowViewModel::AddAction() {
         return;
     }
 
-    Action seed{};
-    if (chosen > 1) {
-        const BuiltInAction& builtIn = BuiltInActions::All[chosen - 2];
-        seed.Name = builtIn.Title;
-        seed.BuiltIn = builtIn.Key;
-        seed.Sound = builtIn.DefaultSound;
-    }
-
-    EditAction(static_cast<int>(_cfg.Actions.size()), seed);
+    const ActionDesc& desc = ActionRegistry::All[chosen - 1];
+    EditAction(static_cast<int>(_cfg.Actions.size()),
+               {.Name = std::string{desc.Title},
+                .ActionId = std::string{desc.Id},
+                .Sound = std::string{desc.DefaultSound}});
 }
 
-/// An index past the end is a new action, and then the seed says what kind it is.
+/// An index past the end is a new action, and then the seed says which action it runs.
 void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
     const bool isExisting = index < static_cast<int>(_cfg.Actions.size());
     const Action stored = isExisting ? _cfg.Actions[index] : seed;
-    const BuiltInAction* builtIn = stored.BuiltIn.empty() ? nullptr
-                                                          : BuiltInActions::Find(stored.BuiltIn);
+    const ActionDesc* const desc = ActionRegistry::Find(stored.ActionId);
+    const bool runsCommand = desc && HasFlag(desc->Flags, ActionFlags::RunsCommand);
 
     ActionEdit edit{
         .Title = stored.Name.empty() ? "New action" : stored.Name,
         .Name = stored.Name,
-        .Command = stored.Command,
-        .Args = stored.Args,
-        .ArgsLabel = builtIn ? builtIn->ArgsLabel : "",
-        .ArgsHint = builtIn ? builtIn->ArgsHint : "",
+        // One stored field behind two rows - which of them the dialog shows is the action's own
+        // business, and no action has both
+        .Command = runsCommand ? stored.Args : "",
+        .Args = runsCommand ? "" : stored.Args,
+        .ArgsLabel = desc && !runsCommand ? std::string{desc->ArgsLabel} : "",
+        .ArgsHint = desc ? std::string{desc->ArgsHint} : "",
         .Sound = stored.Sound,
         .SoundVolume = stored.SoundVolume,
         // The box always shows what will actually appear on screen, template included
         .Notification = !stored.Notification.empty() ? stored.Notification
-                        : builtIn ? builtIn->DefaultNotification
-                                  : BuiltInActions::DefaultNotification,
+                        : desc ? std::string{desc->DefaultNotification}
+                               : std::string{ActionRegistry::DefaultNotification},
         .Hotkey = stored.Hotkey,
         .OnRelease = stored.OnRelease,
         .Presses = stored.Presses,
         .Block = stored.Block,
         .TapOnly = stored.TapOnly,
         .ShowNotification = stored.ShowNotification,
-        .IsCustom = !builtIn,
-        .HasSound = !builtIn || builtIn->HasSound,
-        .HoldOnly = builtIn && builtIn->HoldOnly,
+        .RunsCommand = runsCommand,
+        .HasSound = !desc || !HasFlag(desc->Flags, ActionFlags::NoSound),
+        // Carrying a release factory is what makes "trigger on release" meaningless for an action
+        .HoldOnly = desc && desc->MakeRelease != nullptr,
         .AllowDelete = isExisting,
     };
 
@@ -237,11 +243,10 @@ void SettingsWindowViewModel::EditAction(int index, const Action& seed) {
 
     ClearHotkey(edit.Hotkey, edit.Presses, isExisting ? index : -1);
 
-    // Starts from what was stored so the built-in the action points at survives the edit
+    // Starts from what was stored so the action id the entry points at survives the edit
     Action action = stored;
     action.Name = edit.Name;
-    action.Command = edit.Command;
-    action.Args = edit.Args;
+    action.Args = runsCommand ? edit.Command : edit.Args;
     action.Sound = edit.Sound;
     action.Notification = edit.Notification;
     action.Hotkey = edit.Hotkey;

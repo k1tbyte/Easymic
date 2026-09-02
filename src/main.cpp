@@ -1,14 +1,24 @@
 #include "definitions.h"
 #include "AppConfig.hpp"
-#include "AudioManager.hpp"
 #include "CrashHandler.hpp"
 #include "MainWindow/MainWindow.hpp"
 #include "ViewModel/MainWindowViewModel.hpp"
+#include "Core/Feedback.hpp"
+#include "Core/Host.hpp"
 #include "Core/HotkeyService.hpp"
+#include "Features/Keyboard/Keyboard.hpp"
+#include "Features/Launcher/Launcher.hpp"
+#include "Features/Microphone/Microphone.hpp"
 #include "Lib/Logger.hpp"
 #include "Lib/Version.hpp"
 #include "Lib/UpdateManager.hpp"
 #include "Lib/UACService.hpp"
+
+/// Every feature there is. Adding one is this line plus its own folder - nothing else in the app
+/// knows the list, and the order here is the order the "Add action" menu shows them in.
+constexpr void (*Modules[])(Host&) = {
+    &Mic::Register, &Keyboard::Register, &Launcher::Register,
+};
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -85,13 +95,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         });
     }
 
-    static auto manager = AudioManager();
-    if (!manager.Init()) {
-        LOG_ERROR("AudioManager failed to initialize - continuing without audio control");
+    // Static for the same reason the config is: an action registered here outlives WinMain, and
+    // every module holds on to what the host carries
+    static Feedback feedback(config);
+    static Host host{config, feedback, hInstance};
+
+    // Before the window: restoring the config resolves every binding through the registry, and an
+    // empty one would drop them all without saying so
+    for (const auto& registerModule : Modules) {
+        registerModule(host);
     }
 
     static MainWindow mainWindow(hInstance, config);
-    mainWindow.AttachViewModel<MainWindowViewModel>(config, manager);
+    mainWindow.AttachViewModel<MainWindowViewModel>(config, feedback);
 
     if (!mainWindow.Initialize({})) {
         LOG_ERROR("Failed to initialize MainWindow");

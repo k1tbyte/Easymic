@@ -5,7 +5,6 @@
 #include <string>
 
 #include "AppConfig.hpp"
-#include "CommandRunner.hpp"
 #include "Core/HotkeyService.hpp"
 #include "Core/KeyNames.hpp"
 #include "MainWindow/MainWindow.hpp"
@@ -51,13 +50,13 @@ public:
     /**
      * @brief What an action announces, as far as it can be known when the hotkey is registered.
      *
-     * An empty text means the table default, so a config saved before that default existed still
-     * gets one; the tokens that cannot differ between two presses are resolved right here, which
-     * leaves the default free of braces and ExpandState with no work.
+     * An empty text means the action's own default, so a config saved before that default
+     * existed still gets one; the tokens that cannot differ between two presses are resolved
+     * right here, which leaves the default free of braces and Expand with no work.
      */
-    static std::string Compose(const std::string& text, const char* fallback,
+    static std::string Compose(const std::string& text, const std::string_view fallback,
                                const std::string& name, const uint64_t hotkey) {
-        const std::string source = text.empty() ? fallback : text;
+        const std::string source = text.empty() ? std::string{fallback} : text;
         if (source.empty()) {
             return {};
         }
@@ -83,38 +82,18 @@ public:
                 SoundCatalog::Play(_instance, sound, soundVolume);
             }
             handler();
-            Show(notification);
+            Notify(notification);
         };
     }
 
     /**
-     * @brief Turns a custom action into the call that launches it.
+     * @brief Resolves the state tokens against what the actions have published so far.
      *
-     * {stdout} in the text is what asks for the output, so it also picks how the command is run.
-     * The foreground is read here, on the worker, because {dir} in the command means the window
-     * the user was looking at when they pressed the key - and not the one we are about to open.
+     * Runs on the hotkey worker, after the action - a state token must read what it has just
+     * done. Public because an action that answers later, a captured command, has to resolve them
+     * before it starts, while the state is still the one the key was pressed on.
      */
-    std::function<void()> ForCommand(const std::string& command, const std::string& text) const {
-        if (!text.contains(Tokens::Stdout)) {
-            return [command] { CommandRunner::Run(command, GetForegroundWindow()); };
-        }
-
-        return [this, command, text] {
-            // Resolved before launching: only this object can read the state tokens, and it is
-            // not safe to touch from the command thread that answers later
-            const std::string resolved = _cfg.NotificationsEnabled ? ExpandState(text) : std::string{};
-
-            CommandRunner::RunCaptured(command, GetForegroundWindow(),
-                [target = _target, resolved](const std::string& output) {
-                    MainWindow::PostNotification(target,
-                        Str::Utf8ToWide(Str::Replace(resolved, Tokens::Stdout, output)));
-                });
-        };
-    }
-
-private:
-    /// Runs on the hotkey worker, after the action - a state token must read what it has just done.
-    std::string ExpandState(const std::string& text) const {
+    std::string Expand(const std::string& text) const {
         if (text.find('{') == std::string::npos) {
             return text;
         }
@@ -126,14 +105,20 @@ private:
                             _bellEnabled ? "on" : "off");
     }
 
-    // Reading the config from the worker is safe by construction: the settings window disposes
-    // every hotkey before it can be edited, and Dispose joins this thread.
-    void Show(const std::string& text) const {
-        if (text.empty() || !_cfg.NotificationsEnabled) {
+    /// Puts text that is already resolved on the indicator, from any thread - it travels through
+    /// the window's own message queue.
+    void Post(const std::string& resolved) const {
+        if (resolved.empty() || !_cfg.NotificationsEnabled) {
             return;
         }
 
-        MainWindow::PostNotification(_target, Str::Utf8ToWide(ExpandState(text)));
+        MainWindow::PostNotification(_target, Str::Utf8ToWide(resolved));
+    }
+
+    // Reading the config from the worker is safe by construction: the settings window disposes
+    // every hotkey before it can be edited, and Dispose joins this thread.
+    void Notify(const std::string& text) const {
+        Post(Expand(text));
     }
 };
 

@@ -7,7 +7,6 @@
 #include <vector>
 #include <set>
 #include <windows.h>
-#include "Actions.hpp"
 #include "definitions.h"
 
 #ifdef CONFIG_ENABLED
@@ -21,24 +20,23 @@ enum class IndicatorState {
 };
 
 /**
- * @brief One thing a hotkey does, whether that is a built-in or a command line.
+ * @brief One thing a hotkey does.
  *
- * Built-ins are entries like any other rather than a fixed table, so the same one can sit in the
+ * An action is an entry like any other rather than a fixed table, so the same one can sit in the
  * list as many times as the user has keys for it - three language switches over different locale
  * rings is the case that asked for this.
  */
 struct Action {
     std::string Name;
-    /// BuiltInAction::Key, empty when this runs the command line below instead.
-    std::string BuiltIn;
-    std::string Command;
-    /// What the built-in was configured with. Only the language switch reads one so far, as a
-    /// comma separated list of locales.
+    /// ActionDesc::Id, which is what the registry resolves to a factory.
+    std::string ActionId;
+    /// What the action was configured with, read its own way by each one - a comma separated
+    /// list of locales for the language switch, a command line for launcher.run.
     std::string Args;
     /// SoundCatalog key or a file path, empty means silent.
     std::string Sound;
-    /// Overlay text shown when the action fires, {token} aware. Empty falls back to the built-in
-    /// table, so a config written before a default existed still gets one.
+    /// Overlay text shown when the action fires, {token} aware. Empty falls back to the action's
+    /// own default, so a config written before that default existed still gets one.
     std::string Notification;
     uint64_t Hotkey = 0;
     bool OnRelease  = false;

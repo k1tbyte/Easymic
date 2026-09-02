@@ -5,6 +5,7 @@
 #pragma once
 
 #include "AudioManager.hpp"
+#include "Core/ActionRegistry.hpp"
 #include "Audio/AudioFileValidator.hpp"
 #include "Lib/Registry.hpp"
 #include "SettingsWindow/DialogControls.hpp"

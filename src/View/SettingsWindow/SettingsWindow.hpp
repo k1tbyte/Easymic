@@ -18,7 +18,7 @@ struct ActionRow {
     std::string Name;
     std::string Hotkey;
     std::string Command;
-    bool IsCustom = false;
+    bool RunsCommand = false;
 };
 
 /**

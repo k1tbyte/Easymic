@@ -141,7 +141,7 @@ namespace {
                 }
 
                 if (header->code == NM_CUSTOMDRAW) {
-                    // Tint custom action rows so they stand apart from the built-in ones
+                    // Tint the rows that launch a command line, so they stand apart from the rest
                     auto* draw = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
                     LRESULT result = CDRF_DODEFAULT;
 
@@ -399,7 +399,7 @@ void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) const {
 
         lvi.iItem = index++;
         lvi.iSubItem = 0;
-        lvi.lParam = row.IsCustom; // the custom draw reads it back - no parallel array to keep in sync
+        lvi.lParam = row.RunsCommand; // the custom draw reads it back - no parallel array to keep in sync
         lvi.pszText = const_cast<LPWSTR>(cells[0].c_str());
         const int itemIndex = SendMessageW(hwndList, LVM_INSERTITEMW, 0, (LPARAM)&lvi);
 

@@ -14,13 +14,11 @@ using ActionFn = std::function<void()>;
 
 enum class ActionFlags : uint32_t {
     None = 0,
-    /// Fires on press and release by design (push to talk), so "trigger on release" is meaningless.
-    HoldOnly = 1u << 0,
     /// The action needs no sound of its own - muting already has its own feedback.
-    NoSound = 1u << 1,
+    NoSound = 1u << 0,
     /// The argument is a command line, so the command tokens apply to it and the dialog offers a
     /// command row rather than a plain text one.
-    RunsCommand = 1u << 2,
+    RunsCommand = 1u << 1,
 };
 
 constexpr ActionFlags operator|(const ActionFlags a, const ActionFlags b) {
@@ -31,10 +29,14 @@ constexpr bool HasFlag(const ActionFlags value, const ActionFlags flag) {
     return (static_cast<uint32_t>(value) & static_cast<uint32_t>(flag)) != 0;
 }
 
-/// What the factory below is given. Args is a reference into the config, so a factory that needs
-/// it past the call has to copy it - the config is rewritten whenever settings are applied.
+/// What the factory below is given. Args and Notification are references the factory outlives, so
+/// anything it needs past the call has to be copied - the config is rewritten on every Apply.
 struct ActionContext {
+    /// Whatever the user typed in this binding's argument row.
     const std::string& Args;
+    /// What the binding announces, already composed. Empty when it announces nothing. Only an
+    /// action that delivers its own text reads this; for the rest the kernel shows it.
+    const std::string& Notification;
     Feedback& Fb;
 };
 
@@ -60,7 +62,12 @@ struct ActionDesc {
     /// format, since every action reads its argument its own way.
     std::string_view ArgsLabel;
     std::string_view ArgsHint;
+    /// Returns an empty function when the argument it was given cannot drive anything - that is
+    /// how an action declines a binding, and the binding is then not registered at all.
     ActionFn (*Make)(const ActionContext&) = nullptr;
+    /// The release edge, for an action that needs both of them (push to talk). Having one is what
+    /// makes "trigger on release" meaningless for the action, so nothing else has to say so.
+    ActionFn (*MakeRelease)(const ActionContext&) = nullptr;
 };
 
 /**

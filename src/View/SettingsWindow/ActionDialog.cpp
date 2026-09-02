@@ -132,7 +132,7 @@ namespace {
     }
 
     void LayoutForAction(HWND dialog, const ActionEdit& action) {
-        if (!action.IsCustom) {
+        if (!action.RunsCommand) {
             DialogControls::CollapseRow(dialog, {IDC_ACTION_COMMAND_LABEL, IDC_ACTION_COMMAND,
                                                  IDC_ACTION_COMMAND_TOKENS});
         }
@@ -263,12 +263,12 @@ namespace {
 
                     case IDC_ACTION_NOTIFICATION_TOKENS:
                         ShowTokenMenu(dialog, IDC_ACTION_NOTIFICATION, IDC_ACTION_NOTIFICATION_TOKENS,
-                                      Tokens::Notification, action.IsCustom);
+                                      Tokens::Notification, action.RunsCommand);
                         return TRUE;
 
                     case IDC_ACTION_COMMAND_TOKENS:
                         ShowTokenMenu(dialog, IDC_ACTION_COMMAND, IDC_ACTION_COMMAND_TOKENS,
-                                      Tokens::Command, action.IsCustom);
+                                      Tokens::Command, action.RunsCommand);
                         return TRUE;
 
                     case IDC_ACTION_SOUND_BROWSE: {
@@ -290,8 +290,8 @@ namespace {
                         auto name = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_NAME));
                         auto command = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_COMMAND));
 
-                        if (name.empty() || (action.IsCustom && command.empty())) {
-                            MessageBoxW(dialog, action.IsCustom
+                        if (name.empty() || (action.RunsCommand && command.empty())) {
+                            MessageBoxW(dialog, action.RunsCommand
                                             ? L"Name and command are required."
                                             : L"Name is required.",
                                         L"Action", MB_OK | MB_ICONWARNING);
