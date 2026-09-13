@@ -72,7 +72,7 @@ src/
 
   Features/                vertical slices
     Microphone/            Wasapi/, actions, its overlay layer, its icons, its settings page
-    Keyboard/              InputLanguage, actions, its settings page
+    Keyboard/              InputLanguage, actions, its overlay layer, its settings page
     Launcher/              CommandRunner, ShellLaunch, ShellContext, {dir}/{stdout}
 
   UI/                      Win32 plumbing, feature-agnostic
@@ -1054,11 +1054,11 @@ Needs step 6: a feature cannot own a page while a page means a template in the s
 Not a refactor step - the acceptance test for steps 8 and 9. Show the current keyboard layout on
 the overlay, and count what it costs.
 
-- [ ] `Features/Keyboard/LayoutLayer.cpp`: `Measure` returns the width of the layout's two letters
+- [x] `Features/Keyboard/LayoutLayer.cpp`: `Measure` returns the width of the layout's two letters
       or 0 when the setting is off, `Render` draws them, `TickMs` watches the foreground window's
       layout
-- [ ] One `Check` row on the Keyboard page, one `ShowLayout` field in `KeyboardSettings`
-- [ ] `Features/Keyboard` registers that Keyboard page - moved here from step 9, which had no row
+- [x] One `Check` row on the Keyboard page, one `ShowLayout` field in `KeyboardSettings`
+- [x] `Features/Keyboard` registers that Keyboard page - moved here from step 9, which had no row
       to put on it
 - **Done when:** the feature is one new file, one row, and one config field, plus the page
   registration its first row needs. The only thing it may
@@ -1066,6 +1066,28 @@ the overlay, and count what it costs.
   price of a typed config in one file. Nothing under `UI/`, nothing in another slice, and no line
   of the overlay. If it costs more than that, the design in sections 4 and 6 is wrong and this is
   where it shows.
+- **Result:** met, with the file count stated plainly. `LayoutLayer` is a header and a .cpp - the
+  pair `MicLayer` already is, because `Keyboard.cpp` calls it - plus one `Check` row and
+  `KeyboardSettings::ShowLayout`. The page registration step 9 handed over is one `AddPage` line
+  in `Keyboard::Register`. Outside the slice it touched the section struct in `Core/AppConfig.hpp`
+  and nothing else: nothing under `UI/`, no other slice, no line of the overlay. Sections 4 and 6
+  held. Binary 933,888 -> 937,984 bytes.
+
+  No revision bump: glaze reads a v4 file without the new key and keeps the default, so adding a
+  section discards nothing.
+
+  Windows sends no notice when another app's thread changes layout, so the layer polls the
+  foreground window's thread every 200 ms - and only while the setting is on. With it off
+  `Measure` returns width 0 and no `WantsTick`, and the surface stops the timer (invariant 5).
+
+  Checked on screen with nobody at the desk. In the settings preview the row widens the strip from
+  32 to 81 px and the capture shows the mic glyph beside "RU". After OK, with no capture device on
+  this machine, the layout pill stands alone at 41 px. A probe-owned foreground window switched
+  through en-US, ru-RU and uk-UA, and the captures read EN, RU, UK.
+
+  Reviews: bug-hunt and architecture found nothing. Quality replaced a hand-written `towupper` loop
+  with `CharUpperW` on the buffer `GetLocaleInfoW` had just filled; a re-check of that fix found
+  nothing.
 
 ### Step 11 - The tray gets an owner the user picks
 

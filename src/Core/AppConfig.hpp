@@ -61,6 +61,13 @@ struct MicSettings {
     bool operator==(const MicSettings&) const = default;
 };
 
+struct KeyboardSettings {
+    /// The layout the user is typing in, as a pill on the overlay.
+    bool ShowLayout = false;
+
+    bool operator==(const KeyboardSettings&) const = default;
+};
+
 /// The surface, not what is drawn on it: a field belongs here if it would still matter with
 /// every feature that draws deleted.
 struct OverlaySettings {
@@ -135,6 +142,7 @@ struct AppConfig {
 
     CoreSettings Core;
     MicSettings Mic;
+    KeyboardSettings Keyboard;
     OverlaySettings Overlay;
     /// Every binding in the order the settings list shows them.
     std::vector<Binding> Bindings;
