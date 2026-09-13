@@ -7,7 +7,6 @@
 #include "BaseWindow.hpp"
 #include "TrayIcon.hpp"
 #include "LayeredWindow.hpp"
-#include "AppConfig.hpp"
 
 class MainWindow final : public BaseWindow {
 public:
@@ -19,7 +18,7 @@ public:
         LPCWSTR className = L"MainWindowClass";
     };
 
-    explicit MainWindow(HINSTANCE hInstance, AppConfig& appConfig);
+    explicit MainWindow(HINSTANCE hInstance);
     ~MainWindow() override = default;
 
     bool Initialize(WindowConfig config);
@@ -42,8 +41,12 @@ public:
     /// request: whatever changed, the layer that changed it already knows.
     static void PostRelayout();
 
+    /// Asks for the tray icon and tooltip to be read again, from any thread.
+    static void PostTrayRefresh();
+
     // View model delegation - single subscriber each, assigned once during Init
     std::function<void(UINT_PTR commandId)> OnTrayMenu;
+    std::function<void()> OnTrayRefresh;
     std::function<void()> OnClose;
     std::function<void(UINT_PTR timerId)> OnTimer;
     std::function<void()> OnThemeChanged;
@@ -86,7 +89,6 @@ private:
 
     void ShowTrayContextMenu();
 
-    const AppConfig& _config;
     TrayIcon _trayIcon;
 
     // Not owned: LoadIcon returns shared icons, the view model keeps them alive
@@ -105,5 +107,8 @@ private:
     /// WM_APP, not WM_USER: the timer ids the overlay owns share nothing but the number line
     static constexpr UINT WM_SHOW_NOTIFICATION = WM_APP + 1;
     static constexpr UINT WM_OVERLAY_RELAYOUT = WM_APP + 2;
+    static constexpr UINT WM_TRAY_REFRESH = WM_APP + 3;
+    /// A menu contribution's command id is this plus its provider's index - not a resource id.
+    static constexpr UINT TrayMenuFirst = 41000;
 };
 

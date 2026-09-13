@@ -2,6 +2,7 @@
 #include "SettingsRows.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
 #include "Core/Overlay.hpp"
+#include "Core/Tray.hpp"
 #include "MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
@@ -111,6 +112,25 @@ void SettingsWindowViewModel::RegisterPages() {
          .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
     };
 
+    static constexpr SettingsRow TrayRows[] = {
+        {.Kind = RowKind::Radio, .Label = L"Icon shows",
+         .Field = {.Get = [](const AppConfig& cfg) {
+                       const auto choices = Tray::Choices();
+                       return static_cast<int>(std::ranges::find(choices, Tray::Owner(cfg.Tray.Provider)) - choices.begin());
+                   },
+                   .Set = [](AppConfig& cfg, int index) { cfg.Tray.Provider = Tray::Choices()[index]->Id; }},
+         .Items = [] {
+             static std::vector<const wchar_t*> titles;
+             titles.clear();
+             for (const TrayProvider* provider : Tray::Choices()) {
+                 titles.push_back(provider->Title);
+             }
+             return std::span<const wchar_t* const>{titles};
+         },
+         // The icon follows the click; Cancel puts it back when the frame restores the config
+         .Changed = [](HWND, AppConfig&) { Tray::Changed(); }},
+    };
+
     static constexpr SettingsRow Hotkeys[] = {
         {.Kind = RowKind::Text, .Label = L"Double-click an action to edit it:"},
         {.Kind = RowKind::Custom, .Height = 122,
@@ -156,6 +176,7 @@ void SettingsWindowViewModel::RegisterPages() {
 
     SettingsHost::AddPage({.Title = L"General", .Rows = General, .Order = SettingsHost::First});
     SettingsHost::AddPage({.Title = L"Overlay", .Rows = OverlayRows});
+    SettingsHost::AddPage({.Title = L"Tray", .Rows = TrayRows});
     SettingsHost::AddPage({.Title = L"Hotkeys", .Rows = Hotkeys});
     SettingsHost::AddPage({.Title = L"About", .Rows = About, .Order = SettingsHost::Last});
 }

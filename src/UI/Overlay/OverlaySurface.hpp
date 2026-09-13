@@ -111,6 +111,10 @@ class OverlaySurface {
 
 public:
     OverlaySurface(MainWindow* view, OverlaySettings& config) : _view(view), _cfg(config) {
+        // Before the window exists, so it is created where the user left it - the frame reads no config
+        const int size = OverlaySlots::PillHeight(config.Size);
+        _view->SetPositionX(config.PosX)->SetPositionY(config.PosY)->SetWidth(size)->SetHeight(size);
+
         // Last, so what an action says reads after whatever the features contributed
         Overlay::Add({.Id = "overlay.text",
                       .Order = Overlay::Last,

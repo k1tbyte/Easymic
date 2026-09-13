@@ -1,13 +1,13 @@
 #include "MainWindow.hpp"
 
 #include "Core/Dispatcher.hpp"
+#include "Core/Tray.hpp"
 #include "TrayIconTheme.hpp"
 
 #include "Resources/Resource.h"
-#include "Overlay/OverlaySlots.hpp"
 
-MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
-    : BaseWindow(hInstance), _config(appConfig)
+MainWindow::MainWindow(HINSTANCE hInstance)
+    : BaseWindow(hInstance)
 {
 }
 
@@ -19,21 +19,16 @@ bool MainWindow::Initialize(WindowConfig config) {
     // Restoring the tray icon on an Explorer restart
     _taskbarCreatedMessage = RegisterWindowMessageA("TaskbarCreated");
 
-    const int windowSize = OverlaySlots::PillHeight(_config.Overlay.Size);
-    SetWidth(windowSize);
-    SetHeight(windowSize);
-    SetPositionX(_config.Overlay.PosX);
-    SetPositionY(_config.Overlay.PosY);
-
+    // Placed and sized before this, by the surface that owns the overlay's settings
     _hwnd = CreateWindowExW(
         StyleEx,
         config.className,
         config.windowTitle,
         Style,
-        _config.Overlay.PosX,
-        _config.Overlay.PosY,
-        windowSize,
-        windowSize,
+        GetPositionX(),
+        GetPositionY(),
+        GetWidth(),
+        GetHeight(),
         nullptr,
         nullptr,
         _hInstance,
@@ -83,6 +78,10 @@ void MainWindow::PostRelayout() {
     PostMessageW(_postTarget, WM_OVERLAY_RELAYOUT, 0, 0);
 }
 
+void MainWindow::PostTrayRefresh() {
+    PostMessageW(_postTarget, WM_TRAY_REFRESH, 0, 0);
+}
+
 LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == _taskbarCreatedMessage) {
         _trayIcon.Remove(); // clears isCreated_ even if NIM_DELETE fails (shell already lost it)
@@ -122,11 +121,16 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
 
-        case WM_COMMAND:
-            if (OnTrayMenu) {
+        case WM_COMMAND: {
+            const UINT command = LOWORD(wParam);
+            if (command >= TrayMenuFirst && command - TrayMenuFirst < Tray::Providers.size()
+                && Tray::Providers[command - TrayMenuFirst].MenuInvoke) {
+                Tray::Providers[command - TrayMenuFirst].MenuInvoke();
+            } else if (OnTrayMenu) {
                 OnTrayMenu(wParam);
             }
             return 0;
+        }
 
         // Broadcast to every top-level window when the light/dark theme is switched
         case WM_SETTINGCHANGE:
@@ -137,6 +141,12 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
         case WM_OVERLAY_RELAYOUT:
             Relayout();
+            return 0;
+
+        case WM_TRAY_REFRESH:
+            if (OnTrayRefresh) {
+                OnTrayRefresh();
+            }
             return 0;
 
         case WM_SHOW_NOTIFICATION: {
@@ -233,10 +243,14 @@ void MainWindow::ShowTrayContextMenu() {
         return;
     }
 
-    const bool bellEnabled = _config.Mic.BellVolume > 0;
-    InsertMenuW(subMenu, ID_APP_SETTINGS, MF_BYCOMMAND | MF_STRING,
-               ID_APP_TOGGLE_BELL,
-               bellEnabled ? L"Disable bell sound" : L"Enable bell sound");
+    // Between Settings and the separator, so the two items that were always there never move
+    UINT position = 1;
+    for (size_t i = 0; i < Tray::Providers.size(); i++) {
+        const TrayProvider& provider = Tray::Providers[i];
+        if (provider.MenuLabel && provider.MenuInvoke) {
+            InsertMenuW(subMenu, position++, MF_BYPOSITION | MF_STRING, TrayMenuFirst + i, provider.MenuLabel());
+        }
+    }
 
     POINT cursor;
     GetCursorPos(&cursor);

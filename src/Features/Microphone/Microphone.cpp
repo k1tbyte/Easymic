@@ -9,7 +9,10 @@
 #include "Core/ActionRegistry.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
+#include "Core/Lifecycle.hpp"
 #include "Core/SettingsHost.hpp"
+#include "Core/Tray.hpp"
+#include "definitions.h"
 #include "Logger.hpp"
 #include "MicLayer.hpp"
 #include "SoundCatalog.hpp"
@@ -103,6 +106,31 @@ namespace {
         Mic::Audio().OnDefaultCaptureChanged += [] { Mic::Refresh(); };
     }
 
+    /// Silences the mic state chime, or restores the level it had. UI thread: the tray menu and
+    /// the mic.toggle_bell action both end up here.
+    void _toggleBell() {
+        if (_settings->BellVolume > 0) {
+            _prevBellVolume = _settings->BellVolume;
+            _settings->BellVolume = 0;
+        } else {
+            _settings->BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
+        }
+        _fb->PublishBellEnabled(_settings->BellVolume > 0);
+        _config->Save();
+    }
+
+    std::wstring _tooltip() {
+        if (!_hasDevice) {
+            return APP_NAME L" - No device";
+        }
+
+        constexpr auto bufferSize = 255;
+        wchar_t buffer[bufferSize];
+        swprintf(buffer, bufferSize, APP_NAME L" - %ls [%d%%]",
+                 Mic::Audio().CaptureDevice()->GetDeviceName(), _fb->VolumePercent());
+        return buffer;
+    }
+
     constexpr ActionDesc Actions[] = {
         // Toggle mute reports the state rather than the press - the indicator shows it too, but
         // it can be turned off, and then this is the only thing that says which way it went
@@ -163,7 +191,7 @@ namespace {
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
                  _fb->PublishBellEnabled(!_fb->BellEnabled());
-                 Dispatcher::ToUi([] { Mic::ToggleBell(); });
+                 Dispatcher::ToUi(_toggleBell);
              };
          }},
     };
@@ -184,7 +212,7 @@ namespace {
         {.Kind = RowKind::SoundPicker, .Label = L"Mute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::MuteSound>()},
         {.Kind = RowKind::SoundPicker, .Label = L"Unmute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::UnmuteSound>()},
         {.Kind = RowKind::Combo, .Label = L"Show pill while",
-         .Field = Bind<&AppConfig::Mic, &MicSettings::Pill>(), .Items = PillModes},
+         .Field = Bind<&AppConfig::Mic, &MicSettings::Pill>(), .Items = [] { return std::span<const wchar_t* const>{PillModes}; }},
         {.Kind = RowKind::Slider, .Label = L"Talking threshold (%)",
          // Rounded, not truncated: 0.29f * 100 truncates to 28, and the sync would drag the slider back
          .Field = {.Get = [](const AppConfig& cfg) { return static_cast<int>(std::lround(cfg.Mic.VolumeThreshold * 100)); },
@@ -215,6 +243,27 @@ namespace Mic {
         SettingsHost::AddPage({.Title = L"Microphone", .Rows = PageRows});
 
         MicLayer::Register(host.Instance, host.Config.Mic);
+
+        Tray::Add({.Id = "mic.state",
+                   .Title = L"Microphone state",
+                   .Icon = &MicLayer::TrayIcon,
+                   .Tooltip = &_tooltip,
+                   .ThemeChanged = &MicLayer::RefreshTheme,
+                   .MenuLabel = []() -> const wchar_t* {
+                       return _settings->BellVolume > 0 ? L"Disable bell sound" : L"Enable bell sound";
+                   },
+                   .MenuInvoke = &_toggleBell});
+        Mic::OnStateChanged += [] { Tray::Changed(); };
+
+        // The session watch stops while settings hold the config, and resumes before the frame
+        // relays the overlay out - the pill's "anything recording" reads the count it keeps
+        Lifecycle::Suspend += [] { Mic::Audio().StopWatchingForCaptureSessions(); };
+        Lifecycle::Restore += [] {
+            Mic::Audio().WatchForCaptureSessions();
+            Mic::Refresh();
+            // The state event that repaints the pill is posted, and the frame lays out before it lands
+            MicLayer::Refresh();
+        };
         _attachListeners();
     }
 
@@ -251,30 +300,4 @@ namespace Mic {
         _settle(true);
     }
 
-    void Suspend() {
-        Mic::Audio().StopWatchingForCaptureSessions();
-    }
-
-    void Resume() {
-        Mic::Audio().WatchForCaptureSessions();
-    }
-
-    HICON TrayIcon() {
-        return MicLayer::TrayIcon();
-    }
-
-    void RefreshTheme() {
-        MicLayer::RefreshTheme();
-    }
-
-    void ToggleBell() {
-        if (_settings->BellVolume > 0) {
-            _prevBellVolume = _settings->BellVolume;
-            _settings->BellVolume = 0;
-        } else {
-            _settings->BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
-        }
-        _fb->PublishBellEnabled(_settings->BellVolume > 0);
-        _config->Save();
-    }
 }

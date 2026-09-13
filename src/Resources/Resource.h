@@ -22,7 +22,6 @@
 #define IDR_TRAY_MENU	    100
 #define ID_APP_EXIT         40009
 #define ID_APP_SETTINGS     40010
-#define ID_APP_TOGGLE_BELL  40011
 /// Posted to self, never on a menu: closing the settings window may not destroy it from inside
 /// its own WM_DESTROY, so the drop is deferred back through the command queue.
 #define ID_APP_SETTINGS_CLOSED 40012

@@ -83,6 +83,13 @@ struct OverlaySettings {
     bool operator==(const OverlaySettings&) const = default;
 };
 
+struct TraySettings {
+    /// TrayProvider::Id of whoever paints the icon. Empty until the user picks - see Tray::Owner.
+    std::string Provider;
+
+    bool operator==(const TraySettings&) const = default;
+};
+
 /**
  * @brief What sets a binding off.
  *
@@ -144,6 +151,7 @@ struct AppConfig {
     MicSettings Mic;
     KeyboardSettings Keyboard;
     OverlaySettings Overlay;
+    TraySettings Tray;
     /// Every binding in the order the settings list shows them.
     std::vector<Binding> Bindings;
     /// One list behind every sound picker, whatever the picker is for.

@@ -16,16 +16,20 @@ namespace {
     constexpr int GroupIndent = 7;
     constexpr int BrowseWidth = 16;
     constexpr int DropHeight = 70;
+    constexpr int RadioPitch = 12;
 
-    /// Two ids per row, so a SoundPicker's browse button is its combo's id plus one.
+    /// A block of ids per row: a SoundPicker's browse button is its combo's id plus one, a Radio's
+    /// choice k is its first button's id plus k.
     constexpr int FirstId = 1000;
-    int RowId(size_t index) { return FirstId + static_cast<int>(index) * 2; }
+    constexpr int IdsPerRow = 16;
+    int RowId(size_t index) { return FirstId + static_cast<int>(index) * IdsPerRow; }
 
     int HeightOf(const SettingsRow& row) {
         switch (row.Kind) {
             case RowKind::Slider:      return 15;
             case RowKind::Combo:
             case RowKind::SoundPicker: return 13;
+            case RowKind::Radio:       return static_cast<int>(row.Items().size()) * RadioPitch - 2;
             case RowKind::Custom:      return row.Height;
             default:                   return 10;
         }
@@ -68,10 +72,26 @@ namespace {
 
         if (row.Enabled) {
             const BOOL enabled = row.Enabled(cfg);
-            EnableWindow(control, enabled);
-            if (HWND browse = GetDlgItem(page, id + 1)) {
-                EnableWindow(browse, enabled);
+            for (int part = 0; part < IdsPerRow; part++) {
+                if (HWND piece = GetDlgItem(page, id + part)) {
+                    EnableWindow(piece, enabled);
+                }
             }
+        }
+
+        if (row.Kind == RowKind::Radio) {
+            const int value = row.Field.Get(cfg);
+            for (int part = 0; part < IdsPerRow; part++) {
+                HWND button = GetDlgItem(page, id + part);
+                if (!button) {
+                    break;
+                }
+                const LRESULT state = part == value ? BST_CHECKED : BST_UNCHECKED;
+                if (SendMessageW(button, BM_GETCHECK, 0, 0) != state) {
+                    SendMessageW(button, BM_SETCHECK, state, 0);
+                }
+            }
+            return;
         }
 
         if (row.Field.Text) {
@@ -150,9 +170,10 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
         const int left = group ? GroupIndent : 0;
         const int right = width - left;
         const int height = HeightOf(row);
-        const int labelTop = y + (height - TextHeight) / 2;
+        // A radio's label reads against its first choice, the rest against the middle of the row
+        const int labelTop = row.Kind == RowKind::Radio ? y + 1 : y + (height - TextHeight) / 2;
 
-        if (row.Kind == RowKind::Combo || row.Kind == RowKind::Slider || row.Kind == RowKind::SoundPicker) {
+        if (row.Kind != RowKind::Check && row.Kind != RowKind::Text && row.Kind != RowKind::Custom) {
             Control(page, WC_STATICW, row.Label, SS_LEFT, {left, labelTop, LabelWidth, labelTop + TextHeight}, -1);
         }
 
@@ -168,7 +189,7 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
             case RowKind::Combo: {
                 HWND combo = Control(page, WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
                                      {ControlLeft, y, right, y + DropHeight}, id);
-                for (const wchar_t* item : row.Items) {
+                for (const wchar_t* item : row.Items()) {
                     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
                 }
                 break;
@@ -189,6 +210,16 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
                 Control(page, WC_BUTTONW, L"...", BS_PUSHBUTTON | WS_TABSTOP,
                         {right - BrowseWidth, y, right, y + height}, id + 1);
                 break;
+
+            case RowKind::Radio: {
+                const auto items = row.Items();
+                for (int part = 0; part < static_cast<int>(items.size()) && part < IdsPerRow; part++) {
+                    const int top = y + part * RadioPitch;
+                    Control(page, WC_BUTTONW, items[part], BS_AUTORADIOBUTTON | (part ? 0 : WS_GROUP | WS_TABSTOP),
+                            {ControlLeft, top, right, top + TextHeight + 2}, id + part);
+                }
+                break;
+            }
 
             case RowKind::Custom:
                 row.Create(page, {left, y, right, y + height}, id);
@@ -213,11 +244,12 @@ void SettingsRows::Handle(HWND page, std::span<const SettingsRow> rows, AppConfi
     }
 
     const int offset = GetDlgCtrlID(control) - FirstId;
-    if (offset < 0 || static_cast<size_t>(offset / 2) >= rows.size()) {
+    if (offset < 0 || static_cast<size_t>(offset / IdsPerRow) >= rows.size()) {
         return;
     }
 
-    const SettingsRow& row = rows[offset / 2];
+    const SettingsRow& row = rows[offset / IdsPerRow];
+    const int part = offset % IdsPerRow;
     const bool scroll = message == WM_HSCROLL;
     const WORD code = scroll ? LOWORD(wParam) : HIWORD(wParam);
     const HWND owner = GetAncestor(page, GA_ROOT);
@@ -239,7 +271,7 @@ void SettingsRows::Handle(HWND page, std::span<const SettingsRow> rows, AppConfi
             break;
 
         case RowKind::SoundPicker:
-            if (offset % 2) {
+            if (part) {
                 std::string file;
                 if (code != BN_CLICKED || !AudioFileValidator::PickValidWavFile(owner, "Select sound file", file)) {
                     return;
@@ -252,6 +284,13 @@ void SettingsRows::Handle(HWND page, std::span<const SettingsRow> rows, AppConfi
                 }
                 row.Field.Text(cfg) = DialogControls::ResolveSound(control, cfg.RecentSounds);
             }
+            break;
+
+        case RowKind::Radio:
+            if (scroll || code != BN_CLICKED) {
+                return;
+            }
+            row.Field.Set(cfg, part);
             break;
 
         case RowKind::Custom:

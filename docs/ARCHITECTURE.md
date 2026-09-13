@@ -54,6 +54,8 @@ src/
     Dispatcher.*             worker thread + ToUi
     Feedback.hpp             sound + overlay text + token expansion
     Overlay.hpp              the layer registry: who is allowed to draw on the overlay
+    Tray.hpp                 tray providers: who paints the icon, who adds a menu item
+    Lifecycle.hpp            Suspend / Restore - the settings window taking the config and back
     SettingsHost.hpp         settings page registry
     SoundCatalog.hpp         bundled sounds, and the lookup every picker goes through
     AppConfig.hpp            the on-disk shape, one section per module
@@ -311,11 +313,11 @@ settled by the user rather than by registration order.
 // Core/Tray.hpp
 struct TrayProvider {
     std::string_view Id;      // "mic.state" - stored in the config, so permanent
-    std::string_view Title;   // the radio label on the Tray page
+    const wchar_t* Title;     // the radio label on the Tray page
     int Order = 100;
     /// UI thread. What the icon should be right now; null keeps whatever is up.
     HICON (*Icon)() = nullptr;
-    /// UI thread. Empty falls back to APP_NAME.
+    /// UI thread. Null falls back to APP_NAME.
     std::wstring (*Tooltip)() = nullptr;
     /// Optional. The darkened copies for a light taskbar are built once, on the first switch to
     /// one, so a provider that themes its icons wants to be told rather than to poll.
@@ -332,6 +334,8 @@ namespace Tray {
     void Add(const TrayProvider&);
     /// Set by the window at bind time. Any thread - the UI side posts.
     inline void (*Refresh)() = nullptr;
+    /// Who paints the icon for a stored choice: empty takes the first by Order, unknown the last.
+    const TrayProvider* Owner(std::string_view id);
 }
 ```
 
@@ -491,13 +495,13 @@ static constexpr SettingsRow General[] = {
 };
 ```
 
-Row kinds that cover everything that exists today: `Check`, `Combo`, `Slider`, `SoundPicker`,
-`Text`, `Group`, and `Custom` for the two controls that are not a grid row - the action list and
-the log. `Radio` arrives with the tray page in step 11, where it is first needed.
+Row kinds: `Check`, `Combo`, `Slider`, `SoundPicker`, `Radio`, `Text`, `Group`, and `Custom` for
+the two controls that are not a grid row - the action list and the log. `Radio` arrived with the
+tray page in step 11, where it was first needed.
 
 The builder carries a **string-valued field** (`SoundPicker` binds `MicSettings::MuteSound` through
-`RowField::Text`) and a **runtime item list** (`RecentSounds`) from the start, so a `Radio` over a
-registry costs nothing new.
+`RowField::Text`) and a **runtime item list**: `Items` is a function read when the page is built,
+so a `Combo` over a fixed table and a `Radio` over a registry filled at startup are the same row.
 
 **Hooks are what let the table hold the whole page rather than the easy half of it.** Every
 control is re-read from its field after any change and written only where it differs, so a hook
@@ -982,7 +986,8 @@ their bindings once.
   `OverlayCanvas`, `Overlay::First` (nothing used it), a stray `<sys/stat.h>` in `AppConfig.hpp`,
   a `Relayout` doc comment still claiming the view model lays the overlay out, and the surface's
   11-line class block. It also caught the frame calling `StopWatchingForCaptureSessions` on the
-  microphone's own device manager, which is now `Mic::Suspend()` / `Mic::Resume()`. Rejected:
+  microphone's own device manager, which became `Mic::Suspend()` / `Mic::Resume()` and, in step
+  11, the module's own `Lifecycle` handlers. Rejected:
   replacing the sorted insert with `push_back` and deleting `Order` outright. The text pill is
   last today only because the `OverlaySurface` constructor happens to run after the module loop
   in `main.cpp` - a coupling between two files that nothing enforces, and step 10 adds a third
@@ -1094,23 +1099,24 @@ the overlay, and count what it costs.
 Needs step 8 for the surface split and step 9 for the `Radio` row. The icon is one slot, so the
 exclusivity is real and the user is the one who resolves it - see section 4.
 
-- [ ] Add `Core/Tray.hpp`: the provider registry, `Refresh` as a bound function pointer, the
+- [x] Add `Core/Tray.hpp`: the provider registry, `Refresh` as a bound function pointer, the
       `Order` sort key
-- [ ] The frame registers `"tray.app"` - `IDI_APP`, `APP_NAME` as the tooltip - pinned `Last`, so
+- [x] The frame registers `"tray.app"` - `IDI_APP`, `APP_NAME` as the tooltip - pinned `Last`, so
       it is a choice on the radio and the fallback when the stored `Id` resolves to nothing. An
       empty `Provider` takes the first by `Order`, which keeps a fresh install on mic state
-- [ ] `Features/Microphone` registers `"mic.state"`: the muted glyph, the
+- [x] `Features/Microphone` registers `"mic.state"`: the muted glyph, the
       `APP_NAME - <device> [nn%]` tooltip, `RefreshTheme` behind `ThemeChanged`, and the bell
       toggle as a menu contribution
-- [ ] `MicIcons::Tray` and its darkened copies feed the provider - the move itself was step 8,
+- [x] `MicIcons::Tray` and its darkened copies feed the provider - the move itself was step 8,
       this step only points them at the tray. `TrayIconTheme` is generic, so it lands in
       `Platform/` in step 7 and the provider uses it from there
-- [ ] Tray page: one `Radio` row over the providers that carry an `Icon`, bound to
+- [x] Tray page: one `Radio` row over the providers that carry an `Icon`, bound to
       `TraySettings::Provider`
-- [ ] The menu is built from the contributions, Settings first and Exit last;
+- [x] The menu is built from the contributions, Settings first and Exit last;
       `ID_APP_TOGGLE_BELL` leaves `Resource.h`, the view model's switch and
       `MainWindow::ShowTrayContextMenu`'s `_config` read
-- [ ] `TraySettings` joins the step 8 revision bump if they ship together, otherwise its own
+- [ ] ~~`TraySettings` joins the step 8 revision bump if they ship together, otherwise its own~~ -
+      no bump, see Result
 - **Done when:** `MainWindow` holds no `AppConfig` reference at all, the view model has no `Mic::`
   reference, and picking the tray provider in settings changes what the icon shows.
 
@@ -1118,6 +1124,53 @@ exclusivity is real and the user is the one who resolves it - see section 4.
   after step 10 the keyboard layout becomes a candidate for that radio at the cost of one more
   registration inside `Features/Keyboard` - two letters drawn into a 16px icon, and not a line
   anywhere else.
+
+- **Result:** met. `MainWindow` holds no `AppConfig`: its constructor takes the instance, and the
+  window opens at the position and size the overlay surface seeds into its view. The view model
+  names no `Mic::` - it raises `Lifecycle::Suspend` and `Restore` from `Core/Lifecycle.hpp`, the
+  microphone subscribes, and `Mic::Suspend`, `Resume`, `TrayIcon`, `RefreshTheme` and `ToggleBell`
+  are gone from its header. The menu reads Settings, the bell item, Exit, and a contribution's
+  command id is `TrayMenuFirst` plus its provider's index. Binary 937,984 -> 946,176 bytes.
+
+  No revision bump, for the reason step 10 gave: a v4 file without `Tray` keeps the default, and an
+  empty `Provider` is exactly the "nobody has chosen yet" case.
+
+  Two changes to the row builder came with `Radio`. `Items` is a function read when the page is
+  built, because the tray list is a registry filled at startup and a `constexpr` table cannot hold
+  it. Row ids moved from one per row to a block of 16, so every radio button has its own id - the
+  sound picker's browse button is the block's second id, choice k its k-th. Sixteen choices is the
+  ceiling, and there are two.
+
+  `RestoreConfig` raises `Lifecycle::Restore` before `_overlay.Restore()`, not after as the design
+  pass suggested: the microphone recounts its capture sessions there, and the relayout reads that
+  count.
+
+  Checked with nobody at the desk. A standalone harness against the real `Core/Tray.hpp` passed 12
+  of 12 on `Owner` and `Choices`: empty takes the first by `Order`, an unknown id takes the app
+  icon, a menu-only provider is not a choice. A probe read the popup through `MN_GETHMENU`, sent
+  the bell command and watched `BellVolume` go to 0 and the label flip, then clicked the app icon
+  on the Tray page and saw `"Provider": "tray.app"` written on OK, kept across a restart, and left
+  alone on Cancel. What it could not see is the icon itself: it sits in the hidden overflow, and UI
+  Automation does not reach the taskbar's XAML.
+
+  Reviews: architecture on the design before any code, bug-hunt, quality and architecture on the
+  change, and a re-check on every fix until one came back empty. Every confirmed defect was in
+  `MicLayer`, and none came from this step's own lines - the first two sat on the restore path it
+  rewired, the third came from step 8, the fourth is as old as the peak meter:
+
+  - The first relayout after settings close measured the pill from the old bitmap, because the
+    microphone's state event is posted and the relayout is not. The module's `Restore` handler now
+    calls `MicLayer::Refresh()` itself.
+  - A repaint mid-word dropped the talking glyph, and the tick would not put it back until the
+    debounce ran out. `_refresh` keeps it while the mic is unmuted and the debounce still counts.
+  - The peak meter ran under the muted glyph and could replace it with "talking". The old code ran
+    the timer only while unmuted in "muted or talking"; step 8 has the surface tick a layer while it
+    has width. The tick now checks the same `_listening()` that asks for ticks.
+  - The debounce counted quiet ticks since the first loud one rather than in a row, so
+    loud-quiet-loud-quiet dropped the glyph mid-sentence. Every loud tick restarts it now.
+
+  None of the four could be run here: with no capture device the talking path was checked against
+  the old `OnTimerTick` by reading, not on screen.
 
 ---
 
@@ -1144,7 +1197,9 @@ rather than the individual fixes, because the pattern is what the next step shou
   position is re-seeded from the anchor, and the clamp the previous pass wrote stayed in it. The
   guard that reads "while the strip is no wider than one pill, the window is at the anchor" was
   true only because the window was never hidden. A step that deletes a state has to be read
-  against every guard that was true because that state existed.
+  against every guard that was true because that state existed. Step 11 met the same shape from
+  the other side: the surface started ticking a layer whenever it has width, and the peak meter,
+  which had only ever run on a live mic, never had to ask whether the mic was muted.
 - **A rule enforced against the spelling it was written for.** Step 7's `Features/` include
   check caught every shape its author had in mind and none of the others: an angle-bracket
   include reaches the same `-I` directories, and `"../Other/X.hpp"` reaches the next slice

@@ -17,6 +17,8 @@ enum class RowKind : uint8_t {
     Slider,
     /// A bundled sound or a file, with a browse button - the one string-valued kind.
     SoundPicker,
+    /// One choice out of a list, a button per item.
+    Radio,
     Text,
     /// A group box around the rows after it, up to the next Group.
     Group,
@@ -57,7 +59,8 @@ struct SettingsRow {
     int16_t Min = 0;
     int16_t Max = 100;
     uint8_t Step = 1;
-    std::span<const wchar_t* const> Items{};
+    /// Combo and Radio. Read when the page is built, so the list can come from a registry.
+    std::span<const wchar_t* const> (*Items)() = nullptr;
     /// After the field is written from the control. owner parents any prompt.
     void (*Changed)(HWND owner, AppConfig& cfg) = nullptr;
     /// On OK, for what has to reach outside the config file - never on a click, or Cancel would

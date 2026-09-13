@@ -26,7 +26,9 @@ features register into it.
 - `src/Core/` - the kernel. `ActionRegistry` (id -> `ActionDesc`), `Dispatcher` (worker thread
   and the hop back to the UI thread), `Feedback` (sound and overlay text), `SettingsHost`
   (settings pages as `SettingsRow` tables), `Overlay` (id -> `OverlayLayer`, what a feature
-  draws on the overlay), `AppConfig`, and `Hotkeys/` for the one trigger source there is so far -
+  draws on the overlay), `Tray` (providers: who paints the tray icon, who adds a menu item),
+  `Lifecycle` (settings taking the config and handing it back, as events), `AppConfig`, and
+  `Hotkeys/` for the one trigger source there is so far -
   `HotkeyService` (LL hooks and key masks), `KeyNames` (mask <-> text), `HotkeyCapture`,
   `Bindings` (config -> registered hotkeys). Hook procs must stay O(1): actions run on the worker
   thread, never inside the proc. A file in `Core/` says `"Hotkeys/KeyNames.hpp"`, everyone else
@@ -48,12 +50,12 @@ features register into it.
 ## Adding a feature
 
 One folder under `src/Features/` and one line in the `Modules[]` table in `src/main.cpp`. The
-module describes its actions as `ActionDesc` entries and registers them in `Register(Host&)`.
+module describes its actions as `ActionDesc` entries and registers them in `Register(Host&)`, along
+with its settings page, overlay layer and tray provider if it has them.
 
-## Refactor in progress
+## Architecture
 
-`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-10 are
-done. Read it before touching settings. Step 11 lets the user pick which feature owns the tray
-icon.
+`docs/ARCHITECTURE.md` holds the architecture and the migration checklist, all of it done (steps
+0-11). Read it before touching settings, the overlay or the tray.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

@@ -17,8 +17,12 @@ namespace MicLayer {
     /// matters here.
     void Register(HINSTANCE instance, MicSettings& settings);
 
-    /// The tray icon still comes from here and the frame still asks for it - step 11 of
-    /// docs/ARCHITECTURE.md is where a tray provider takes that over.
+    /// Re-reads what the pill shows now, for a caller that lays the overlay out before the posted
+    /// state event would arrive.
+    void Refresh();
+
+    /// What the module's tray provider shows - the icons are shared with the pill - and the
+    /// rebuild after a taskbar theme switch.
     HICON TrayIcon();
     void RefreshTheme();
 }

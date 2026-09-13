@@ -30,10 +30,21 @@ namespace {
                    || Mic::Audio().CaptureDevice()->GetActiveSessionsCount() > 0);
     }
 
-    /// Muted is the only thing the pill shows by itself - the peak meter overrides it while
-    /// talking.
+    /// Whether a loud peak may turn the pill into "talking" - never over the muted glyph.
+    bool _listening() {
+        return _settings->Pill == MicPillMode::MutedOrTalk && !Mic::Muted() && _allowed();
+    }
+
+    /// Muted, or talking while the debounce still says so - only the peak meter's own tick may
+    /// decide the microphone went quiet, so a repaint in the middle of a word keeps the glyph.
     void _refresh() {
-        _bitmap = (_allowed() && Mic::Muted()) ? _icons->Muted() : nullptr;
+        if (!_allowed()) {
+            _bitmap = nullptr;
+        } else if (Mic::Muted()) {
+            _bitmap = _icons->Muted();
+        } else {
+            _bitmap = _peakPhase ? _icons->Active() : nullptr;
+        }
     }
 
     OverlaySlot _measure(const OverlayCell& cell) {
@@ -43,11 +54,9 @@ namespace {
             return {.Width = cell.Height};
         }
 
-        return {.Width = _bitmap ? cell.Height : 0,
-                // Nothing to draw and still polling: this is the cue that the mic went live, and
-                // it is why the overlay no longer keeps an empty window up to host a timer
-                .WantsTick = _settings->Pill == MicPillMode::MutedOrTalk && !Mic::Muted()
-                             && _allowed()};
+        // Nothing to draw and still polling: this is the cue that the mic went live, and it is why
+        // the overlay no longer keeps an empty window up to host a timer
+        return {.Width = _bitmap ? cell.Height : 0, .WantsTick = _listening()};
     }
 
     /// The pill is square, so the granted width says nothing the cell does not.
@@ -57,13 +66,15 @@ namespace {
         canvas.DrawImage(bitmap, inset, inset, cell.IconSize, cell.IconSize);
     }
 
+    /// The timer also runs while the muted glyph has width, and then only lets a leftover phase run out.
     void _tick() {
-        if (Mic::Audio().CaptureDevice()->GetPeak() > _settings->VolumeThreshold) {
+        if (_listening() && Mic::Audio().CaptureDevice()->GetPeak() > _settings->VolumeThreshold) {
             if (!_peakPhase) {
                 _bitmap = _icons->Active();
-                _peakPhase = PeakDebouncePhases;
                 Overlay::Changed();
             }
+            // Every loud tick restarts the count, so only quiet ticks in a row end "talking"
+            _peakPhase = PeakDebouncePhases;
             return;
         }
 
@@ -93,6 +104,10 @@ namespace MicLayer {
                       .Render = &_render,
                       .TickMs = PeakIntervalMs,
                       .Tick = &_tick});
+    }
+
+    void Refresh() {
+        _refresh();
     }
 
     HICON TrayIcon() {

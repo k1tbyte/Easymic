@@ -9,8 +9,8 @@
 #include "Core/Feedback.hpp"
 #include "Core/Hotkeys/Bindings.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
-#include "Features/Microphone/Microphone.hpp"
-#include "Features/Microphone/Wasapi/AudioManager.hpp"
+#include "Core/Lifecycle.hpp"
+#include "Core/Tray.hpp"
 #include "Overlay/OverlaySurface.hpp"
 #include "Settings/SettingsWindowViewModel.hpp"
 #include "ViewModel.hpp"
@@ -18,8 +18,8 @@
 #include "BaseWindow.hpp"
 
 /// The frame: the tray icon, the settings window, and putting the config back into effect when
-/// that window closes. What the overlay shows is the overlay's business and what the microphone
-/// is doing is the module's - this only asks them.
+/// that window closes. What the overlay and the tray show belongs to whoever registered into
+/// them - this only asks.
 class MainWindowViewModel final : public BaseViewModel<MainWindow> {
 private:
     std::unique_ptr<SettingsWindow> _settingsWindow;
@@ -32,21 +32,34 @@ public:
     MainWindowViewModel(BaseWindow* baseView, AppConfig& config, Feedback& feedback)
         : BaseViewModel(baseView), _cfg(config), _feedback(feedback),
           _overlay(_view, config.Overlay) {
+        // Last, so it closes the radio and is what a choice nobody registered falls back to
+        Tray::Add({.Id = "tray.app",
+                   .Title = L"App icon",
+                   .Order = Tray::Last,
+                   .Icon = [] { return LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP)); }});
     }
 
 private:
     void SuspendActivity() {
         _overlay.Suspend();
-        Mic::Suspend();
+        Lifecycle::Suspend();
         HotkeyService::Dispose(); // also drops every registered hotkey
     }
 
-    void RefreshTrayIcon() const {
-        _view->UpdateTrayIcon(Mic::TrayIcon());
+    /// The provider the config names paints the icon, and says the tooltip.
+    void RefreshTray() const {
+        const TrayProvider* owner = Tray::Owner(_cfg.Tray.Provider);
+        if (!owner) {
+            return;
+        }
+
+        if (const HICON icon = owner->Icon()) {
+            _view->UpdateTrayIcon(icon);
+        }
+        _view->UpdateTrayTooltip(owner->Tooltip ? owner->Tooltip() : std::wstring{APP_NAME});
     }
 
     void RestoreConfig() {
-        Mic::Resume();
         HotkeyService::ClearHotkeys();
         HotkeyService::SetMultiPressWindow(_cfg.Core.MultiPressWindowMs);
 
@@ -56,8 +69,10 @@ private:
         }
 #endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
 
+        // Ahead of the overlay: a layer may measure what a module only knows again once it resumes
+        Lifecycle::Restore();
         _overlay.Restore();
-        Mic::Refresh();
+        RefreshTray();
     }
 
     void OpenSettings() {
@@ -94,9 +109,6 @@ private:
             case ID_APP_EXIT:
                 PostQuitMessage(0);
                 break;
-            case ID_APP_TOGGLE_BELL:
-                Mic::ToggleBell();
-                break;
             case ID_APP_SETTINGS:
                 OpenSettings();
                 break;
@@ -108,31 +120,15 @@ private:
         }
     }
 
-    /// What the tray says about the microphone, redrawn from what the module has just settled
-    /// on. The pill is not here any more - the module's own overlay layer draws that.
-    void OnMicStateChanged() const {
-        RefreshTrayIcon();
-
-        if (!Mic::HasDevice()) {
-            _view->UpdateTrayTooltip(APP_NAME L" - No device");
-            return;
-        }
-
-        constexpr auto bufferSize = 255;
-        wchar_t buffer[bufferSize];
-        swprintf(buffer, bufferSize, APP_NAME L" - %ls [%d%%]",
-                 Mic::Audio().CaptureDevice()->GetDeviceName(), _feedback.VolumePercent());
-        _view->UpdateTrayTooltip(std::wstring(buffer));
-    }
-
 public:
     void Init() override {
         _overlay.Bind();
+        Tray::Refresh = &MainWindow::PostTrayRefresh;
         _feedback.Bind(_view->GetHInstance(), &MainWindow::PostNotification);
-        Mic::OnStateChanged += [this] { OnMicStateChanged(); };
         _view->CreateTrayIcon(nullptr, L"");
 
         _view->OnTrayMenu = [this](UINT_PTR commandId) { OnTrayMenuCommand(commandId); };
+        _view->OnTrayRefresh = [this] { RefreshTray(); };
         _view->OnRender = [this](const RenderContext& context) {
             _overlay.Render(*context.graphics);
         };
@@ -140,8 +136,12 @@ public:
         _view->OnTimer = [this](UINT_PTR timerId) { _overlay.OnTimer(timerId); };
 
         _view->OnThemeChanged = [this] {
-            Mic::RefreshTheme();
-            RefreshTrayIcon();
+            for (const TrayProvider& provider : Tray::Providers) {
+                if (provider.ThemeChanged) {
+                    provider.ThemeChanged();
+                }
+            }
+            RefreshTray();
         };
 
         _view->OnNotification = [this](std::wstring text) { _overlay.ShowText(std::move(text)); };

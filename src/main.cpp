@@ -110,7 +110,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         registerModule(host);
     }
 
-    static MainWindow mainWindow(hInstance, config);
+    static MainWindow mainWindow(hInstance);
     mainWindow.AttachViewModel<MainWindowViewModel>(config, feedback);
 
     if (!mainWindow.Initialize({})) {
