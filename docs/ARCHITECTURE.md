@@ -543,7 +543,8 @@ struct SettingsPage {
 The sidebar is already a tree view, so a page with children costs `TVS_HASBUTTONS` and a second
 insert pass - a feature that outgrows one screen nests instead of spilling into someone else's
 page. Parenting is by `Id` rather than by title: a display string is not an identity, and
-comparing wide text to find a parent would make renaming a page break the tree.
+comparing wide text to find a parent would make renaming a page break the tree. Neither field
+exists yet: they land with the first page that has a child.
 
 What this settles, in the shape it exists today:
 
@@ -1015,15 +1016,38 @@ their bindings once.
 
 Needs step 6: a feature cannot own a page while a page means a template in the shared `Resource.rc`.
 
-- [ ] `SettingsPage` gains `Id` and `Parent`; the tree view gains `TVS_HASBUTTONS` and a second
-      insert pass for children
-- [ ] `Features/Microphone` registers the Microphone page - level, keep level, chime volume,
+- [ ] ~~`SettingsPage` gains `Id` and `Parent`; the tree view gains `TVS_HASBUTTONS` and a second
+      insert pass for children~~ - deferred, see Result
+- [x] `Features/Microphone` registers the Microphone page - level, keep level, chime volume,
       mute and unmute sounds, pill mode, threshold, hide when inactive
-- [ ] The frame's Indicator page becomes Overlay: size, on top, exclude from capture, notifications
-- [ ] The Sounds page is deleted, not moved (see section 6)
-- [ ] `Features/Keyboard` registers a Keyboard page, which is what proves a feature can have one
+- [x] The frame's Indicator page becomes Overlay: size, on top, exclude from capture, notifications
+- [x] The Sounds page is deleted, not moved (see section 6)
+- [ ] ~~`Features/Keyboard` registers a Keyboard page~~ - moved to step 10, see Result
 - **Done when:** `SettingsWindowViewModel` holds no field of any feature's settings section, and
   the Microphone page is registered from inside `Features/Microphone`.
+- **Result:** met. The Microphone page is a row table next to `Actions[]` in `Microphone.cpp` and
+  one `SettingsHost::AddPage` in `Mic::Register`; the rows moved verbatim from Sounds and
+  Indicator, hooks and all. `SettingsWindowViewModel.cpp` no longer includes anything from
+  `Features/` and names no `cfg.Mic` field. Sidebar: General, Overlay, Hotkeys, Microphone, About.
+  Binary unchanged at 933,888 bytes.
+
+  The page is flat. The interior is about 159 dialog units tall; the eight rows take 132, and the
+  two group boxes the Sounds page had would have made it 170 and clipped the last row. The labels
+  changed with it, since two rows called "Volume" only read right inside their groups.
+
+  Two items did not happen, both because nothing would use them yet:
+
+  - **`Id`, `Parent` and the child pass.** No page has a child - the Microphone page fits one
+    screen. They arrive with the first page that nests, the rule `Radio` already follows.
+  - **The Keyboard page.** `Features/Keyboard` has no settings field until step 10's
+    `ShowLayout`, so a page now would be a sidebar entry with nothing on it. Step 10 registers it
+    with its first row; the Microphone page already proves a feature can own one.
+
+  Checked on screen: all five pages captured before and after and compared, the Microphone rows fit
+  without clipping, and driven by control id the pill combo reads its field, the threshold holds
+  29, 57, 58 and 59 mid-drag, and Cancel writes nothing. The design went through an architecture
+  pass before any code, and the change through bug-hunt, quality and architecture afterwards - no
+  confirmed findings in any of the four.
 
 ### Step 10 - The proof: the layout pill
 
@@ -1034,7 +1058,10 @@ the overlay, and count what it costs.
       or 0 when the setting is off, `Render` draws them, `TickMs` watches the foreground window's
       layout
 - [ ] One `Check` row on the Keyboard page, one `ShowLayout` field in `KeyboardSettings`
-- **Done when:** the feature is one new file, one row, and one config field. The only thing it may
+- [ ] `Features/Keyboard` registers that Keyboard page - moved here from step 9, which had no row
+      to put on it
+- **Done when:** the feature is one new file, one row, and one config field, plus the page
+  registration its first row needs. The only thing it may
   touch outside its own slice is the section struct in `Core/AppConfig.hpp` - that is the known
   price of a typed config in one file. Nothing under `UI/`, nothing in another slice, and no line
   of the overlay. If it costs more than that, the design in sections 4 and 6 is wrong and this is

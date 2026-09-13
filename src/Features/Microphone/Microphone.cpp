@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 
 #include "AppConfig.hpp"
 #include "Wasapi/AudioManager.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
+#include "Core/SettingsHost.hpp"
 #include "Logger.hpp"
 #include "MicLayer.hpp"
 #include "SoundCatalog.hpp"
@@ -166,6 +168,31 @@ namespace {
          }},
     };
 
+    constexpr const wchar_t* PillModes[] = {L"Hidden", L"Muted", L"Muted or talking"};
+
+    constexpr SettingsRow PageRows[] = {
+        // -1 means "never set", so the slider opens on whatever the device is actually at
+        {.Kind = RowKind::Slider, .Label = L"Level",
+         .Field = {.Get = [](const AppConfig& cfg) {
+                       return cfg.Mic.Volume == -1 ? int{Mic::Audio().CaptureDevice()->GetVolumePercent()}
+                                                   : int{cfg.Mic.Volume};
+                   },
+                   .Set = Bind<&AppConfig::Mic, &MicSettings::Volume>().Set}},
+        {.Kind = RowKind::Check, .Label = L"Keep the device at this level",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::KeepVolume>()},
+        {.Kind = RowKind::Slider, .Label = L"Chime volume", .Field = Bind<&AppConfig::Mic, &MicSettings::BellVolume>()},
+        {.Kind = RowKind::SoundPicker, .Label = L"Mute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::MuteSound>()},
+        {.Kind = RowKind::SoundPicker, .Label = L"Unmute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::UnmuteSound>()},
+        {.Kind = RowKind::Combo, .Label = L"Show pill while",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::Pill>(), .Items = PillModes},
+        {.Kind = RowKind::Slider, .Label = L"Talking threshold (%)",
+         // Rounded, not truncated: 0.29f * 100 truncates to 28, and the sync would drag the slider back
+         .Field = {.Get = [](const AppConfig& cfg) { return static_cast<int>(std::lround(cfg.Mic.VolumeThreshold * 100)); },
+                   .Set = [](AppConfig& cfg, int value) { cfg.Mic.VolumeThreshold = static_cast<float>(value) / 100.0f; }}},
+        {.Kind = RowKind::Check, .Label = L"Hide while nothing is recording",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::HideWhenInactive>()},
+    };
+
 } // anonymous namespace
 
 namespace Mic {
@@ -185,6 +212,7 @@ namespace Mic {
         for (const auto& desc : Actions) {
             ActionRegistry::Add(desc);
         }
+        SettingsHost::AddPage({.Title = L"Microphone", .Rows = PageRows});
 
         MicLayer::Register(host.Instance, host.Config.Mic);
         _attachListeners();

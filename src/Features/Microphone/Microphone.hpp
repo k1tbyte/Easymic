@@ -17,7 +17,7 @@ namespace Mic {
     /// Registers the actions and subscribes to the device. Once, before any config is restored.
     void Register(Host& host);
 
-    /// The manager the settings page and the indicator's peak meter still read directly.
+    /// The manager the module's own page and layer read directly, and the tray tooltip still does.
     AudioManager& Audio();
 
     bool HasDevice();

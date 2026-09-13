@@ -2,8 +2,6 @@
 #include "SettingsRows.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
 #include "Core/Overlay.hpp"
-#include "Features/Microphone/Microphone.hpp"
-#include "Features/Microphone/Wasapi/AudioManager.hpp"
 #include "MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
@@ -11,7 +9,6 @@
 #include "Str.hpp"
 #include "Version.hpp"
 #include "UACService.hpp"
-#include <cmath>
 #include <windows.h>
 #include <commctrl.h>
 
@@ -25,8 +22,6 @@ namespace {
     /// closing with Cancel must leave the machine exactly as it was.
     bool _autoStartWas = false;
     bool _autoStartWants = false;
-
-    constexpr const wchar_t* MicPillModes[] = {L"Hidden", L"Muted", L"Muted or talking"};
 
     /// Offers to restart elevated. @return true when the app is on its way out.
     bool RequestElevationFor(HWND owner, AppConfig& cfg, const wchar_t* feature) {
@@ -99,7 +94,7 @@ void SettingsWindowViewModel::RegisterPages() {
          .Enabled = [](const AppConfig& cfg) { return cfg.Core.Updates; }},
     };
 
-    static constexpr SettingsRow Indicator[] = {
+    static constexpr SettingsRow OverlayRows[] = {
         {.Kind = RowKind::Check, .Label = L"Exclude from capture",
          .Field = Bind<&AppConfig::Overlay, &OverlaySettings::ExcludeFromCapture>()},
         {.Kind = RowKind::Check, .Label = L"On top of all the windows (experimental)",
@@ -109,36 +104,11 @@ void SettingsWindowViewModel::RegisterPages() {
                  ElevateOrRevert(owner, cfg, cfg.Overlay.OnTopExclusive, L"the 'On top of all windows' feature");
              }
          }},
-        {.Kind = RowKind::Check, .Label = L"Hide when microphone inactive",
-         .Field = Bind<&AppConfig::Mic, &MicSettings::HideWhenInactive>()},
         {.Kind = RowKind::Check, .Label = L"Show action notifications",
          .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Notifications>()},
-        {.Kind = RowKind::Combo, .Label = L"Show while",
-         .Field = Bind<&AppConfig::Mic, &MicSettings::Pill>(), .Items = MicPillModes},
         {.Kind = RowKind::Slider, .Label = L"Size (px)",
          .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Size>(), .Min = 10, .Max = 32,
          .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
-        {.Kind = RowKind::Slider, .Label = L"Volume threshold (%)",
-         // Rounded, not truncated: 0.29f * 100 truncates to 28, and the sync would drag the slider back
-         .Field = {.Get = [](const AppConfig& cfg) { return static_cast<int>(std::lround(cfg.Mic.VolumeThreshold * 100)); },
-                   .Set = [](AppConfig& cfg, int value) { cfg.Mic.VolumeThreshold = static_cast<float>(value) / 100.0f; }}},
-    };
-
-    static constexpr SettingsRow Sounds[] = {
-        {.Kind = RowKind::Group, .Label = L"Microphone"},
-        // -1 means "never set", so the slider opens on whatever the device is actually at
-        {.Kind = RowKind::Slider, .Label = L"Volume",
-         .Field = {.Get = [](const AppConfig& cfg) {
-                       return cfg.Mic.Volume == -1 ? int{Mic::Audio().CaptureDevice()->GetVolumePercent()}
-                                                   : int{cfg.Mic.Volume};
-                   },
-                   .Set = Bind<&AppConfig::Mic, &MicSettings::Volume>().Set}},
-        {.Kind = RowKind::Check, .Label = L"Keep volume always on this level",
-         .Field = Bind<&AppConfig::Mic, &MicSettings::KeepVolume>()},
-        {.Kind = RowKind::Group, .Label = L"Bell"},
-        {.Kind = RowKind::Slider, .Label = L"Volume", .Field = Bind<&AppConfig::Mic, &MicSettings::BellVolume>()},
-        {.Kind = RowKind::SoundPicker, .Label = L"Mute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::MuteSound>()},
-        {.Kind = RowKind::SoundPicker, .Label = L"Unmute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::UnmuteSound>()},
     };
 
     static constexpr SettingsRow Hotkeys[] = {
@@ -185,8 +155,7 @@ void SettingsWindowViewModel::RegisterPages() {
     };
 
     SettingsHost::AddPage({.Title = L"General", .Rows = General, .Order = SettingsHost::First});
-    SettingsHost::AddPage({.Title = L"Indicator", .Rows = Indicator});
-    SettingsHost::AddPage({.Title = L"Sounds", .Rows = Sounds});
+    SettingsHost::AddPage({.Title = L"Overlay", .Rows = OverlayRows});
     SettingsHost::AddPage({.Title = L"Hotkeys", .Rows = Hotkeys});
     SettingsHost::AddPage({.Title = L"About", .Rows = About, .Order = SettingsHost::Last});
 }

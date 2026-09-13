@@ -52,8 +52,8 @@ module describes its actions as `ActionDesc` entries and registers them in `Regi
 
 ## Refactor in progress
 
-`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-8 are
-done. Read it before touching settings. Steps 9-11 give each feature its own settings page and
-let the user pick which feature owns the tray icon.
+`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-9 are
+done. Read it before touching settings. Step 10 shows the keyboard layout on the overlay and
+step 11 lets the user pick which feature owns the tray icon.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.
