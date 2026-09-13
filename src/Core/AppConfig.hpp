@@ -2,19 +2,19 @@
 #define CONFIG_ENABLED
 
 #include <cstdint>
-#include <sys/stat.h>
 #include <string>
 #include <vector>
 #include <set>
 #include <windows.h>
 #include "definitions.h"
-#include "KeyNames.hpp"
+#include "Hotkeys/KeyNames.hpp"
 
 #ifdef CONFIG_ENABLED
 #include <glaze/glaze.hpp>
 #endif // CONFIG_ENABLED
 
-enum class IndicatorState {
+/// When the microphone's pill is on the overlay: never, while muted, or while muted or talking.
+enum class MicPillMode {
     Hidden,
     Muted,
     MutedOrTalk,
@@ -24,8 +24,8 @@ enum class IndicatorState {
 /// Named rather than numbered on disk - the whole point of the JSON move is a file a person can
 /// read and edit, and "2" says nothing.
 template <>
-struct glz::meta<IndicatorState> {
-    using enum IndicatorState;
+struct glz::meta<MicPillMode> {
+    using enum MicPillMode;
     static constexpr auto value = enumerate(Hidden, Muted, MutedOrTalk);
 };
 #endif // CONFIG_ENABLED
@@ -35,8 +35,6 @@ struct CoreSettings {
     bool Updates = true;
     bool AutoUpdate = false;
     bool SkipUac = false;
-    /// Master switch for the on-screen action notifications; per binding, an empty text is the off.
-    bool Notifications = true;
     /// How long a combination waits for another press before it decides how many there were.
     uint16_t MultiPressWindowMs = 200;
     std::set<std::string> SkippedVersions;
@@ -54,21 +52,28 @@ struct MicSettings {
     /// Discord or the mixer. SoundCatalog keys or file paths.
     std::string MuteSound = "Mute";
     std::string UnmuteSound = "Unmute";
+    MicPillMode Pill = MicPillMode::Muted;
+    /// How loud the mic has to be before the pill counts it as talking, 0-1.
+    float VolumeThreshold = .001f;
+    /// Nothing is recording, so there is nothing to say about the microphone.
+    bool HideWhenInactive = true;
 
     bool operator==(const MicSettings&) const = default;
 };
 
-struct IndicatorSettings {
+/// The surface, not what is drawn on it: a field belongs here if it would still matter with
+/// every feature that draws deleted.
+struct OverlaySettings {
     int32_t PosX = 0;
     int32_t PosY = 0;
+    /// Icon edge in pixels; a pill is twice this, and everything else scales off it.
     uint8_t Size = 16;
-    IndicatorState State = IndicatorState::Muted;
-    float VolumeThreshold = .001f;
     bool ExcludeFromCapture = false;
     bool OnTopExclusive = false;
-    bool HideWhenInactive = true;
+    /// Master switch for the on-screen action notifications; per binding, an empty text is the off.
+    bool Notifications = true;
 
-    bool operator==(const IndicatorSettings&) const = default;
+    bool operator==(const OverlaySettings&) const = default;
 };
 
 /**
@@ -125,12 +130,12 @@ struct Binding {
 
 struct AppConfig {
 
-    static constexpr int32_t CurrentVersion = 3;
+    static constexpr int32_t CurrentVersion = 4;
     static inline std::string DefaultPath{};
 
     CoreSettings Core;
     MicSettings Mic;
-    IndicatorSettings Indicator;
+    OverlaySettings Overlay;
     /// Every binding in the order the settings list shows them.
     std::vector<Binding> Bindings;
     /// One list behind every sound picker, whatever the picker is for.

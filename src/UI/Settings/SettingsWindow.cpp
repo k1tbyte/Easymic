@@ -4,7 +4,6 @@
 #include <string>
 
 #include "ActionDialog.hpp"
-#include "DialogControls.hpp"
 #include "UACService.hpp"
 #include "Resources/Resource.h"
 #include "Version.hpp"
@@ -47,10 +46,6 @@ namespace {
     }
 
     void InitializeActionsList(HWND hwndList) {
-        if (!hwndList) {
-            return;
-        }
-
         SendMessage(hwndList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0,
                     LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_LABELTIP);
 
@@ -64,8 +59,6 @@ namespace {
             lvc.pszText = const_cast<wchar_t*>(titles[i]);
             SendMessage(hwndList, LVM_INSERTCOLUMNW, i, (LPARAM)&lvc);
         }
-
-        LayoutActionColumns(hwndList);
     }
 
     /**
@@ -95,34 +88,16 @@ namespace {
         switch (message) {
             case WM_INITDIALOG:
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, lParam);
-                InitializeActionsList(GetDlgItem(hwnd, IDC_HOTKEYS_LIST));
                 return TRUE;
 
             case SettingsWindow::WM_LOG_REFRESH:
                 ReloadLogText(hwnd);
                 return TRUE;
 
-            case WM_COMMAND: {
-                if (!window) {
-                    break;
-                }
-
-                if (HIWORD(wParam) == BN_CLICKED && window->OnButtonClick) {
-                    window->OnButtonClick(hwnd, LOWORD(wParam));
-                    return TRUE;
-                }
-
-                if (HIWORD(wParam) == CBN_SELCHANGE && window->OnComboBoxChange) {
-                    window->OnComboBoxChange(hwnd, LOWORD(wParam));
-                    return TRUE;
-                }
-                break;
-            }
-
+            case WM_COMMAND:
             case WM_HSCROLL:
-                if (window && LOWORD(wParam) != TB_ENDTRACK && window->OnTrackbarChange) {
-                    window->OnTrackbarChange(hwnd, GetDlgCtrlID((HWND)lParam),
-                                             SendMessage((HWND)lParam, TBM_GETPOS, 0, 0));
+                if (window && window->OnPageInput) {
+                    window->OnPageInput(hwnd, message, wParam, lParam);
                 }
                 break;
 
@@ -299,8 +274,8 @@ INT_PTR SettingsWindow::OnDestroy() {
     return TRUE;
 }
 
-/// One row per registered page, carrying its index rather than its template id - the window has
-/// no business knowing one template from another.
+/// One row per registered page, carrying its index - the window has no business knowing one page
+/// from another.
 void SettingsWindow::PopulateTreeView() const {
     HTREEITEM firstItem = nullptr;
 
@@ -324,44 +299,40 @@ void SettingsWindow::OnTreeViewSelectionChanged(HTREEITEM hItem) {
         return;
     }
 
-    wchar_t title[64];
     TVITEMW item{};
-    item.mask = TVIF_PARAM | TVIF_TEXT;
+    item.mask = TVIF_PARAM;
     item.hItem = hItem;
-    item.pszText = title;
-    item.cchTextMax = static_cast<int>(std::size(title));
 
     if (!SendMessageW(_hwndTreeView, TVM_GETITEMW, 0, (LPARAM)&item)) {
         return;
     }
 
     const auto index = static_cast<size_t>(item.lParam);
-    if (index >= SettingsHost::Pages.size()) {
-        return;
-    }
-
-    const SettingsPage& page = SettingsHost::Pages[index];
-    SetWindowTextW(_hwndGroupBox, title);
-    LoadCategoryContent(page.TemplateId);
-
-    if (_hwndContentDialog && page.Build) {
-        page.Build(_hwndContentDialog);
+    if (index < SettingsHost::Pages.size()) {
+        ShowPage(SettingsHost::Pages[index]);
     }
 }
 
-void SettingsWindow::LoadCategoryContent(int resourceId) {
+void SettingsWindow::ShowPage(const SettingsPage& page) {
+    SetWindowTextW(_hwndGroupBox, page.Title);
+
     if (_hwndContentDialog) {
         DestroyWindow(_hwndContentDialog);
         _hwndContentDialog = nullptr;
     }
 
-    _hwndContentDialog = CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(resourceId), _hwndGroupBox,
+    _hwndContentDialog = CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(IDD_SETTINGS_PAGE), _hwndGroupBox,
                                             ChildDialogProc, reinterpret_cast<LPARAM>(this));
-
-    if (_hwndContentDialog) {
-        UpdateGroupBoxLayout();
-        ShowWindow(_hwndContentDialog, SW_SHOW);
+    if (!_hwndContentDialog) {
+        return;
     }
+
+    // Sized before it is filled: the rows take their width from the page
+    UpdateGroupBoxLayout();
+    if (OnPageCreated) {
+        OnPageCreated(_hwndContentDialog, page);
+    }
+    ShowWindow(_hwndContentDialog, SW_SHOW);
 }
 
 /// Fits the category page into the group box interior, below its title.
@@ -384,6 +355,11 @@ void SettingsWindow::SetActionRows(const std::vector<ActionRow>& rows) const {
     HWND hwndList = GetDlgItem(_hwndContentDialog, IDC_HOTKEYS_LIST);
     if (!hwndList) {
         return;
+    }
+
+    // The list is rebuilt with its page on every visit, so its columns come with its first fill
+    if (!Header_GetItemCount(ListView_GetHeader(hwndList))) {
+        InitializeActionsList(hwndList);
     }
 
     SendMessage(hwndList, LVM_DELETEALLITEMS, 0, 0);

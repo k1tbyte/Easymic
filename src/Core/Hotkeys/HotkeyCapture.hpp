@@ -3,7 +3,7 @@
 #include <functional>
 #include <windows.h>
 
-#include "Core/HotkeyService.hpp"
+#include "HotkeyService.hpp"
 
 /**
  * @brief The single hotkey capture session shared by every binding UI.

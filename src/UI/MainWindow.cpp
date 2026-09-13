@@ -1,9 +1,10 @@
 #include "MainWindow.hpp"
 
 #include "Core/Dispatcher.hpp"
+#include "TrayIconTheme.hpp"
 
 #include "Resources/Resource.h"
-#include "IndicatorLayout.hpp"
+#include "Overlay/OverlaySlots.hpp"
 
 MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& appConfig)
     : BaseWindow(hInstance), _config(appConfig)
@@ -18,19 +19,19 @@ bool MainWindow::Initialize(WindowConfig config) {
     // Restoring the tray icon on an Explorer restart
     _taskbarCreatedMessage = RegisterWindowMessageA("TaskbarCreated");
 
-    const int windowSize = IndicatorLayout::PillSize(_config.Indicator.Size);
+    const int windowSize = OverlaySlots::PillHeight(_config.Overlay.Size);
     SetWidth(windowSize);
     SetHeight(windowSize);
-    SetPositionX(_config.Indicator.PosX);
-    SetPositionY(_config.Indicator.PosY);
+    SetPositionX(_config.Overlay.PosX);
+    SetPositionY(_config.Overlay.PosY);
 
     _hwnd = CreateWindowExW(
         StyleEx,
         config.className,
         config.windowTitle,
         Style,
-        _config.Indicator.PosX,
-        _config.Indicator.PosY,
+        _config.Overlay.PosX,
+        _config.Overlay.PosY,
         windowSize,
         windowSize,
         nullptr,
@@ -48,6 +49,7 @@ bool MainWindow::Initialize(WindowConfig config) {
     // This window owns the message loop, so it is the one the worker reaches the UI thread
     // through. Bound before the view model, which may post from its own Init.
     Dispatcher::BindUi(_hwnd);
+    _postTarget = _hwnd;
 
     _viewModel->Init();
 
@@ -66,15 +68,19 @@ bool MainWindow::RegisterWindowClass(const WindowConfig& config) const {
     return RegisterClassExW(&wc) != 0;
 }
 
-void MainWindow::PostNotification(HWND target, const std::wstring& text) {
+void MainWindow::PostNotification(const std::wstring& text) {
     if (text.empty()) {
         return;
     }
 
     auto* payload = new std::wstring(text);
-    if (!PostMessageW(target, WM_SHOW_NOTIFICATION, 0, reinterpret_cast<LPARAM>(payload))) {
+    if (!PostMessageW(_postTarget, WM_SHOW_NOTIFICATION, 0, reinterpret_cast<LPARAM>(payload))) {
         delete payload;
     }
+}
+
+void MainWindow::PostRelayout() {
+    PostMessageW(_postTarget, WM_OVERLAY_RELAYOUT, 0, 0);
 }
 
 LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
@@ -129,6 +135,10 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
 
+        case WM_OVERLAY_RELAYOUT:
+            Relayout();
+            return 0;
+
         case WM_SHOW_NOTIFICATION: {
             const std::unique_ptr<std::wstring> payload(reinterpret_cast<std::wstring*>(lParam));
             if (OnNotification) {
@@ -171,7 +181,7 @@ LRESULT MainWindow::OnPaint() {
 
     if (OnRender) {
         const POINT windowPos{GetPositionX(), GetPositionY()};
-        GDIRenderer::RenderLayeredWindow(hwnd, _size.x, _size.y, windowPos, OnRender);
+        LayeredWindow::Render(hwnd, _size.x, _size.y, windowPos, OnRender);
     }
 
     if (paintsOwnedWindow) {

@@ -6,8 +6,6 @@
 
 #include "BaseWindow.hpp"
 #include "TrayIcon.hpp"
-#include "TrayIconTheme.hpp"
-#include "GdiRenderer.hpp"
 #include "LayeredWindow.hpp"
 #include "AppConfig.hpp"
 
@@ -38,7 +36,11 @@ public:
      * state: a captured command may answer long after its action is gone, and a window that no
      * longer exists only costs a failed post.
      */
-    static void PostNotification(HWND target, const std::wstring& text);
+    static void PostNotification(const std::wstring& text);
+
+    /// Asks the overlay to measure itself again, from any thread. Carries nothing but the
+    /// request: whatever changed, the layer that changed it already knows.
+    static void PostRelayout();
 
     // View model delegation - single subscriber each, assigned once during Init
     std::function<void(UINT_PTR commandId)> OnTrayMenu;
@@ -47,10 +49,10 @@ public:
     std::function<void()> OnThemeChanged;
     std::function<void()> OnRelayout;
     std::function<void(std::wstring text)> OnNotification;
-    GDIRenderer::RenderCallback OnRender;
+    LayeredWindow::RenderCallback OnRender;
 
-    /// Anything that changes what the indicator should look like - only the view model knows how
-    /// to lay it out, so callers say what happened instead of resizing the window themselves.
+    /// Anything that changes what the overlay should look like. Callers say what happened; the
+    /// surface is what decides how wide the strip is and whether it is on screen at all.
     void Relayout() const {
         if (OnRelayout) {
             OnRelayout();
@@ -94,8 +96,14 @@ private:
     /// Registered at runtime, so it cannot be a switch label - checked before the switch.
     UINT _taskbarCreatedMessage = 0;
 
+    /// Where the two posters send. One copy of the handle rather than one per caller, and it is
+    /// deliberately never cleared: posting to a destroyed window fails harmlessly, while posting
+    /// to a null one would queue a thread message nobody dispatches.
+    static inline HWND _postTarget = nullptr;
+
     static constexpr UINT WM_TRAYICON = WM_USER + 1;
-    /// WM_APP, not WM_USER: the timer ids the view model owns share nothing but the number line
+    /// WM_APP, not WM_USER: the timer ids the overlay owns share nothing but the number line
     static constexpr UINT WM_SHOW_NOTIFICATION = WM_APP + 1;
+    static constexpr UINT WM_OVERLAY_RELAYOUT = WM_APP + 2;
 };
 

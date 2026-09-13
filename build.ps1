@@ -42,25 +42,38 @@ if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
     }
 }
 
-# The slice rule, docs/ARCHITECTURE.md section 3: no file under Features/X may include
-# Features/Y. Only Core/ and Platform/ are shared, and anything two features both need is a
-# Core/ concern. It is checked here rather than trusted because it is the one rule that keeps
-# the design from rotting back into the old catch-all Lib/.
+# Both layering rules from docs/ARCHITECTURE.md section 3, in one pass: a file under Features/
+# may include Core/ and Platform/, and nothing else. None of the ways of breaking that is a
+# compile error - src/UI is on the include path and a quoted include searches the includer's own
+# directory first - so an include is judged by where it lands, then by how it is written.
 $featuresDir = Join-Path $root "src\Features"
+$uiDir = Join-Path $root "src\UI"
+$uiHeaders = @(Get-ChildItem $uiDir -Recurse -File -Include *.hpp | ForEach-Object { $_.Name })
+
 $leaks = Get-ChildItem $featuresDir -Recurse -File -Include *.hpp, *.cpp | ForEach-Object {
     $slice = ($_.FullName.Substring($featuresDir.Length + 1) -split '[\\/]')[0]
-    Select-String -Path $_.FullName -Pattern '#include\s+"Features/([^/"]+)/' | ForEach-Object {
-        $target = $_.Matches[0].Groups[1].Value
-        if ($target -ne $slice) {
-            "  $($_.Path):$($_.LineNumber): Features/$slice includes Features/$target"
+    $sliceDir = Join-Path $featuresDir $slice
+    $includerDir = $_.Directory.FullName
+
+    Select-String -Path $_.FullName -Pattern '#include\s+["<]([^">]+)[">]' | ForEach-Object {
+        $included = $_.Matches[0].Groups[1].Value
+        $where = "  $($_.Path):$($_.LineNumber): Features/$slice includes"
+        $landsAt = [System.IO.Path]::GetFullPath((Join-Path $includerDir $included))
+
+        if ($landsAt.StartsWith($featuresDir, 'OrdinalIgnoreCase') -and -not $landsAt.StartsWith($sliceDir, 'OrdinalIgnoreCase')) {
+            "$where $included, which resolves into another slice"
+        } elseif ($landsAt.StartsWith($uiDir, 'OrdinalIgnoreCase') -or $uiHeaders -contains (Split-Path $included -Leaf)) {
+            "$where $included, which lives under src/UI"
+        } elseif ($included -match '^Features/([^/]+)/' -and $matches[1] -ne $slice) {
+            "$where Features/$($matches[1])"
         }
     }
 }
 
 if ($leaks) {
-    Write-Host "slice rule violated - a feature may only include Core/ and Platform/:" -ForegroundColor Red
+    Write-Host "layering rule violated - a feature may only include Core/ and Platform/:" -ForegroundColor Red
     $leaks | ForEach-Object { Write-Host $_ -ForegroundColor Red }
-    throw "slice rule violated"
+    throw "layering rule violated"
 }
 
 # Quotes are required: PS 5.1 does not expand variables in unquoted "-D...=" arguments

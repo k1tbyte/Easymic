@@ -6,9 +6,9 @@
 /**
  * @brief Keeps the tray icon readable on a light taskbar.
  *
- * The unmuted glyph is pure white and disappears there. Instead of a second set of assets the
- * bright pixels are darkened at runtime: the muted (red) and active (green) icons fall below the
- * luminance threshold, so they pass through untouched and keep their meaning.
+ * A white glyph disappears there. Instead of a second set of assets the bright pixels are
+ * darkened at runtime: an icon that is already coloured sits below the luminance threshold and
+ * passes through untouched, so one that means something by its colour keeps meaning it.
  */
 namespace TrayIconTheme {
 

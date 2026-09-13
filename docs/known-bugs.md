@@ -9,7 +9,7 @@ Fixed defects are not recorded here; git history is the record for those.
 
 ## Chord release fires against the wrong mask
 
-**Where:** `src/Core/HotkeyService.cpp`, `_onKeyRelease`
+**Where:** `src/Core/Hotkeys/HotkeyService.cpp`, `_onKeyRelease`
 **Severity:** minor - wrong action on an unusual release order
 
 `_onKeyRelease` raises the action *before* it updates `_sequenceMask`, so a release is evaluated
@@ -32,7 +32,7 @@ keyboard and mouse procs merge - the bookkeeping is cheaper to add once, in one 
 
 ## A modifier alias is rewritten, not preserved
 
-**Where:** `src/Core/KeyNames.cpp`, `AppConfig::Load`
+**Where:** `src/Core/Hotkeys/KeyNames.cpp`, `AppConfig::Load`
 **Severity:** cosmetic, and deliberate
 
 `Parse` accepts `LCTRL`, `LSHIFT` and `LALT` as aliases of the unprefixed left-key names, but
@@ -46,6 +46,26 @@ same one to `RegisterHotkey`, and the second binding would quietly fail to regis
 first.
 
 **Why it stays:** it is what a canonical form is for. Recorded so nobody reports it twice.
+
+---
+
+## A hand-edited `Overlay.Size` of 0 leaves nothing to drag
+
+**Where:** `src/Core/AppConfig.hpp`, `OverlaySettings::Size`
+**Severity:** minor - only reachable by editing `config.json` by hand
+
+The settings trackbar is bound to 10..32 and `Load` clamps nothing, so a `config.json` that says
+`"Size": 0` gives `OverlaySlots::PillHeight(0) == 0`, every layer measures 0 wide, and the
+overlay is hidden - including the preview the settings window relies on for drag-to-position. The
+user then cannot reposition the overlay from the UI, only by editing the file again.
+
+Before step 8 the same config produced a 0x0 window that was shown rather than hidden, so this is
+the same defect wearing a different shape, not a regression.
+
+**Why it waits:** `Size` is not special. `Volume`, `BellVolume`, `VolumeThreshold`,
+`MultiPressWindowMs` and `PosX`/`PosY` are all equally unvalidated, and clamping one of them
+because a review happened to name it would leave the other five. The whole set belongs to one
+pass over `AppConfig::Load`, which is where this tree already canonicalises a hand-edited value.
 
 ---
 

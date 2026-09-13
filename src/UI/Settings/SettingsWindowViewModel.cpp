@@ -1,20 +1,55 @@
 #include "SettingsWindowViewModel.hpp"
-#include "HotkeyCapture.hpp"
-#include "Core/HotkeyService.hpp"
-#include "Core/KeyNames.hpp"
+#include "SettingsRows.hpp"
+#include "Core/Hotkeys/KeyNames.hpp"
+#include "Core/Overlay.hpp"
+#include "Features/Microphone/Microphone.hpp"
+#include "Features/Microphone/Wasapi/AudioManager.hpp"
 #include "MainWindow.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
+#include "Registry.hpp"
+#include "Str.hpp"
 #include "Version.hpp"
 #include "UACService.hpp"
+#include <cmath>
 #include <windows.h>
 #include <commctrl.h>
 
 namespace {
     /// At most one settings window is ever open - MainWindowViewModel::OpenSettings brings the
-    /// existing one forward instead of making a second - so a page builder can be the plain
+    /// existing one forward instead of making a second - so a row's hook can be the plain
     /// function pointer the registry wants and still find the live view model.
     SettingsWindowViewModel* _current = nullptr;
+
+    /// Autostart lives in the registry, not the config, so what the box says waits here until OK -
+    /// closing with Cancel must leave the machine exactly as it was.
+    bool _autoStartWas = false;
+    bool _autoStartWants = false;
+
+    constexpr const wchar_t* MicPillModes[] = {L"Hidden", L"Muted", L"Muted or talking"};
+
+    /// Offers to restart elevated. @return true when the app is on its way out.
+    bool RequestElevationFor(HWND owner, AppConfig& cfg, const wchar_t* feature) {
+        const std::wstring message = std::wstring(L"Administrator privileges are required for ") + feature
+            + L".\nWould you like to restart the application as administrator?";
+
+        if (MessageBoxW(owner, message.c_str(), L"Administrator Required", MB_YESNO | MB_ICONQUESTION) != IDYES) {
+            return false;
+        }
+
+        // Restarting elevated is the commit: the elevated instance reads the file, so the choice has
+        // to survive the process it was made in. RequestElevation does not return when it succeeds.
+        cfg.Save();
+        return UAC::RequestElevation();
+    }
+
+    /// Declined, or the OS refused - put the field and the file back the way we found them.
+    void ElevateOrRevert(HWND owner, AppConfig& cfg, bool& field, const wchar_t* feature) {
+        if (!RequestElevationFor(owner, cfg, feature)) {
+            field = !field;
+            cfg.Save();
+        }
+    }
 }
 
 SettingsWindowViewModel::~SettingsWindowViewModel() {
@@ -28,95 +63,134 @@ SettingsWindowViewModel::~SettingsWindowViewModel() {
 }
 
 void SettingsWindowViewModel::RegisterPages() {
-    SettingsHost::AddPage({.Title = L"General",
-                           .TemplateId = IDD_SETTINGS_GENERAL,
-                           .Build = [](HWND page) { _current->InitializeGeneralSection(page); },
-                           .Order = SettingsHost::First});
+    static constexpr SettingsRow General[] = {
+        {.Kind = RowKind::Check, .Label = L"Start with Windows",
+         .Field = {.Get = [](const AppConfig&) { return int{_autoStartWants}; },
+                   .Set = [](AppConfig&, int value) { _autoStartWants = value; }},
+         .Commit = [](HWND, AppConfig&, const AppConfig&) {
+             if (_autoStartWants != _autoStartWas) {
+                 _autoStartWants ? Registry::AddToAutoStartup(APP_NAME) : Registry::RemoveFromAutoStartup(APP_NAME);
+             }
+         }},
+        // Left enabled without elevation on purpose - clicking it is what offers the restart
+        {.Kind = RowKind::Check, .Label = L"Skip UAC (Administrator required)",
+         .Field = Bind<&AppConfig::Core, &CoreSettings::SkipUac>(),
+         .Changed = [](HWND owner, AppConfig& cfg) {
+             if (!UAC::IsElevated()) {
+                 ElevateOrRevert(owner, cfg, cfg.Core.SkipUac, L"UAC bypass");
+             }
+         },
+         .Commit = [](HWND owner, AppConfig& cfg, const AppConfig& before) {
+             if (cfg.Core.SkipUac == before.Core.SkipUac
+                 || (cfg.Core.SkipUac ? UAC::EnableSkipUAC() : UAC::DisableSkipUAC())) {
+                 return;
+             }
+             MessageBoxW(owner, cfg.Core.SkipUac ? L"Failed to create UAC bypass task."
+                                                 : L"Failed to remove UAC bypass task.",
+                         L"Error", MB_OK | MB_ICONERROR);
+             cfg.Core.SkipUac = before.Core.SkipUac;
+         }},
+        {.Kind = RowKind::Check, .Label = L"Check for updates",
+         .Field = Bind<&AppConfig::Core, &CoreSettings::Updates>(),
+         // Auto-update cannot outlive the check that feeds it
+         .Changed = [](HWND, AppConfig& cfg) { cfg.Core.AutoUpdate = cfg.Core.AutoUpdate && cfg.Core.Updates; }},
+        {.Kind = RowKind::Check, .Label = L"Enable auto-updates",
+         .Field = Bind<&AppConfig::Core, &CoreSettings::AutoUpdate>(),
+         .Enabled = [](const AppConfig& cfg) { return cfg.Core.Updates; }},
+    };
 
-    SettingsHost::AddPage({.Title = L"Indicator",
-                           .TemplateId = IDD_SETTINGS_INDICATOR,
-                           .Build = [](HWND page) { _current->InitializeIndicatorSection(page); }});
+    static constexpr SettingsRow Indicator[] = {
+        {.Kind = RowKind::Check, .Label = L"Exclude from capture",
+         .Field = Bind<&AppConfig::Overlay, &OverlaySettings::ExcludeFromCapture>()},
+        {.Kind = RowKind::Check, .Label = L"On top of all the windows (experimental)",
+         .Field = Bind<&AppConfig::Overlay, &OverlaySettings::OnTopExclusive>(),
+         .Changed = [](HWND owner, AppConfig& cfg) {
+             if (cfg.Overlay.OnTopExclusive && !UAC::IsElevated()) {
+                 ElevateOrRevert(owner, cfg, cfg.Overlay.OnTopExclusive, L"the 'On top of all windows' feature");
+             }
+         }},
+        {.Kind = RowKind::Check, .Label = L"Hide when microphone inactive",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::HideWhenInactive>()},
+        {.Kind = RowKind::Check, .Label = L"Show action notifications",
+         .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Notifications>()},
+        {.Kind = RowKind::Combo, .Label = L"Show while",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::Pill>(), .Items = MicPillModes},
+        {.Kind = RowKind::Slider, .Label = L"Size (px)",
+         .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Size>(), .Min = 10, .Max = 32,
+         .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
+        {.Kind = RowKind::Slider, .Label = L"Volume threshold (%)",
+         // Rounded, not truncated: 0.29f * 100 truncates to 28, and the sync would drag the slider back
+         .Field = {.Get = [](const AppConfig& cfg) { return static_cast<int>(std::lround(cfg.Mic.VolumeThreshold * 100)); },
+                   .Set = [](AppConfig& cfg, int value) { cfg.Mic.VolumeThreshold = static_cast<float>(value) / 100.0f; }}},
+    };
 
-    SettingsHost::AddPage({.Title = L"Sounds",
-                           .TemplateId = IDD_SETTINGS_SOUNDS,
-                           .Build = [](HWND page) { _current->InitializeSoundsSection(page); }});
+    static constexpr SettingsRow Sounds[] = {
+        {.Kind = RowKind::Group, .Label = L"Microphone"},
+        // -1 means "never set", so the slider opens on whatever the device is actually at
+        {.Kind = RowKind::Slider, .Label = L"Volume",
+         .Field = {.Get = [](const AppConfig& cfg) {
+                       return cfg.Mic.Volume == -1 ? int{Mic::Audio().CaptureDevice()->GetVolumePercent()}
+                                                   : int{cfg.Mic.Volume};
+                   },
+                   .Set = Bind<&AppConfig::Mic, &MicSettings::Volume>().Set}},
+        {.Kind = RowKind::Check, .Label = L"Keep volume always on this level",
+         .Field = Bind<&AppConfig::Mic, &MicSettings::KeepVolume>()},
+        {.Kind = RowKind::Group, .Label = L"Bell"},
+        {.Kind = RowKind::Slider, .Label = L"Volume", .Field = Bind<&AppConfig::Mic, &MicSettings::BellVolume>()},
+        {.Kind = RowKind::SoundPicker, .Label = L"Mute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::MuteSound>()},
+        {.Kind = RowKind::SoundPicker, .Label = L"Unmute sound", .Field = Bind<&AppConfig::Mic, &MicSettings::UnmuteSound>()},
+    };
 
-    SettingsHost::AddPage({.Title = L"Hotkeys",
-                           .TemplateId = IDD_SETTINGS_HOTKEYS,
-                           .Build = [](HWND page) { _current->InitializeHotkeysSection(page); }});
+    static constexpr SettingsRow Hotkeys[] = {
+        {.Kind = RowKind::Text, .Label = L"Double-click an action to edit it:"},
+        {.Kind = RowKind::Custom, .Height = 122,
+         .Create = [](HWND page, const RECT& cell, int) {
+             SettingsRows::Control(page, WC_LISTVIEWW, L"", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP,
+                                   cell, IDC_HOTKEYS_LIST, WS_EX_CLIENTEDGE);
+             _current->RefreshActionRows();
+         }},
+        {.Kind = RowKind::Slider, .Label = L"Multi-press window (ms)",
+         .Field = Bind<&AppConfig::Core, &CoreSettings::MultiPressWindowMs>(), .Min = 100, .Max = 600, .Step = 10},
+    };
 
-    SettingsHost::AddPage({.Title = L"About",
-                           .TemplateId = IDD_SETTINGS_ABOUT,
-                           .Build = [](HWND page) { _current->InitializeAboutSection(page); },
-                           .Order = SettingsHost::Last});
+    static constexpr SettingsRow About[] = {
+        {.Kind = RowKind::Custom,
+         .Changed = [](HWND, AppConfig&) {
+             ShellExecuteW(nullptr, L"open", Str::Utf8ToWide(REPO_URL).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+         },
+         .Height = 10,
+         .Create = [](HWND page, const RECT& cell, int id) {
+             SettingsRows::Control(page, WC_STATICW, Str::Utf8ToWide("Version " + g_AppVersion.GetFullFormat()).c_str(),
+                                   SS_LEFT, {cell.left, cell.top, cell.left + 100, cell.bottom}, -1);
+             HWND link = SettingsRows::Control(page, WC_STATICW, L"GitHub", SS_LEFT | SS_NOTIFY,
+                                               {cell.left + 105, cell.top, cell.left + 185, cell.bottom}, id);
+
+             // Underlined copy of the page font, so the link scales with the rest of the page.
+             // Created once: the page is destroyed and rebuilt on every visit.
+             if (!_current->_linkFont) {
+                 LOGFONTW logFont{};
+                 GetObjectW((HFONT)SendMessageW(page, WM_GETFONT, 0, 0), sizeof(logFont), &logFont);
+                 logFont.lfUnderline = TRUE;
+                 _current->_linkFont = CreateFontIndirectW(&logFont);
+             }
+             SendMessageW(link, WM_SETFONT, (WPARAM)_current->_linkFont, TRUE);
+         }},
+        {.Kind = RowKind::Custom, .Height = 150,
+         .Create = [](HWND page, const RECT& cell, int) {
+             SettingsRows::Control(page, WC_EDITW, L"",
+                                   ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP,
+                                   cell, IDC_ABOUT_LOG_LIST, WS_EX_CLIENTEDGE);
+             _current->SetupLogDisplay(page);
+         }},
+    };
+
+    SettingsHost::AddPage({.Title = L"General", .Rows = General, .Order = SettingsHost::First});
+    SettingsHost::AddPage({.Title = L"Indicator", .Rows = Indicator});
+    SettingsHost::AddPage({.Title = L"Sounds", .Rows = Sounds});
+    SettingsHost::AddPage({.Title = L"Hotkeys", .Rows = Hotkeys});
+    SettingsHost::AddPage({.Title = L"About", .Rows = About, .Order = SettingsHost::Last});
 }
 
-void SettingsWindowViewModel::InitializeHotkeysSection(HWND hWnd) const {
-    RefreshActionRows();
-    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_HOTKEYS_WINDOW_TRACKBAR),
-                                 10, MAKELONG(100, 600), _cfg.Core.MultiPressWindowMs);
-}
-
-void SettingsWindowViewModel::InitializeGeneralSection(HWND hWnd) const {
-    // Rendered from the pending state, not from the registry: leaving the page and coming back
-    // must not throw away a toggle that has not been applied yet
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTOSTART), BM_SETCHECK, _autoStartRequested, 0);
-
-    // Left enabled without elevation on purpose - clicking it is what offers the restart
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SKIP_UAC), BM_SETCHECK, _cfg.Core.SkipUac, 0);
-
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_UPDATES_ENABLED), BM_SETCHECK,
-                _cfg.Core.Updates, 0);
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), BM_SETCHECK,
-                _cfg.Core.AutoUpdate, 0);
-    EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.Core.Updates);
-}
-
-void SettingsWindowViewModel::InitializeIndicatorSection(HWND hWnd) const {
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_CAPTURE), BM_SETCHECK,
-                _cfg.Indicator.ExcludeFromCapture, 0);
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_ON_TOP), BM_SETCHECK,
-                _cfg.Indicator.OnTopExclusive, 0);
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_HIDE_INACTIVE), BM_SETCHECK,
-                _cfg.Indicator.HideWhenInactive, 0);
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_NOTIFICATIONS), BM_SETCHECK,
-                _cfg.Core.Notifications, 0);
-
-    // Setup indicator state combo box
-    HWND hCombo = GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_COMBO);
-    SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
-
-    for (const auto& state : IndicatorStates) {
-        SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)state);
-    }
-    SendMessage(hCombo, CB_SETCURSEL, (WPARAM)_cfg.Indicator.State, 0);
-
-    // Setup trackbars
-    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR),
-                       1, MAKELONG(10, 32), _cfg.Indicator.Size);
-    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR),
-                       1, MAKELONG(0, 100), static_cast<int>(_cfg.Indicator.VolumeThreshold * 100));
-}
-
-void SettingsWindowViewModel::InitializeSoundsSection(HWND hWnd) const {
-    // -1 means "never set", so the slider opens on whatever the device is actually at
-    const int micVolume = _cfg.Mic.Volume == -1 ? _audioManager.CaptureDevice()->GetVolumePercent()
-                                               : _cfg.Mic.Volume;
-    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR),
-                       1, MAKELONG(0, 100), micVolume);
-
-    DialogControls::InitTrackbar(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR),
-                       1, MAKELONG(0, 100), _cfg.Mic.BellVolume);
-
-    SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME), BM_SETCHECK,
-                _cfg.Mic.KeepVolume, 0);
-
-    // Setup sound combo boxes
-    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO),
-                                       _cfg.RecentSounds, _cfg.Mic.MuteSound);
-    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO),
-                                       _cfg.RecentSounds, _cfg.Mic.UnmuteSound);
-}
 /// One row per binding in config order, then the row that adds another.
 void SettingsWindowViewModel::RefreshActionRows() const {
     // The trigger already stores the display name, so there is nothing to format here
@@ -295,29 +369,7 @@ void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
     }
 }
 
-
-void SettingsWindowViewModel::InitializeAboutSection(HWND hWnd) {
-    SetDlgItemTextW(hWnd, IDC_ABOUT_VERSION_INFO, Str::Utf8ToWide("Version " + g_AppVersion.GetFullFormat()).c_str());
-
-    // Underlined copy of the dialog font, so the link scales with the rest of the page.
-    // Created once: the page is destroyed and rebuilt on every visit to this category.
-    if (!_linkFont) {
-        LOGFONTW logFont{};
-        GetObjectW((HFONT)SendMessage(hWnd, WM_GETFONT, 0, 0), sizeof(logFont), &logFont);
-        logFont.lfUnderline = TRUE;
-        _linkFont = CreateFontIndirectW(&logFont);
-    }
-
-    SendMessage(GetDlgItem(hWnd, IDC_ABOUT_GITHUB_LINK), WM_SETFONT, (WPARAM)_linkFont, TRUE);
-
-    SetupLogDisplay(hWnd);
-}
-
 void SettingsWindowViewModel::SetupLogDisplay(HWND hWnd) {
-    if (!GetDlgItem(hWnd, IDC_ABOUT_LOG_LIST)) {
-        return;
-    }
-
     CleanupLogDisplay();
 
     // Captures the page by value and only posts: a log line can arrive on any thread, and
@@ -339,215 +391,52 @@ void SettingsWindowViewModel::CleanupLogDisplay() {
     }
 }
 
-bool SettingsWindowViewModel::RequestElevationFor(HWND hWnd, const wchar_t* feature) const {
-    const std::wstring message = std::wstring(L"Administrator privileges are required for ") + feature
-        + L".\nWould you like to restart the application as administrator?";
-
-    if (MessageBoxW(hWnd, message.c_str(), L"Administrator Required", MB_YESNO | MB_ICONQUESTION) != IDYES) {
-        return false;
-    }
-
-    // Restarting elevated is the commit: the elevated instance reads the file, so the choice has
-    // to survive the process it was made in. RequestElevation does not return when it succeeds.
-    _cfg.Save();
-    return UAC::RequestElevation();
-}
-
-/// Applies the settings that reach outside the config file. Called from Apply, never from a click,
-/// so closing the window with Cancel leaves the registry and the task scheduler untouched.
-void SettingsWindowViewModel::CommitPrivilegedSettings() const {
-    if (_autoStartRequested != _autoStartInitial) {
-        _autoStartRequested ? Registry::AddToAutoStartup(APP_NAME)
-                            : Registry::RemoveFromAutoStartup(APP_NAME);
-    }
-
-    if (_cfg.Core.SkipUac == _cfgPrev.Core.SkipUac) {
-        return;
-    }
-
-    if (_cfg.Core.SkipUac ? UAC::EnableSkipUAC() : UAC::DisableSkipUAC()) {
-        return;
-    }
-
-    MessageBoxW(_view->GetHandle(),
-                _cfg.Core.SkipUac ? L"Failed to create UAC bypass task."
-                                      : L"Failed to remove UAC bypass task.",
-                L"Error", MB_OK | MB_ICONERROR);
-    _cfg.Core.SkipUac = _cfgPrev.Core.SkipUac;
-}
-
-void SettingsWindowViewModel::HandleButtonClick(HWND hWnd, int buttonId) {
-    switch (buttonId) {
-        case IDC_SETTINGS_AUTOSTART:
-            _autoStartRequested = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-
-        case IDC_SETTINGS_SKIP_UAC: {
-            const bool requested = DialogControls::IsChecked(hWnd, buttonId);
-
-            if (!UAC::IsElevated()) {
-                _cfg.Core.SkipUac = requested;
-                if (!RequestElevationFor(hWnd, L"UAC bypass")) {
-                    // Declined, or the OS refused - put the file back the way we found it
-                    _cfg.Core.SkipUac = !requested;
-                    _cfg.Save();
-                    SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, !requested, 0);
-                }
-                return;
-            }
-
-            _cfg.Core.SkipUac = requested;
-            break;
-        }
-
-        case IDC_SETTINGS_UPDATES_ENABLED: {
-            _cfg.Core.Updates = DialogControls::IsChecked(hWnd, buttonId);
-
-            // Auto-update cannot outlive the check that feeds it
-            if (!_cfg.Core.Updates) {
-                _cfg.Core.AutoUpdate = false;
-                SendMessage(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), BM_SETCHECK, FALSE, 0);
-            }
-
-            EnableWindow(GetDlgItem(hWnd, IDC_SETTINGS_AUTO_UPDATE_ENABLED), _cfg.Core.Updates);
-            break;
-        }
-        case IDC_SETTINGS_AUTO_UPDATE_ENABLED:
-            _cfg.Core.AutoUpdate = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-        case IDC_SETTINGS_INDICATOR_CAPTURE:
-            _cfg.Indicator.ExcludeFromCapture = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-
-        case IDC_SETTINGS_INDICATOR_ON_TOP: {
-            const bool requested = DialogControls::IsChecked(hWnd, buttonId);
-
-            if (requested && !UAC::IsElevated()) {
-                _cfg.Indicator.OnTopExclusive = true;
-                if (!RequestElevationFor(hWnd, L"the 'On top of all windows' feature")) {
-                    // Declined, or the OS refused - put the file back the way we found it
-                    _cfg.Indicator.OnTopExclusive = false;
-                    _cfg.Save();
-                    SendMessage(GetDlgItem(hWnd, buttonId), BM_SETCHECK, FALSE, 0);
-                }
-                return;
-            }
-
-            _cfg.Indicator.OnTopExclusive = requested;
-            break;
-        }
-
-        case IDC_SETTINGS_INDICATOR_HIDE_INACTIVE:
-            _cfg.Indicator.HideWhenInactive = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-        case IDC_SETTINGS_INDICATOR_NOTIFICATIONS:
-            _cfg.Core.Notifications = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-        case IDC_SETTINGS_SOUNDS_MIC_KEEP_VOLUME:
-            _cfg.Mic.KeepVolume = DialogControls::IsChecked(hWnd, buttonId);
-            break;
-        case IDC_SETTINGS_SOUNDS_MUTE_BROWSE:
-            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_MUTE_COMBO, "Select mute sound file", _cfg.Mic.MuteSound);
-            break;
-        case IDC_SETTINGS_SOUNDS_UNMUTE_BROWSE:
-            HandleSoundBrowse(hWnd, IDC_SETTINGS_SOUNDS_UNMUTE_COMBO, "Select unmute sound file", _cfg.Mic.UnmuteSound);
-            break;
-        case IDC_ABOUT_GITHUB_LINK:
-            ShellExecuteW(nullptr, L"open", Str::Utf8ToWide(REPO_URL).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            break;
-        default:
-            break;
-    }
-}
-
-void SettingsWindowViewModel::HandleComboBoxChange(HWND hWnd, int comboBoxId) const {
-    switch (comboBoxId) {
-        case IDC_SETTINGS_INDICATOR_COMBO:
-            _cfg.Indicator.State = static_cast<IndicatorState>(
-                SendMessage(GetDlgItem(hWnd, comboBoxId), CB_GETCURSEL, 0, 0));
-            break;
-        case IDC_SETTINGS_SOUNDS_MUTE_COMBO:
-            HandleSoundSelection(hWnd, comboBoxId, _cfg.Mic.MuteSound);
-            break;
-        case IDC_SETTINGS_SOUNDS_UNMUTE_COMBO:
-            HandleSoundSelection(hWnd, comboBoxId, _cfg.Mic.UnmuteSound);
-            break;
-        default:
-            break;
-    }
-}
-
-void SettingsWindowViewModel::HandleTrackbarChange(HWND hWnd, int trackbarId, int value) const {
-    switch (trackbarId) {
-        case IDC_SETTINGS_INDICATOR_SIZE_TRACKBAR:
-            _cfg.Indicator.Size = static_cast<BYTE>(value);
-            _mainWindow->Relayout();
-            break;
-        case IDC_HOTKEYS_WINDOW_TRACKBAR:
-            _cfg.Core.MultiPressWindowMs = static_cast<uint16_t>(value);
-            break;
-        case IDC_SETTINGS_INDICATOR_THRESHOLD_TRACKBAR:
-            _cfg.Indicator.VolumeThreshold = static_cast<float>(value) / 100.0f;
-            break;
-        case IDC_SETTINGS_SOUNDS_MIC_VOLUME_TRACKBAR:
-            _cfg.Mic.Volume = static_cast<int8_t>(value);
-            break;
-        case IDC_SETTINGS_SOUNDS_BELL_VOLUME_TRACKBAR:
-            _cfg.Mic.BellVolume = static_cast<int8_t>(value);
-            break;
-        default:
-            break;
-    }
-}
-
-void SettingsWindowViewModel::HandleSoundSelection(HWND hWnd, int comboBoxId, std::string& configSource) const {
-    configSource = DialogControls::ResolveSound(GetDlgItem(hWnd, comboBoxId), _cfg.RecentSounds);
-}
-
-void SettingsWindowViewModel::HandleSoundBrowse(HWND hWnd, int comboBoxId, const char* title,
-                                                std::string& configSource) const {
-    std::string selectedFile;
-    if (!AudioFileValidator::PickValidWavFile(_view->GetHandle(), title, selectedFile)) {
-        return;
-    }
-
-    configSource = selectedFile;
-    DialogControls::AddRecentSound(_cfg.RecentSounds, selectedFile);
-    DialogControls::PopulateSoundCombo(GetDlgItem(hWnd, comboBoxId), _cfg.RecentSounds, configSource);
-}
-
 void SettingsWindowViewModel::Init() {
     _current = this;
     _cfgPrev = _cfg;
-    _autoStartInitial = Registry::IsInAutoStartup(APP_NAME);
-    _autoStartRequested = _autoStartInitial;
+    _autoStartWas = Registry::IsInAutoStartup(APP_NAME);
+    _autoStartWants = _autoStartWas;
 
     _mainWindow = static_cast<MainWindow*>(_view->GetParent());
-    _mainWindow->Show();
+    // Not shown from here: SuspendActivity already put the overlay into preview, and whether it
+    // is on screen is the surface's decision alone
     _mainWindow->ToggleInteractivity(true);
 
-    _view->OnButtonClick = [this](HWND hWnd, int buttonId) { HandleButtonClick(hWnd, buttonId); };
-    _view->OnComboBoxChange = [this](HWND hWnd, int comboBoxId) { HandleComboBoxChange(hWnd, comboBoxId); };
-    _view->OnTrackbarChange = [this](HWND hWnd, int trackbarId, int value) {
-        HandleTrackbarChange(hWnd, trackbarId, value);
+    _view->OnPageCreated = [this](HWND page, const SettingsPage& desc) {
+        // The page the subscription posts to was just destroyed; the About page makes a new one
+        CleanupLogDisplay();
+        _rows = desc.Rows;
+        SettingsRows::Build(page, _rows, _cfg);
+    };
+    _view->OnPageInput = [this](HWND page, UINT message, WPARAM wParam, LPARAM lParam) {
+        SettingsRows::Handle(page, _rows, _cfg, message, wParam, lParam);
     };
     _view->OnActionActivated = [this](int rowIndex) { HandleActionActivated(rowIndex); };
 
     _view->OnApply += [this] {
         _mainWindow->UpdateRect();
-        _cfg.Indicator.PosX = _mainWindow->GetPositionX();
-        _cfg.Indicator.PosY = _mainWindow->GetPositionY();
+        _cfg.Overlay.PosX = _mainWindow->GetPositionX();
+        _cfg.Overlay.PosY = _mainWindow->GetPositionY();
 
-        CommitPrivilegedSettings();
+        // Every page's rows, not only the open one's - a choice made on a page left earlier is
+        // still waiting for this
+        for (const SettingsPage& page : SettingsHost::Pages) {
+            for (const SettingsRow& row : page.Rows) {
+                if (row.Commit) {
+                    row.Commit(_view->GetHandle(), _cfg, _cfgPrev);
+                }
+            }
+        }
 
         if (_cfg != _cfgPrev) {
             _cfg.Save();
             _cfgPrev = _cfg;
         }
-        _autoStartInitial = _autoStartRequested;
     };
 
     _view->OnExit += [this] {
+        // Raised in the frame's WM_DESTROY, while the page it posts to still exists
+        CleanupLogDisplay();
         _mainWindow->ToggleInteractivity(false);
         _cfg = _cfgPrev;
     };

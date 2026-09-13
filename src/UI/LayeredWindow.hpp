@@ -4,13 +4,22 @@
 
 #pragma once
 
+#include <functional>
 #include <windows.h>
 #include <gdiplus.h>
-#include "GdiRenderer.hpp"
 
 #pragma comment(lib, "gdiplus.lib")
 
-namespace GDIRenderer {
+/// The canvas a render pass draws on, and the area it owns.
+struct RenderContext {
+    Gdiplus::Graphics* graphics = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
+namespace LayeredWindow {
+
+    using RenderCallback = std::function<void(RenderContext&)>;
 
     /**
      * @brief Back buffer for the layered indicator.
@@ -18,7 +27,7 @@ namespace GDIRenderer {
      * There is exactly one such window and its size only changes from the settings trackbar, so
      * the DC and the DIB section are built once instead of on every WM_PAINT.
      */
-    class LayeredSurface {
+    class Surface {
         HDC _dc = nullptr;
         HBITMAP _bitmap = nullptr;
         HGDIOBJ _previous = nullptr;
@@ -73,14 +82,14 @@ namespace GDIRenderer {
             _width = _height = 0;
         }
 
-        ~LayeredSurface() { Release(); }
+        ~Surface() { Release(); }
     };
 
     /**
      * @brief Draws through the callback and pushes the result to the layered window.
      */
-    inline void RenderLayeredWindow(HWND hwnd, int width, int height, const POINT& windowPos,
-                                    const RenderCallback& renderFunc) {
+    inline void Render(HWND hwnd, int width, int height, const POINT& windowPos,
+                       const RenderCallback& renderFunc) {
         if (!hwnd || !renderFunc) {
             return;
         }
@@ -90,7 +99,7 @@ namespace GDIRenderer {
             return;
         }
 
-        static LayeredSurface surface;
+        static Surface surface;
         HDC memoryDC = surface.Get(screenDC, width, height);
         if (!memoryDC) {
             ReleaseDC(hwnd, screenDC);

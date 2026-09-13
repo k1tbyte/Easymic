@@ -5,7 +5,7 @@
 #include "MainWindowViewModel.hpp"
 #include "Core/Feedback.hpp"
 #include "Core/Host.hpp"
-#include "Core/HotkeyService.hpp"
+#include "Core/Hotkeys/HotkeyService.hpp"
 #include "Features/Keyboard/Keyboard.hpp"
 #include "Features/Launcher/Launcher.hpp"
 #include "Features/Microphone/Microphone.hpp"
@@ -70,8 +70,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     ULONG_PTR gdiplusToken = 0;
-    GdiplusStartupInput input;
-    GdiplusStartup(&gdiplusToken, &input, nullptr);
+    Gdiplus::GdiplusStartupInput input;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &input, nullptr);
 
     g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());

@@ -4,9 +4,9 @@
 #include "Tokens.hpp"
 #include "Resources/Resource.h"
 #include "AudioFileValidator.hpp"
-#include "HotkeyCapture.hpp"
-#include "Core/HotkeyService.hpp"
-#include "Core/KeyNames.hpp"
+#include "Core/Hotkeys/HotkeyCapture.hpp"
+#include "Core/Hotkeys/HotkeyService.hpp"
+#include "Core/Hotkeys/KeyNames.hpp"
 #include "Str.hpp"
 
 namespace {

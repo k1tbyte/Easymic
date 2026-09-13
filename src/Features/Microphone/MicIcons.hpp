@@ -8,13 +8,13 @@
 #include "Resources/Resource.h"
 
 /**
- * @brief The glyphs the indicator and the tray share, and who owns them.
+ * @brief The glyphs the microphone's overlay layer and its tray icon share, and who owns them.
  *
  * The pill always draws the bright originals - it has its own dark background. Only the tray
  * needs darkened copies, and only on a light taskbar, so they are built on the first switch to
  * one and kept from then on.
  */
-class IndicatorIcons {
+class MicIcons {
     // Shared icons from LoadIcon - never DestroyIcon'd
     HICON _muted = nullptr;
     HICON _unmuted = nullptr;
@@ -30,7 +30,7 @@ class IndicatorIcons {
     std::unique_ptr<Gdiplus::Bitmap> _activeBitmap;
 
 public:
-    explicit IndicatorIcons(HINSTANCE hInstance) {
+    explicit MicIcons(HINSTANCE hInstance) {
         _muted = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MIC_MUTED));
         _unmuted = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MIC_UNMUTED));
         const HICON active = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MIC_ACTIVE));
@@ -42,7 +42,7 @@ public:
         RefreshTheme();
     }
 
-    ~IndicatorIcons() {
+    ~MicIcons() {
         // Only the darkened copies are ours - the originals come from LoadIcon and are shared
         if (_mutedDark) {
             DestroyIcon(_mutedDark);
@@ -52,8 +52,8 @@ public:
         }
     }
 
-    IndicatorIcons(const IndicatorIcons&) = delete;
-    IndicatorIcons& operator=(const IndicatorIcons&) = delete;
+    MicIcons(const MicIcons&) = delete;
+    MicIcons& operator=(const MicIcons&) = delete;
 
     /// Darkened copies are built once, on the first switch to a light taskbar.
     void RefreshTheme() {

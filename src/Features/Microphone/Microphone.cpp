@@ -9,6 +9,7 @@
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
 #include "Logger.hpp"
+#include "MicLayer.hpp"
 #include "SoundCatalog.hpp"
 
 namespace {
@@ -185,6 +186,7 @@ namespace Mic {
             ActionRegistry::Add(desc);
         }
 
+        MicLayer::Register(host.Instance, host.Config.Mic);
         _attachListeners();
     }
 
@@ -219,6 +221,22 @@ namespace Mic {
             _adjustVolume();
         });
         _settle(true);
+    }
+
+    void Suspend() {
+        Mic::Audio().StopWatchingForCaptureSessions();
+    }
+
+    void Resume() {
+        Mic::Audio().WatchForCaptureSessions();
+    }
+
+    HICON TrayIcon() {
+        return MicLayer::TrayIcon();
+    }
+
+    void RefreshTheme() {
+        MicLayer::RefreshTheme();
     }
 
     void ToggleBell() {

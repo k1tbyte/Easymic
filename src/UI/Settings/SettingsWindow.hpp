@@ -25,8 +25,9 @@ struct ActionRow {
 /**
  * @brief Settings window with TreeView sidebar navigation.
  *
- * The frame is the IDD_SETTINGS_MAIN template and each category is a child dialog placed inside
- * the group box - the dialog manager owns the layout, the fonts and the DPI scaling.
+ * The frame is the IDD_SETTINGS_MAIN template and each page is an empty child dialog in the group
+ * box that the view model fills from the page's rows - the dialog manager still owns the font and
+ * the DPI scale.
  */
 class SettingsWindow final : public BaseWindow {
 
@@ -58,14 +59,15 @@ public:
     IEvent<>& OnApply = _onApply;
 
     // View model delegation - single subscriber each, assigned once during Init
-    std::function<void(HWND hWnd, int buttonId)> OnButtonClick;
-    std::function<void(HWND hWnd, int comboBoxId)> OnComboBoxChange;
-    std::function<void(HWND hWnd, int trackbarId, int value)> OnTrackbarChange;
+    /// The page is sized and still hidden, so whatever fills it can measure it.
+    std::function<void(HWND page, const SettingsPage& desc)> OnPageCreated;
+    /// WM_COMMAND and WM_HSCROLL from the open page.
+    std::function<void(HWND page, UINT message, WPARAM wParam, LPARAM lParam)> OnPageInput;
     std::function<void(int rowIndex)> OnActionActivated;
 
 private:
     void PopulateTreeView() const;
-    void LoadCategoryContent(int resourceId);
+    void ShowPage(const SettingsPage& page);
     void UpdateGroupBoxLayout() const;
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
 
@@ -88,4 +90,3 @@ private:
     HWND _hwndContentDialog = nullptr;
 
 };
-

@@ -51,39 +51,57 @@ dispatcher; features register into it.
 src/
   Core/                    the kernel - no knowledge of any feature
     ActionRegistry.hpp       id -> ActionDesc {title, args, factory}
-    Bindings.hpp             configured actions -> registered hotkeys
-    HotkeyService.*          LL hooks, key masks, multi-press (today's HotkeyManager, minus queue)
-    KeyNames.hpp             the 256-entry VK name table, on its own
-    Dispatcher.*             worker thread + PostToUi
-    ConfigStore.hpp          per-module config sections
-    Feedback.hpp             sound + overlay text + token expansion (today's ActionFeedback)
+    Dispatcher.*             worker thread + ToUi
+    Feedback.hpp             sound + overlay text + token expansion
+    Overlay.hpp              the layer registry: who is allowed to draw on the overlay
     SettingsHost.hpp         settings page registry
+    SoundCatalog.hpp         bundled sounds, and the lookup every picker goes through
+    AppConfig.hpp            the on-disk shape, one section per module
     Host.hpp                 the facade a feature module sees
+    Hotkeys/                 one trigger source, not the concept
+      HotkeyService.*          LL hooks, key masks, multi-press
+      KeyNames.*               the 256-entry VK name table and its inverse
+      HotkeyCapture.hpp        the capture field the action dialog uses
+      Bindings.hpp             configured bindings -> registered hotkeys
 
   Platform/                thin wrappers, no domain knowledge
     Str.hpp Event.hpp Logger.* Registry.hpp ComObject.hpp Win32Hook.hpp RateLimiter.hpp
-    Uac/ UIAccess/ Shell/ Crash/ Update/ Version/
+    Gdi.hpp                  rounded pill, text measure, centred draw - a layer's whole toolkit
+    TrayIconTheme.hpp        light taskbar detection, and the darkened copy of an icon
+    UIAccess/ UACService.* CrashHandler.* UpdateManager.* Version.*
 
   Features/                vertical slices
-    Microphone/            Wasapi/, actions, indicator, settings page
-    Keyboard/              InputLanguage, actions, settings page
+    Microphone/            Wasapi/, actions, its overlay layer, its icons, its settings page
+    Keyboard/              InputLanguage, actions, its settings page
     Launcher/              CommandRunner, ShellLaunch, ShellContext, {dir}/{stdout}
 
   UI/                      Win32 plumbing, feature-agnostic
-    BaseWindow.hpp TrayIcon.hpp LayeredWindow.hpp GdiRenderer.hpp DialogControls.hpp
+    BaseWindow.hpp LayeredWindow.hpp TrayIcon.hpp DialogControls.hpp
+    Overlay/               the surface, the slot layout, the text pill
     Settings/              page host, declarative row builder
 
   Resources/
   main.cpp
 ```
 
-### Slice rule
+### Layering rules
 
-**No file under `Features/X/` may include `Features/Y/`.** Only `Core/` and `Platform/` are
-shared. If two features need to talk, that is a `Core/` concern.
+**A file under `Features/` may include `Core/` and `Platform/`, and nothing else.** Two rules
+fall out of that, and both are grepped in `build.ps1` rather than trusted - cheap, and they are
+what keeps the whole design from rotting back into `Lib/`:
 
-Enforce it with a grep step in `build.ps1` - cheap, and it is the one rule that keeps the
-whole design from rotting back into `Lib/`.
+- **No file under `Features/X/` may include `Features/Y/`.** If two features need to talk, that
+  is a `Core/` concern.
+- **No file under `Features/` may include a header under `src/UI`.** A feature describes itself
+  to the frame - an action, an overlay layer, a settings page, a tray provider - and never
+  reaches up into a window.
+
+None of the ways of breaking either rule is a compile error: `src/UI` is on the include path, so
+`#include "MainWindow.hpp"` builds, and a quoted include searches the includer's own directory
+first, so `#include "../Launcher/Launcher.hpp"` builds too. The check therefore judges an
+include by **where it lands** - resolved against the includer's directory - and only then by how
+it is written, and it reads `<angle>` includes as well as quoted ones, because the angle form
+searches the same `-I` directories.
 
 ---
 
@@ -178,10 +196,10 @@ all disappear.
 
 ### Bindings
 
-`Core/Bindings.hpp` is the one place that knows both the config shape and the hotkey service:
-`Bindings::Apply(actions, feedback)` resolves each `ActionId` through the registry, composes the
-notification, wraps the handler and registers the combination. It was the view model's job until
-step 2 and belongs to neither the view nor a feature.
+`Core/Hotkeys/Bindings.hpp` is the one place that knows both the config shape and the hotkey
+service: `Bindings::Apply(actions, feedback)` resolves each `ActionId` through the registry,
+composes the notification, wraps the handler and registers the combination. It was the view
+model's job until step 2 and belongs to neither the view nor a feature.
 
 ### Binding
 
@@ -205,15 +223,160 @@ The nested `Trigger` is the one deliberately forward-looking piece here. Nothing
 it costs one level of nesting now and keeps the binding shape intact if a non-hotkey trigger
 source ever appears (window opened, app launched, timer).
 
+### Overlay layers
+
+The overlay is a *surface*, not a microphone indicator. It owns everything that is true of the
+surface - where it sits, how big a pill is, whether it stays on top, whether screen capture sees
+it, what a pill looks like. It owns nothing that is drawn *in* it.
+
+It is a surface and not a window on purpose. `MainWindow` stays the app's one frame: it owns the
+HWND, the tray icon, the message routing and `Dispatcher::BindUi`, because whoever owns the
+message loop is the one the worker gets back to the UI thread through. A second window for the
+overlay would be a second answer to that question, plus another window class and another HWND
+for nothing - the overlay hides and shows constantly today and the tray icon on the same handle
+never notices. So the overlay is `UI/Overlay/OverlaySurface.hpp`, driving the frame's window,
+and what it takes from the config is `OverlaySettings` and nothing else.
+
+What is drawn in it is a list of layers, and a layer is contributed by whoever the content belongs
+to: the mic pill and the peak meter by `Features/Microphone`, the notification text by the overlay
+itself (it is the overlay's own pill, fed through `Feedback`), the keyboard layout by
+`Features/Keyboard` on the day someone wants it.
+
+```cpp
+// Core/Overlay.hpp
+/// What a layer is told before it has a slot: the geometry it scales everything from.
+struct OverlayCell {
+    int Height;                 // the pill height, the one size a layer scales everything from
+    int IconSize;               // Overlay::Size from the config
+    float FontSize;
+    bool Preview;               // the settings window is open - show a state, not nothing
+};
+
+struct OverlaySlot {
+    int Width = 0;              // 0 = nothing on screen right now
+    bool WantsTick = false;     // poll me anyway: at width 0 is how a layer watches for its cue
+};
+
+struct OverlayLayer {
+    std::string_view Id;        // "mic.pill", "kbd.layout"
+    int Order = 100;            // left to right; Overlay::Last pins the text pill
+    OverlaySlot (*Measure)(const OverlayCell&);
+    /// Origin is the slot, so a layer draws at 0,0 across the width Measure asked for
+    void (*Render)(const OverlayCell&, Gdiplus::Graphics& canvas, int width);
+    uint16_t TickMs = 0;
+    void (*Tick)() = nullptr;   // invalidates by itself when it changed something
+};
+
+namespace Overlay {
+    inline std::vector<OverlayLayer> Layers;
+    void Add(const OverlayLayer&);
+    /// Set by the window at bind time, the way Feedback takes its PostFn. Callable from any
+    /// thread - the UI side posts.
+    inline void (*Invalidate)() = nullptr;
+}
+```
+
+Same shape as `ActionRegistry` and `SettingsHost`, deliberately: a POD descriptor with plain
+function pointers, an `Order` sort key, enumerated in a stable order. A layer holds its state in
+its own slice and reads it on the UI thread, exactly as `SettingsPage::Build` does.
+
+What a layer is told differs between the two phases, and the first draft of this design made
+that a second struct - `OverlayCanvas : OverlayCell`, adding the canvas and the granted width.
+It bought nothing: the two callbacks already have two signatures, so a `Measure` cannot see a
+width it has not asked for and a `Render` cannot get a null canvas whether the canvas arrives as
+a reference member or as a reference parameter. The parameters say it in no lines at all.
+
+Two invariants the layout pass keeps, both of them today's behaviour generalised from two fixed
+slots to N:
+
+- **The overlay draws the pill, a layer draws its content.** One corner radius, one background,
+  one gap, so a pill a feature contributes cannot look like a different app.
+- **The anchor is the user's, the width is the content's.** Slots are measured, laid out left to
+  right from the anchor, and the whole strip flips to the left of it when the work area's right
+  edge is in the way. Widening for a notification must never walk the indicator across the screen.
+
+`WantsTick` is what pays for the peak meter honestly. Today "muted or talking" keeps an empty
+window on screen because the peak timer only ticks while the indicator is visible, and the timer
+is what discovers that the mic went live. A layer that asks for ticks at width 0 needs no phantom
+window: the timer runs, the window stays hidden until there is something in it.
+
+### Tray providers
+
+The tray is the other surface, and it is not shaped like the overlay: **the icon is one slot and
+the menu is a list.** Two features cannot both paint the icon, and there is no reason they cannot
+both put an item in the menu. One registry, two kinds of contribution, and the difference is
+settled by the user rather than by registration order.
+
+```cpp
+// Core/Tray.hpp
+struct TrayProvider {
+    std::string_view Id;      // "mic.state" - stored in the config, so permanent
+    std::string_view Title;   // the radio label on the Tray page
+    int Order = 100;
+    /// UI thread. What the icon should be right now; null keeps whatever is up.
+    HICON (*Icon)() = nullptr;
+    /// UI thread. Empty falls back to APP_NAME.
+    std::wstring (*Tooltip)() = nullptr;
+    /// Optional. The darkened copies for a light taskbar are built once, on the first switch to
+    /// one, so a provider that themes its icons wants to be told rather than to poll.
+    void (*ThemeChanged)() = nullptr;
+    /// Optional, and independent of the radio: a provider's menu item is offered whether or not
+    /// it owns the icon. The label is a function because it reports state - "Enable bell sound"
+    /// and "Disable bell sound" are one item.
+    const wchar_t* (*MenuLabel)() = nullptr;
+    void (*MenuInvoke)() = nullptr;
+};
+
+namespace Tray {
+    inline std::vector<TrayProvider> Providers;
+    void Add(const TrayProvider&);
+    /// Set by the window at bind time. Any thread - the UI side posts.
+    inline void (*Refresh)() = nullptr;
+}
+```
+
+The frame registers one provider itself: `"tray.app"`, `IDI_APP` and `APP_NAME` - the same icon
+the settings window puts in its own title bar. It pins itself `Last`, which makes it both a real
+choice on the radio and the thing that paints the tray when nothing else can. There is no "None"
+option: the tray icon carries the only route to Settings and Exit, so it always exists and the
+choice is only what paints it.
+
+Which one is chosen lives in `TraySettings::Provider` as an `Id`, not an index: the order of
+`Modules[]` in `main` must not be able to silently repoint a setting the user made. An `Id` no
+module registered falls back to the app icon, the same way an unparseable hotkey name leaves a
+binding visible and unbound rather than dropping it.
+
+**Empty is not the same as unknown.** An empty `Provider` is a config nobody has chosen in yet -
+first run - and it resolves to the first provider by `Order`, which is the microphone as long as
+it registers one. Sort order deciding the *default* is fine; sort order deciding a *stored choice*
+is what the `Id` exists to prevent. That way a fresh install keeps today's behaviour without
+`Core/AppConfig.hpp` naming a feature in its defaults.
+
+A provider that has no `Icon` is not on the radio at all - it is a menu contribution and nothing
+else. Wanting a menu item and wanting the icon are separate claims, and one is exclusive.
+
+**Menu command ids stop being resource ids.** The tray assigns them at popup time by position and
+calls the contribution back, so `ID_APP_TOGGLE_BELL`, its `case` in the view model's switch and
+the `_config.Mic.BellVolume` read inside `MainWindow::ShowTrayContextMenu` all disappear together
+- that read is the last thing in the window that knows what a microphone is.
+
+The menu keeps Settings first and Exit last whatever registers in between, so the two items that
+were always there do not move as features come and go. `MenuInvoke` runs on the UI thread, where
+the popup is pumped: anything that belongs on the worker hops there itself, the same rule every
+other UI-thread callback in this app follows. One item per provider, because the bell toggle is
+the only contribution that exists and a vector for a hypothetical second one is a line of code
+that would wait years to matter.
+
 ### Config
 
 Split the flat `AppConfig` into nested per-module structs. glaze BEVE handles nesting fine.
 
 ```cpp
 struct Config {
-    CoreSettings          Core;        // updates, skipUac, autostart
-    MicSettings           Mic;         // volume, keepVolume, bell, mute/unmute sounds
-    IndicatorSettings     Indicator;
+    CoreSettings          Core;        // updates, skipUac, autostart, multi-press window
+    OverlaySettings       Overlay;     // position, size, on top, exclude from capture, text pill
+    TraySettings          Tray;        // which provider paints the icon, by Id
+    MicSettings           Mic;         // volume, keepVolume, bell, sounds, pill mode, threshold
     std::vector<Binding>  Bindings;
     std::set<std::string> RecentSounds;
     int32_t               Version;
@@ -221,6 +384,20 @@ struct Config {
 ```
 
 A module takes `MicSettings&`, not `AppConfig&`. That is what collapses the include graph.
+
+**Which section a field goes in is decided by who would still want it if the feature were
+deleted.** `Size`, `OnTop` and `ExcludeFromCapture` are true of the overlay window whatever is
+drawn in it, so they are `OverlaySettings`. `HideWhenInactive`, `VolumeThreshold` and the pill's
+`Hidden / Muted / MutedOrTalk` mode only mean anything to a microphone, so they are `MicSettings`
+even though the thing they affect is on screen. The same question settles the master notification
+switch: it gates the overlay's own text pill, so it is `OverlaySettings::Notifications` rather
+than a `Core` flag.
+
+**The section structs stay in `Core/AppConfig.hpp`, declared by the kernel.** A feature declaring
+its own struct and the kernel aggregating them would point the include graph the wrong way, and
+the alternative - an untyped blob per module - trades the defaults and the compiler for nothing a
+single-user config file needs. One file is the on-disk shape; a module still only ever *sees* its
+own section, and that is the coupling that was worth removing.
 
 ### Serialization format: JSON, not BEVE
 
@@ -258,7 +435,8 @@ interesting one. It is stored as its display name instead:
 }
 ```
 
-`GetHotkeyName` already produces that string; step 1 adds the inverse in `Core/KeyNames.hpp`.
+`GetHotkeyName` already produces that string; step 1 adds the inverse in
+`Core/Hotkeys/KeyNames.hpp`.
 A name that does not parse zeroes the trigger - the binding stays in the list, unbound and
 visible in settings, rather than vanishing.
 
@@ -278,9 +456,14 @@ are lost on the next save. Reading them is supported, round-tripping them is not
    - LL hook proc: mask lookup and enqueue only.
    - Action worker: where every action body runs. Feature callbacks land here.
    - UI thread: everything touching a window or the config. Reached via `Dispatcher::ToUi`.
+     `Measure`, `Render` and `Tick` on an overlay layer are this thread and only this thread;
+     `Overlay::Invalidate` is the one entry point that may be called from any other.
    - WASAPI notification thread: writes state through atomics only.
 4. **Config keys are permanent.** `ActionDesc::Id` is written to disk. Renaming one is a
    migration, not an edit.
+5. **A layer may not be polled for nothing.** `TickMs` runs a timer on the UI thread, and this
+   app's second priority is idle footprint: a layer asks for ticks only while it has something to
+   watch for, and the overlay stops the timer the moment it stops asking.
 
 ---
 
@@ -290,28 +473,96 @@ The highest-leverage part of the refactor and the one that makes Win32 bearable.
 
 Plan: **declarative rows for settings grids, DIALOGEX only where the layout is genuinely custom.**
 
-A module describes its page as data; a generic builder creates the controls with
-`CreateWindowExW`, handles DPI layout, and reads/writes the bound config fields.
+A module describes its page as data; a generic builder (`UI/Settings/SettingsRows`) creates the
+controls with `CreateWindowExW`, lays them out in dialog units against the page's own font, and
+reads/writes the bound config fields.
 
 ```cpp
-inline const Row GeneralRows[] = {
-    {Check,  L"Start with Windows", Bind(&CoreSettings::AutoStart)},
-    {Check,  L"Skip UAC",           Bind(&CoreSettings::SkipUac), {}, RequireElevation},
-    {Check,  L"Check for updates",  Bind(&CoreSettings::Updates)},
-    {Slider, L"Indicator size",     Bind(&IndicatorSettings::Size), {10, 32}},
+static constexpr SettingsRow General[] = {
+    {.Kind = RowKind::Check, .Label = L"Check for updates",
+     .Field = Bind<&AppConfig::Core, &CoreSettings::Updates>(),
+     .Changed = [](HWND, AppConfig& cfg) { cfg.Core.AutoUpdate = cfg.Core.AutoUpdate && cfg.Core.Updates; }},
+    {.Kind = RowKind::Check, .Label = L"Enable auto-updates",
+     .Field = Bind<&AppConfig::Core, &CoreSettings::AutoUpdate>(),
+     .Enabled = [](const AppConfig& cfg) { return cfg.Core.Updates; }},
+    {.Kind = RowKind::Slider, .Label = L"Size (px)",
+     .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Size>(), .Min = 10, .Max = 32,
+     .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
 };
 ```
 
-Row kinds needed to cover everything that exists today: `Check`, `Combo`, `Slider`, `Text`,
-`Button`, `SoundPicker`. Roughly 250-300 lines of builder, once.
+Row kinds that cover everything that exists today: `Check`, `Combo`, `Slider`, `SoundPicker`,
+`Text`, `Group`, and `Custom` for the two controls that are not a grid row - the action list and
+the log. `Radio` arrives with the tray page in step 11, where it is first needed.
+
+The builder carries a **string-valued field** (`SoundPicker` binds `MicSettings::MuteSound` through
+`RowField::Text`) and a **runtime item list** (`RecentSounds`) from the start, so a `Radio` over a
+registry costs nothing new.
+
+**Hooks are what let the table hold the whole page rather than the easy half of it.** Every
+control is re-read from its field after any change and written only where it differs, so a hook
+edits *fields*, never controls: the updates box clears `AutoUpdate` and the auto-update row
+repaints itself, a refused elevation reverts the field and its own box follows. Two hooks, because
+there are two moments:
+
+- `Changed(HWND owner, AppConfig&)` after the field is written from a click - the elevation prompt,
+  the relayout, the dependent field;
+- `Commit(HWND owner, AppConfig&, const AppConfig& before)` on OK - autostart into the registry,
+  the UAC task into the scheduler. These must never run on a click, or Cancel stops meaning
+  Cancel, which is why one hook was not enough.
+
+Plus `Enabled(const AppConfig&)` for a row whose availability follows another field.
 
 Effects:
 
 - a checkbox goes from 5 edit sites to one row plus one config field;
-- `Initialize*Section`, `HandleSectionChange` and most of `HandleButtonClick` are deleted;
-- Apply/Cancel becomes generic over the binding table instead of copying and diffing `_cfgPrev`.
+- `Initialize*Section`, `HandleButtonClick`, `HandleComboBoxChange`, `HandleTrackbarChange` and
+  `CommitPrivilegedSettings` are deleted;
+- Cancel stays the whole-config snapshot it already was - there is nothing more generic to replace
+  it with - and OK runs every row's `Commit` over it.
 
 Keep as DIALOGEX: `IDD_ACTION_EDIT` and `IDD_UPDATE_DIALOG`. Their layout is not a settings grid.
+
+### Who owns a page
+
+**One feature is one page, registered by the feature.** A page describing itself as data is what
+makes that possible at all: a DIALOGEX page means a template in the shared `Resource.rc` and ids
+in the shared `Resource.h`, so a feature could not own its page without editing two files that
+belong to everyone.
+
+```cpp
+struct SettingsPage {
+    std::string_view Id;      // "mic" - stable, and what a child names as its parent
+    std::string_view Parent;  // empty is a top-level page
+    const wchar_t* Title;
+    std::span<const Row> Rows;
+    int Order = 100;
+};
+```
+
+The sidebar is already a tree view, so a page with children costs `TVS_HASBUTTONS` and a second
+insert pass - a feature that outgrows one screen nests instead of spilling into someone else's
+page. Parenting is by `Id` rather than by title: a display string is not an identity, and
+comparing wide text to find a parent would make renaming a page break the tree.
+
+What this settles, in the shape it exists today:
+
+| Page | Owner | Was |
+|---|---|---|
+| General | the frame | unchanged |
+| Overlay | the frame (it owns the window) | "Indicator", mixed with mic fields |
+| Tray | the frame (it owns the icon) | did not exist - the icon was the microphone's by default |
+| Microphone | `Features/Microphone` | split across "Sounds" and "Indicator" |
+| Keyboard | `Features/Keyboard` | did not exist |
+| Hotkeys | the frame | unchanged |
+| About | the frame | unchanged |
+
+**There is no Sounds page after this.** It was never a category - it was the microphone's chime
+and level settings under a name that invited every other feature to pile in. What is actually
+shared about sound is already shared: `SoundCatalog` for the bundled keys, `AppConfig::RecentSounds`
+for the picker's list, the `SoundPicker` row kind for the control, and a per-binding sound on every
+action through the action dialog. A feature that wants a sound of its own puts a `SoundPicker` row
+on its own page and hardcodes nothing.
 
 ---
 
@@ -537,31 +788,287 @@ their bindings once.
 
 ### Step 6 - Declarative settings rows
 
-- [ ] Build the row builder in `UI/Settings/` - `Check`, `Combo`, `Slider`, `Text`, `Button`,
-      `SoundPicker`, with DPI layout and config binding
-- [ ] Port General, Indicator, Sounds and Hotkeys pages to row tables
-- [ ] Delete the ported `IDD_SETTINGS_*` templates from `Resource.rc` and their ids from `Resource.h`
-- [ ] Delete `Initialize*Section` and the settings half of `HandleButtonClick`
-- [ ] Generic Apply/Cancel over the binding table; drop the `_cfgPrev` copy-and-diff
-- [ ] Keep `IDD_ACTION_EDIT` and `IDD_UPDATE_DIALOG` as DIALOGEX
+- [x] Build the row builder in `UI/Settings/` - `Check`, `Combo`, `Slider`, `Text`, `SoundPicker`,
+      plus `Group` and `Custom`, with dialog-unit layout and config binding
+- [x] A row carries `Changed` and `Commit` hooks, so the cases that are not a plain field
+      assignment land in the table with their row instead of staying behind in a switch
+- [x] Port General, Indicator, Sounds, Hotkeys and About pages to row tables
+- [x] Delete the ported `IDD_SETTINGS_*` templates from `Resource.rc` and their ids from `Resource.h`
+- [x] Delete `Initialize*Section` and the settings half of `HandleButtonClick`
+- [x] Apply/Cancel generic over the rows - the `_cfgPrev` snapshot stays, see Result
+- [x] Keep `IDD_ACTION_EDIT` and `IDD_UPDATE_DIALOG` as DIALOGEX
 - **Done when:** adding a settings checkbox is one row plus one config field.
+- **Result:** met. The row contract (`SettingsRow`, `RowField`, `Bind`) is in
+  `Core/SettingsHost.hpp`, because step 9 declares pages from inside a feature; the builder is
+  `UI/Settings/SettingsRows`. Every settings page is one empty `IDD_SETTINGS_PAGE` filled by its
+  rows, the window forwards the page's WM_COMMAND and WM_HSCROLL through one `OnPageInput`, and
+  the view model routes them to the open page's rows. `SettingsWindowViewModel.cpp` went from 556
+  lines to 395, and the binary grew 2.5 KB.
 
-**Not started, deliberately.** Two notes for whoever picks it up.
+  It was done whole, as the note left here asked: a binding table over the controls the
+  templates already placed would have left the elevation prompts, the updates box, the size
+  relayout and autostart as switch cases beside it. Three departures from the plan, all deliberate:
 
-It has to be done whole. A half-step - a binding table over the controls the DIALOGEX templates
-already place - was considered and rejected: roughly twelve of the twenty cases in
-`HandleButtonClick`, `HandleComboBoxChange` and `HandleTrackbarChange` are a plain field
-assignment and would collapse into rows, but the rest are not (the UAC and on-top boxes prompt
-for elevation and revert themselves on refusal, the updates box disables the auto-update box,
-the size slider relayouts the indicator, autostart writes the registry rather than the config).
-Those would stay as switch cases, so the table would be a second mechanism next to the one it was
-meant to replace. That is a net loss by the rule at the top of this document. The switches only
-disappear once a page is data, and a page is only data once its controls are generated too.
+  - **Two hooks, not one `Apply`.** Autostart and the UAC task reach the OS on OK and never on a
+    click. A single click-time hook could not say that without Cancel leaving the registry changed.
+  - **`_cfgPrev` stays.** The checklist asked to drop the copy-and-diff; the copy turned out to be
+    the generic mechanism already - Cancel is one assignment - and what actually went was the
+    per-field diff in `CommitPrivilegedSettings`, which became two rows' `Commit`.
+  - **About and Hotkeys are rows too**, through `Custom`: section 6 keeps only the action and
+    update dialogs as DIALOGEX. The list's WM_NOTIFY and the log's WM_LOG_REFRESH stay in the page
+    proc, which knows those two controls by their fixed ids.
 
-The other reason it is untouched: replacing five working DIALOGEX layouts with ~300 lines of
-`CreateWindowExW` is the one part of this refactor whose result cannot be checked by compiling
-and running - DPI scaling, fonts, tab order and group-box geometry are all things you have to
-look at. It wants a pair of eyes on the screen, one page at a time.
+  The rows take their width from the page rather than a hardcoded 240: the templates were wider
+  than the group box interior, and the Hotkeys list and slider used to run past its right edge.
+
+  Checked on screen, as this step asked for: all five pages captured with `PrintWindow` from the
+  DIALOGEX build and from this one and compared side by side, then the General and Indicator pages
+  driven by control id - updates off clears and disables auto-update, a pending edit survives
+  leaving the page, the threshold slider holds 29, 57, 58 and 59 mid-drag, Cancel writes nothing.
+
+  What the passes caught. Before implementation, on the design: a sync that compares a picker's
+  selection with its field misses a list gone stale under it, and since a sound combo maps its
+  selection back to `RecentSounds` by position, a stale list resolves a later pick to the wrong
+  file - the sync compares the item count too. After it, two lanes independently: the threshold
+  row read its float back truncated, `0.29f * 100` came out 28, and the sync dragged the slider
+  back mid-drag - now rounded. The log subscription outliving the About page it posts to was
+  older than this step and is closed with it. Quality removed a `force` flag the diffing sync
+  never needed and a second way of reading a control id. A re-check pass over those four fixes
+  found nothing.
+
+### Step 7 - Group Core, and free the drawing helpers
+
+- [x] `git mv` `HotkeyService.*`, `KeyNames.*`, `HotkeyCapture.hpp` and `Bindings.hpp` into
+      `Core/Hotkeys/`. Six of Core's sixteen files are one subject, and the rest are not
+- [x] `UI/GdiRenderer.hpp` -> `Platform/Gdi.hpp`, and give it what a pill needs: the rounded path
+      it already has, plus `PillFont`, `MeasureText` and `DrawCentred` lifted out of
+      `IndicatorLayout`. A feature that draws must not have to include `UI/`
+- [x] `UI/TrayIconTheme.hpp` -> `Platform/`: taskbar theme detection and pixel darkening know
+      nothing about a tray, and step 11's provider needs them from a feature
+- [x] No new include directories: a file inside `Core/` says `"Hotkeys/KeyNames.hpp"`, everyone
+      else says `"Core/Hotkeys/KeyNames.hpp"` - the same convention the slices already use
+- [x] Extend the `build.ps1` check next to the slice rule: no file under `Features/` may include a
+      header that lives under `src/UI`. It holds today by convention only, and `src/UI` is on the
+      include path, so `#include "MainWindow.hpp"` from a feature compiles - match on the basename
+      of every file under `src/UI`, which is what makes the unqualified form catchable
+- **Done when:** the tree matches section 3, the build is byte-identical, and the new check fails
+  on a deliberately added `UI/` include from a feature.
+- **Result:** met, with one honest correction to "byte-identical". The exe is the same size to
+  the byte - 927,744, 906 KB - but not the same bytes: `.text` grew 64, `.rdata` 24 and `.pdata`
+  12, which is one more out-of-line function (`Gdi::DrawCentred`, which used to be inlined code
+  inside `IndicatorLayout::Render`). All three fit inside the existing file alignment, so the
+  size did not move. The hash differs for a second reason as well - link order follows the object
+  paths, and the move changed them. App starts at the step 0 footprint, 10 threads and 22.6 MB.
+
+  Two things the move decided that the plan did not spell out. `namespace GDIRenderer` would
+  have been a namespace named after a deleted file, so `LayeredWindow.hpp` owns its own name now
+  - `LayeredWindow::Render`, `LayeredWindow::Surface` - and `RenderContext` and `RenderCallback`
+  moved there with it, since the layered window is the only thing that has ever produced one.
+  `IndicatorLayout::Render` takes a `Gdiplus::Graphics&` rather than that `RenderContext`: it
+  only ever used the canvas, and that is what lets a layout stop knowing a `UI/` type at all -
+  the same shape `OverlayCanvas::Canvas` needs in step 8.
+
+  The new check is tested on five deliberate violations from `Features/Keyboard`: an unqualified
+  `"MainWindow.hpp"`, a qualified `"UI/MainWindow.hpp"`, an angle-bracket `<UI/MainWindow.hpp>`,
+  a cross-slice `"Features/Launcher/Launcher.hpp"` and a relative `"../Launcher/Launcher.hpp"`.
+  All five fail the build with the file and the line, and both rules are one pass over the
+  feature files instead of two.
+
+  **What the review pass changed.** The last two of those five were holes the first version of
+  the check had - it read only quoted includes and only the literal `Features/X/` prefix, so
+  angle brackets and a `..` walk out of the slice both passed. Two reviewers found it
+  independently, which is the argument for running them. The check resolves the path now and the
+  redundant `UI/` pattern match went with the rewrite.
+
+  Three real leaks the grouping exposed, all of them dead weight the old flat `Core/` hid.
+  `Feedback.hpp` included `Hotkeys/HotkeyService.hpp` and never used it. `Feedback::Compose`
+  took a `uint64_t` mask purely to call `KeyNames::Format`, so it now takes the formatted name
+  from its one caller, `Bindings::Apply`, which already holds the mask - `Feedback` includes
+  nothing from `Hotkeys/` at all any more, which is what the folder was supposed to make
+  visible. The price is that `Format` is no longer lazy: it runs per binding at Apply time
+  instead of only when `{key}` appears, which is a string build on config restore, not on any
+  hot path. `MainWindowViewModel.hpp` included `Core/Dispatcher.hpp` unused, and
+  `TrayIconTheme.hpp` was included by `MainWindow.hpp` for a call that only `MainWindow.cpp`
+  makes.
+
+  `Gdi::PillFont` became `Gdi::TextFont`: `Platform/` has no business naming a shape that
+  belongs to the overlay, and it is the one font the app draws text with. `MeasureText` also
+  scopes its `Graphics` so it dies before the DC it was built on - the old code in
+  `IndicatorLayout` released the DC first, which is why that one is a fix rather than a move.
+
+  Two findings were rejected, recorded so they are not re-litigated. "Delete `DrawCentred`, it
+  has one caller" - it is the reason the file moved at all: step 8's notification layer and step
+  10's keyboard layer both draw centred text, and a feature may not include `UI/`. And "derive
+  the corner radius from the rect height and delete `CornerRadius`" - that changes pixels. The
+  pill is 32 high at the default size with a radius of 10, so its ends are rounded and not
+  semicircular; step 7 may not change what is drawn, and step 8 moves the radius into the
+  overlay, which is where the look belongs.
+
+### Step 8 - The overlay becomes a surface
+
+- [x] Add `Core/Overlay.hpp` per section 4: the layer registry, `OverlayCell`, `Invalidate` as a
+      bound function pointer, the `Order` sort key with `Last`
+- [x] `UI/Overlay/OverlaySurface.hpp` takes the anchor, the layout pass, the visibility decision
+      and the paint from `MainWindowViewModel`, and holds `OverlaySettings&` alone.
+      `IndicatorLayout` -> `UI/Overlay/OverlaySlots.hpp`, measuring N slots instead of the two it
+      has hardcoded. `MainWindow` keeps its name and its frame jobs - HWND, tray, message
+      routing, `Dispatcher::BindUi` - and keeps `const AppConfig&` for the two things it still
+      owns: the initial window size and the bell menu item, both of which are step 11's
+- [x] The notification text becomes the overlay's own layer, pinned `Last`. `Feedback::Post` keeps
+      its `PostFn` and stops being the reason the view model holds a notification timer
+- [x] `Features/Microphone` takes the mic pill, the peak meter and `IndicatorIcons` - as
+      `MicLayer` and `MicIcons`, out of `MainWindowViewModel` entirely. The layer's state is a
+      file static set in `Register`, which is how the module already holds `_settings` and `_fb`
+- [x] Split `IndicatorSettings` into `OverlaySettings` and the three fields that were always the
+      microphone's; move `Notifications` out of `CoreSettings`; bump `CurrentVersion` 3 -> 4
+- [x] Delete the phantom window: the peak timer runs off the layer's `WantsTick`, so "muted or
+      talking" no longer keeps an empty window on screen to host a timer
+- **Done when:** nothing under `UI/Overlay/` includes anything microphone-shaped, the view model
+  is under 250 lines (step 2's unmet target), and the mic pill, the peak meter, the notification
+  pill and the drag-to-position preview all behave as they do today.
+
+  The tray is deliberately *not* part of this step: the icon and the bell menu item still reach
+  into `Mic::` from the view model and the window afterwards. That is step 11, and it is the only
+  feature knowledge left above `Features/` once step 8 lands.
+
+  **What the design review changed, before any of it was written.** The plan said
+  `MainWindow` -> `UI/Overlay/OverlayWindow.*`. That rename is a lie: the same object owns the
+  tray icon, the message routing and `Dispatcher::BindUi`, and an overlay window that owns the
+  app's message loop is the old god object with a new name. Splitting it in two costs a second
+  window class and a second HWND and buys a second answer to "who does the worker post to". So
+  the window keeps its name and the *surface* is what moves - see section 4. The second change
+  was `OverlayCell`, which split in two rather than documenting which of its fields are lies in
+  which phase. The post-change review then deleted that split again - see section 4.
+
+  **Result.** `Core/Overlay.hpp` is 79 lines, `UI/Overlay/` is three files and 353 lines,
+  `MainWindowViewModel` is 151 (step 2 asked for under 250), and nothing under `UI/Overlay/`
+  contains the string `mic` in any spelling. The mic pill, the peak meter, the notification pill
+  and the drag-to-position preview all still come out of the same formulas - see the harness
+  below.
+
+  The binary went 927,744 -> 931,328 bytes: `.text` +2,896, `.rdata` +786, the rest unwind data
+  and alignment. That is the registry, the N-slot pass and one timer per layer where there used
+  to be two fixed slots and one timer, less `IndicatorLayout::Compute` and the bodies the view
+  model no longer has. Accepted rather than argued away: `MaxLayers` is a compile-time bound, so
+  the `std::vector` could be a `std::array` and give back most of `.text`, and that is not worth
+  spending the clarity of a one-line `Add` on to save 3 KB in a 910 KB binary.
+
+  **Verified against a harness, because this machine has no capture device.** `slots_test.cpp`
+  embeds the deleted `IndicatorLayout::Compute` formulas verbatim and runs them next to
+  `OverlaySlots::Measure` with fake layers: 102 parity checks over sizes 10/16/32 x four
+  notification texts x mic pill on and off, comparing total width, height, text x, text width and
+  font size, plus the square floor, `WantsTick` at width 0, no window when nothing draws, no gap
+  for a hidden middle layer, and three-pill placement. All pass. The one intended divergence is
+  the last checkbox: nothing to draw is now width 0 and a hidden window, where it used to be one
+  empty pill.
+
+  Two deliberate behaviour changes beyond that. The phantom window is gone, and a relayout now
+  arrives as a posted `WM_OVERLAY_RELAYOUT` instead of running inline - `Overlay::Invalidate` is
+  callable from any thread, and a layer that noticed something must not paint from wherever it
+  noticed.
+
+  **What the post-change reviews caught.** One bug, and it was this step breaking its own
+  invariant. With the phantom window gone, `Relayout` returns early to hide the overlay *before*
+  re-seeding the window position from the anchor, and `RefreshPos` has already written its
+  work-area clamp into that position. The next pass reads the position back as the anchor - it is
+  allowed to, while the strip is no wider than one pill - and adopts the clamp. Modelled against
+  the real clamp formula: from x=1850 on a 1920 work area, one 200-wide notification moved the
+  stored anchor to 1682 for good, and every wider notification moved it again. The fix parks the
+  position on the anchor before hiding. The old code could not reach this, because it never hid
+  the window.
+
+  The quality pass took out what the step had left behind or built without need:
+  `OverlayCanvas`, `Overlay::First` (nothing used it), a stray `<sys/stat.h>` in `AppConfig.hpp`,
+  a `Relayout` doc comment still claiming the view model lays the overlay out, and the surface's
+  11-line class block. It also caught the frame calling `StopWatchingForCaptureSessions` on the
+  microphone's own device manager, which is now `Mic::Suspend()` / `Mic::Resume()`. Rejected:
+  replacing the sorted insert with `push_back` and deleting `Order` outright. The text pill is
+  last today only because the `OverlaySurface` constructor happens to run after the module loop
+  in `main.cpp` - a coupling between two files that nothing enforces, and step 10 adds a third
+  layer from a third place.
+
+  The re-check pass over the fixes found no new defect, and raised one claim about the design
+  instead: with `_mainWindow->Show()` gone, the surface needs *something* on screen while the
+  settings window is up so the user has a drag target, and whether that happens is decided by
+  feature layers it knows nothing about - `TextLayer`, the only layer the surface owns, measures
+  0 when there is no text, in preview as well. Judged and left alone. Every fix costs more than
+  it buys: inflating `TextLayer` in preview puts a second pill under the cursor and the user ends
+  up positioning a strip wider than the one they will actually see, and flooring the width in the
+  surface brings back an invisible window to drag, which is the phantom this step deleted. It
+  needs the mic module removed from `Modules[]` to happen at all, and step 10 adds a second layer
+  that shows in preview. The `Size: 0` route to the same place is in docs/known-bugs.md - it
+  predates this step.
+
+  The architecture pass found the two places that still disagreed about ownership.
+  `SettingsWindowViewModel::Init` called `_mainWindow->Show()`, which is a second answer to
+  whether the overlay is on screen now that the preview relayout gives one. And `Feedback` still
+  took an `HWND` in its `PostFn` and stored it, while `Overlay::Invalidate` is a `void (*)()`
+  with no window in it anywhere - two editions of the same Core -> UI idiom. The handle is now
+  one static on `MainWindow` that both posters read, `OverlaySurface` no longer keeps a copy, and
+  `Overlay::Invalidate = &MainWindow::PostRelayout` binds with nothing in between. `Feedback`
+  keeps the `HINSTANCE` it plays sounds with, which is the rule the fix leaves behind: the kernel
+  may hold a handle it uses, never one it only hands back. Rejected: folding `ActionRegistry`,
+  `SettingsHost` and `Overlay` into one generic registry - `ActionRegistry` has a recorded reason
+  to keep registration order instead of a sort key, and the saving is a handful of lines.
+
+### Step 9 - Feature-owned settings pages
+
+Needs step 6: a feature cannot own a page while a page means a template in the shared `Resource.rc`.
+
+- [ ] `SettingsPage` gains `Id` and `Parent`; the tree view gains `TVS_HASBUTTONS` and a second
+      insert pass for children
+- [ ] `Features/Microphone` registers the Microphone page - level, keep level, chime volume,
+      mute and unmute sounds, pill mode, threshold, hide when inactive
+- [ ] The frame's Indicator page becomes Overlay: size, on top, exclude from capture, notifications
+- [ ] The Sounds page is deleted, not moved (see section 6)
+- [ ] `Features/Keyboard` registers a Keyboard page, which is what proves a feature can have one
+- **Done when:** `SettingsWindowViewModel` holds no field of any feature's settings section, and
+  the Microphone page is registered from inside `Features/Microphone`.
+
+### Step 10 - The proof: the layout pill
+
+Not a refactor step - the acceptance test for steps 8 and 9. Show the current keyboard layout on
+the overlay, and count what it costs.
+
+- [ ] `Features/Keyboard/LayoutLayer.cpp`: `Measure` returns the width of the layout's two letters
+      or 0 when the setting is off, `Render` draws them, `TickMs` watches the foreground window's
+      layout
+- [ ] One `Check` row on the Keyboard page, one `ShowLayout` field in `KeyboardSettings`
+- **Done when:** the feature is one new file, one row, and one config field. The only thing it may
+  touch outside its own slice is the section struct in `Core/AppConfig.hpp` - that is the known
+  price of a typed config in one file. Nothing under `UI/`, nothing in another slice, and no line
+  of the overlay. If it costs more than that, the design in sections 4 and 6 is wrong and this is
+  where it shows.
+
+### Step 11 - The tray gets an owner the user picks
+
+Needs step 8 for the surface split and step 9 for the `Radio` row. The icon is one slot, so the
+exclusivity is real and the user is the one who resolves it - see section 4.
+
+- [ ] Add `Core/Tray.hpp`: the provider registry, `Refresh` as a bound function pointer, the
+      `Order` sort key
+- [ ] The frame registers `"tray.app"` - `IDI_APP`, `APP_NAME` as the tooltip - pinned `Last`, so
+      it is a choice on the radio and the fallback when the stored `Id` resolves to nothing. An
+      empty `Provider` takes the first by `Order`, which keeps a fresh install on mic state
+- [ ] `Features/Microphone` registers `"mic.state"`: the muted glyph, the
+      `APP_NAME - <device> [nn%]` tooltip, `RefreshTheme` behind `ThemeChanged`, and the bell
+      toggle as a menu contribution
+- [ ] `MicIcons::Tray` and its darkened copies feed the provider - the move itself was step 8,
+      this step only points them at the tray. `TrayIconTheme` is generic, so it lands in
+      `Platform/` in step 7 and the provider uses it from there
+- [ ] Tray page: one `Radio` row over the providers that carry an `Icon`, bound to
+      `TraySettings::Provider`
+- [ ] The menu is built from the contributions, Settings first and Exit last;
+      `ID_APP_TOGGLE_BELL` leaves `Resource.h`, the view model's switch and
+      `MainWindow::ShowTrayContextMenu`'s `_config` read
+- [ ] `TraySettings` joins the step 8 revision bump if they ship together, otherwise its own
+- **Done when:** `MainWindow` holds no `AppConfig` reference at all, the view model has no `Mic::`
+  reference, and picking the tray provider in settings changes what the icon shows.
+
+  What it buys, and the reason the choice is the user's rather than a priority nobody can see:
+  after step 10 the keyboard layout becomes a candidate for that radio at the cost of one more
+  registration inside `Features/Keyboard` - two letters drawn into a 16px icon, and not a line
+  anywhere else.
 
 ---
 
@@ -583,6 +1090,23 @@ rather than the individual fixes, because the pattern is what the next step shou
 - **Comments that documented the intent rather than the code.** Two findings were the doc comment
   and the implementation disagreeing after an edit - which is the cheapest kind to find and the
   easiest to leave behind.
+- **An invariant only the new shape could break.** Nothing about "the anchor is the user's"
+  changed in step 8, but deleting the phantom window added an exit path that returns before the
+  position is re-seeded from the anchor, and the clamp the previous pass wrote stayed in it. The
+  guard that reads "while the strip is no wider than one pill, the window is at the anchor" was
+  true only because the window was never hidden. A step that deletes a state has to be read
+  against every guard that was true because that state existed.
+- **A rule enforced against the spelling it was written for.** Step 7's `Features/` include
+  check caught every shape its author had in mind and none of the others: an angle-bracket
+  include reaches the same `-I` directories, and `"../Other/X.hpp"` reaches the next slice
+  without the word `Features` appearing at all. A check that stands in for a rule has to be
+  tried against the ways of breaking the rule, not the ways of writing the include.
+- **A comparison made through a lossy view of the value.** Step 6's sync writes a control only
+  when it differs from its field, and both of its real defects were that test answered through a
+  conversion: a float threshold read back truncated compared unequal to the slider that set it,
+  and a picker's selection resolved through a list gone stale compared equal while pointing at the
+  wrong file. A diff is only as good as the round trip under it - check that `Get(Set(x)) == x`
+  holds for every value, not that the two sides usually agree.
 
 The one that was rejected: an intra-slice `#include "Wasapi/AudioManager.hpp"` reported as
 fragile. It is well-defined - a quoted include searches the includer's directory first - and it
@@ -593,9 +1117,15 @@ full and the build can grep for it.
 
 ## 10. Open questions
 
-- **Where the indicator lives.** It is microphone-shaped today (mute state, peak meter) but the
-  notification overlay is used by every action. Likely split: `Core/Feedback` owns the overlay,
-  `Features/Microphone` owns the mic pill and the peak meter. This is also what stands between
-  `MainWindowViewModel` and the 250-line target step 2 set for it.
+Nothing open. Settled so far:
 
-*Settled: page ordering, answered by the sort key in step 5.*
+- **Page ordering** - the sort key in step 5.
+- **Where the indicator lives** - the layer registry in section 4. The overlay owns the window and
+  the text pill; the mic pill and the peak meter belong to the slice that owns the device.
+- **Who owns the tray** - the provider registry in section 4, and the user picks. The first answer
+  written here was "one owner, named out loud", on the grounds that a registry is the wrong shape
+  for a surface with one slot. That was wrong about which part is the constraint: one slot is a
+  *display* limit, not a design one, and two features do genuinely want the icon - mute state and
+  keyboard layout are both reasonable things to watch from the corner of the screen. Nobody in the
+  code can know which of them a given user wants, so the exclusivity is resolved by a radio on the
+  Tray page rather than by whoever registered first. The menu is a list and keeps no such limit.

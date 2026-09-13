@@ -23,19 +23,26 @@ Toolchain: global cmake + ninja, MSVC from Visual Studio, resources via `rc.exe`
 The app is a runner of triggers and actions. The kernel knows nothing about any feature;
 features register into it.
 
-- `src/Core/` - the kernel. `ActionRegistry` (id -> `ActionDesc`), `Bindings` (config ->
-  registered hotkeys), `HotkeyService` (LL hooks and key masks), `Dispatcher` (worker thread and
-  the hop back to the UI thread), `KeyNames` (mask <-> text), `Feedback` (sound and overlay
-  text), `AppConfig`. Hook procs must stay O(1): actions run on the worker thread, never inside
-  the proc.
+- `src/Core/` - the kernel. `ActionRegistry` (id -> `ActionDesc`), `Dispatcher` (worker thread
+  and the hop back to the UI thread), `Feedback` (sound and overlay text), `SettingsHost`
+  (settings pages as `SettingsRow` tables), `Overlay` (id -> `OverlayLayer`, what a feature
+  draws on the overlay), `AppConfig`, and `Hotkeys/` for the one trigger source there is so far -
+  `HotkeyService` (LL hooks and key masks), `KeyNames` (mask <-> text), `HotkeyCapture`,
+  `Bindings` (config -> registered hotkeys). Hook procs must stay O(1): actions run on the worker
+  thread, never inside the proc. A file in `Core/` says `"Hotkeys/KeyNames.hpp"`, everyone else
+  says the full `"Core/Hotkeys/KeyNames.hpp"`.
 - `src/Platform/` - thin Win32 wrappers with no domain knowledge: `Str`, `Event`, `Logger`,
-  `Registry`, `Win32Hook`, `UACService`, `UIAccess/`, `CrashHandler`, `UpdateManager`, `Version`.
+  `Registry`, `Win32Hook`, `Gdi` (rounded pill, text measure, centred draw), `TrayIconTheme`,
+  `UACService`, `UIAccess/`, `CrashHandler`, `UpdateManager`, `Version`.
 - `src/Features/` - vertical slices: `Microphone/` (with `Wasapi/`), `Keyboard/`, `Launcher/`.
-  **No file under `Features/X/` may include `Features/Y/`** - `build.ps1` fails the build on one.
-  Anything two features both need is a `Core/` concern.
-- `src/UI/` - Win32 windows and their view models, `UI/Settings/` for the settings window.
-  Settings pages are DIALOGEX resources in `src/Resources/Resource.rc`, loaded by
-  `CreateDialogParamW`.
+  **A file under `Features/` may include `Core/` and `Platform/`, and nothing else** -
+  `build.ps1` fails the build on a cross-slice include or a `src/UI` header, judging an include
+  by where it resolves. Anything two features both need is a `Core/` concern.
+- `src/UI/` - Win32 windows and their view models, `UI/Settings/` for the settings window,
+  `UI/Overlay/` for the surface features draw into: the layout pass, the pill, the text layer.
+  A settings page is a row table registered with `SettingsHost`; `UI/Settings/SettingsRows`
+  turns it into controls inside the one empty `IDD_SETTINGS_PAGE`. The only other dialog
+  templates are the settings frame, the action dialog and the update dialog.
 - `vendor/glaze` - submodule, JSON config serialization (`config.json`).
 
 ## Adding a feature
@@ -45,8 +52,8 @@ module describes its actions as `ActionDesc` entries and registers them in `Regi
 
 ## Refactor in progress
 
-`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-5 are
-done; step 6 is not - the settings pages are still `IDD_SETTINGS_*` templates with one
-`Initialize*Section` per page. Read it before touching settings.
+`docs/ARCHITECTURE.md` holds the target architecture and the migration checklist. Steps 0-8 are
+done. Read it before touching settings. Steps 9-11 give each feature its own settings page and
+let the user pick which feature owns the tray icon.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

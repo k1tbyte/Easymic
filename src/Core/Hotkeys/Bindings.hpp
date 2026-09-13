@@ -34,7 +34,8 @@ namespace Bindings {
             }
 
             const std::string text = entry.ShowNotification
-                ? Feedback::Compose(entry.Notification, desc->DefaultNotification, entry.Name, mask)
+                ? Feedback::Compose(entry.Notification, desc->DefaultNotification, entry.Name,
+                                    KeyNames::Format(mask))
                 : std::string{};
 
             const ActionContext context{entry.Args, text, feedback};

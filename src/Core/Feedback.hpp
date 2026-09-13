@@ -5,8 +5,6 @@
 #include <string>
 
 #include "AppConfig.hpp"
-#include "Core/HotkeyService.hpp"
-#include "Core/KeyNames.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
 #include "Tokens.hpp"
@@ -20,13 +18,14 @@
  */
 class Feedback {
 public:
-    /// How text reaches the screen. The kernel has no business knowing which window shows it or
-    /// what message carries it, so whoever owns the window hands this in at Bind time.
-    using PostFn = void (*)(HWND target, const std::wstring& text);
+    /// How text reaches the screen. The kernel has no business knowing which window shows it,
+    /// which message carries it or where it goes, so whoever owns the window hands this in at
+    /// Bind time and keeps the handle on its own side.
+    using PostFn = void (*)(const std::wstring& text);
 
 private:
     const AppConfig& _cfg;
-    HWND _target = nullptr;
+    /// Unlike a window handle, this one is used right here - SoundCatalog plays from resources.
     HINSTANCE _instance = nullptr;
     PostFn _post = nullptr;
 
@@ -39,8 +38,7 @@ private:
 public:
     explicit Feedback(const AppConfig& config) : _cfg(config) {}
 
-    void Bind(HWND target, HINSTANCE instance, PostFn post) {
-        _target = target;
+    void Bind(HINSTANCE instance, PostFn post) {
         _instance = instance;
         _post = post;
     }
@@ -62,7 +60,7 @@ public:
      * right here, which leaves the default free of braces and Expand with no work.
      */
     static std::string Compose(const std::string& text, const std::string_view fallback,
-                               const std::string& name, const uint64_t hotkey) {
+                               const std::string& name, const std::string_view keyName) {
         const std::string source = text.empty() ? std::string{fallback} : text;
         if (source.empty()) {
             return {};
@@ -71,8 +69,7 @@ public:
         auto resolved = Str::Replace(source, Tokens::Name, name);
         return resolved.find(Tokens::Key) == std::string::npos
                    ? resolved
-                   : Str::Replace(std::move(resolved), Tokens::Key,
-                                  KeyNames::Format(hotkey));
+                   : Str::Replace(std::move(resolved), Tokens::Key, keyName);
     }
 
     /// Wraps an action so it announces itself. Runs on the hotkey worker, never in the hook.
@@ -115,11 +112,11 @@ public:
     /// Puts text that is already resolved on the indicator, from any thread - it travels through
     /// the window's own message queue.
     void Post(const std::string& resolved) const {
-        if (resolved.empty() || !_cfg.Core.Notifications || !_post) {
+        if (resolved.empty() || !_cfg.Overlay.Notifications || !_post) {
             return;
         }
 
-        _post(_target, Str::Utf8ToWide(resolved));
+        _post(Str::Utf8ToWide(resolved));
     }
 
     // Reading the config from the worker is safe by construction: the settings window disposes
@@ -132,15 +129,14 @@ public:
      * @brief A poster that can outlive this object.
      *
      * What an action that answers on a thread of its own needs - a captured command can finish
-     * minutes later, and by then the process may be shutting down. The handle and the switch are
+     * minutes later, and by then the process may be shutting down. The poster and the switch are
      * taken by value here, so a late answer posts to a window that may be gone rather than
      * through an object that is.
      */
     std::function<void(const std::string&)> Poster() const {
-        return [target = _target, post = _post,
-                enabled = _cfg.Core.Notifications](const std::string& resolved) {
+        return [post = _post, enabled = _cfg.Overlay.Notifications](const std::string& resolved) {
             if (!resolved.empty() && enabled && post) {
-                post(target, Str::Utf8ToWide(resolved));
+                post(Str::Utf8ToWide(resolved));
             }
         };
     }
