@@ -1,5 +1,6 @@
 #include "SettingsWindow.hpp"
 
+#include <algorithm>
 #include <commctrl.h>
 #include <string>
 
@@ -81,6 +82,40 @@ namespace {
         SendMessage(edit, EM_SCROLLCARET, 0, 0);
     }
 
+    /// The page's own scroll bar, shown by SettingsRows::Build when the rows run past the page.
+    bool ScrollPage(HWND page, UINT message, WPARAM wParam) {
+        SCROLLINFO info{.cbSize = sizeof(info), .fMask = SIF_ALL};
+        if (!(GetWindowLongW(page, GWL_STYLE) & WS_VSCROLL) || !GetScrollInfo(page, SB_VERT, &info)) {
+            return false;
+        }
+        RECT line{0, 0, 0, 14}; // a check row and its gap, in dialog units
+        MapDialogRect(page, &line);
+
+        int pos = info.nPos;
+        if (message == WM_MOUSEWHEEL) {
+            pos -= MulDiv(GET_WHEEL_DELTA_WPARAM(wParam), line.bottom * 3, WHEEL_DELTA);
+        } else {
+            switch (LOWORD(wParam)) {
+                case SB_LINEUP:     pos -= line.bottom; break;
+                case SB_LINEDOWN:   pos += line.bottom; break;
+                case SB_PAGEUP:     pos -= static_cast<int>(info.nPage); break;
+                case SB_PAGEDOWN:   pos += static_cast<int>(info.nPage); break;
+                case SB_THUMBTRACK: pos = info.nTrackPos; break;
+                case SB_TOP:        pos = info.nMin; break;
+                case SB_BOTTOM:     pos = info.nMax; break;
+                default:            break;
+            }
+        }
+        pos = std::clamp(pos, info.nMin, std::max(info.nMin, info.nMax - static_cast<int>(info.nPage) + 1));
+
+        if (pos != info.nPos) {
+            SetScrollPos(page, SB_VERT, pos, TRUE);
+            ScrollWindowEx(page, 0, info.nPos - pos, nullptr, nullptr, nullptr, nullptr,
+                           SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE);
+        }
+        return true;
+    }
+
     /// One category page. Forwards its input to the view model through the owning window.
     INT_PTR CALLBACK ChildDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
         auto* window = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -100,6 +135,13 @@ namespace {
                     window->OnPageInput(hwnd, message, wParam, lParam);
                 }
                 break;
+
+            case WM_VSCROLL:
+                // A control's own bar names itself; the page's bar sends no handle
+                return !lParam && ScrollPage(hwnd, message, wParam);
+
+            case WM_MOUSEWHEEL:
+                return ScrollPage(hwnd, message, wParam);
 
             case WM_NOTIFY: {
                 const auto* header = (LPNMHDR)lParam;

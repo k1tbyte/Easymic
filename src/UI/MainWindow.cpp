@@ -191,7 +191,7 @@ LRESULT MainWindow::OnPaint() {
 
     if (OnRender) {
         const POINT windowPos{GetPositionX(), GetPositionY()};
-        LayeredWindow::Render(hwnd, _size.x, _size.y, windowPos, OnRender);
+        LayeredWindow::Render(hwnd, _surface, _size.x, _size.y, windowPos, OnRender);
     }
 
     if (paintsOwnedWindow) {

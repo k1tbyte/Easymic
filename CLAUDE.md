@@ -35,8 +35,11 @@ features register into it.
   says the full `"Core/Hotkeys/KeyNames.hpp"`.
 - `src/Platform/` - thin Win32 wrappers with no domain knowledge: `Str`, `Event`, `Logger`,
   `Registry`, `Win32Hook`, `Gdi` (rounded pill, text measure, centred draw), `TrayIconTheme`,
+  `LayeredWindow` (per-pixel alpha surface), `Controls` (child control in dialog units),
   `UACService`, `UIAccess/`, `CrashHandler`, `UpdateManager`, `Version`.
-- `src/Features/` - vertical slices: `Microphone/` (with `Wasapi/`), `Keyboard/`, `Launcher/`.
+- `src/Features/` - vertical slices: `Microphone/` (with `Wasapi/`), `Keyboard/`, `Launcher/`,
+  `Desktops/` (virtual desktops, Windows 11 24H2+). A feature may own a private window built
+  from `Platform/` helpers.
   **A file under `Features/` may include `Core/` and `Platform/`, and nothing else** -
   `build.ps1` fails the build on a cross-slice include or a `src/UI` header, judging an include
   by where it resolves. Anything two features both need is a `Core/` concern.

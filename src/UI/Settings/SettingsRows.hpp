@@ -9,6 +9,7 @@
 namespace SettingsRows {
 
     /// Lays the rows out down the page in dialog units, so the page's own font sets the scale.
+    /// A page taller than its window gets a vertical scroll bar; the page scrolls itself.
     void Build(HWND page, std::span<const SettingsRow> rows, AppConfig& cfg);
 
     /// WM_COMMAND or WM_HSCROLL from a page Build filled: writes the field, runs the row's hook,

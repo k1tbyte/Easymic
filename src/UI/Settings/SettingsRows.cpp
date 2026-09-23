@@ -3,6 +3,7 @@
 #include <commctrl.h>
 
 #include "AudioFileValidator.hpp"
+#include "Controls.hpp"
 #include "DialogControls.hpp"
 
 namespace {
@@ -33,6 +34,31 @@ namespace {
             case RowKind::Custom:      return row.Height;
             default:                   return 10;
         }
+    }
+
+    /// Build's final y: a group adds its title and bottom, any other row its height and a gap.
+    int ContentHeight(std::span<const SettingsRow> rows) {
+        int height = 0;
+        for (const SettingsRow& row : rows) {
+            height += row.Kind == RowKind::Group ? GroupTitle + GroupBottom : HeightOf(row) + Gap;
+        }
+        return height;
+    }
+
+    /// Runs before the rows take their width from the page, since the bar narrows it.
+    void FitScrollBar(HWND page, std::span<const SettingsRow> rows) {
+        RECT content{0, 0, 0, ContentHeight(rows)};
+        MapDialogRect(page, &content);
+        RECT client;
+        GetClientRect(page, &client);
+        if (content.bottom <= client.bottom) {
+            return;
+        }
+
+        const SCROLLINFO info{.cbSize = sizeof(info), .fMask = SIF_RANGE | SIF_PAGE,
+                              .nMax = content.bottom - 1, .nPage = static_cast<UINT>(client.bottom)};
+        SetScrollInfo(page, SB_VERT, &info, FALSE);
+        ShowScrollBar(page, SB_VERT, TRUE);
     }
 
     /// The page's client width in dialog units, so a row fits the page rather than the template
@@ -127,15 +153,11 @@ namespace {
 
 HWND SettingsRows::Control(HWND page, const wchar_t* cls, const wchar_t* text, DWORD style,
                            RECT cell, int id, DWORD exStyle) {
-    MapDialogRect(page, &cell);
-    HWND control = CreateWindowExW(exStyle, cls, text, WS_CHILD | WS_VISIBLE | style, cell.left, cell.top,
-                                   cell.right - cell.left, cell.bottom - cell.top, page,
-                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
-    SendMessageW(control, WM_SETFONT, SendMessageW(page, WM_GETFONT, 0, 0), FALSE);
-    return control;
+    return Controls::Create(page, page, cls, text, style, cell, id, exStyle);
 }
 
 void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig& cfg) {
+    FitScrollBar(page, rows);
     const int width = PageWidth(page);
     int y = 0;
     HWND group = nullptr;

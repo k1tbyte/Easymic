@@ -84,6 +84,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         taskschd
         shell32
         Shcore
+        runtimeobject
+        dwmapi
         glaze::glaze
 )
 

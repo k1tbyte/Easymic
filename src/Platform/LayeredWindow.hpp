@@ -22,10 +22,10 @@ namespace LayeredWindow {
     using RenderCallback = std::function<void(RenderContext&)>;
 
     /**
-     * @brief Back buffer for the layered indicator.
+     * @brief Back buffer for a layered window.
      *
-     * There is exactly one such window and its size only changes from the settings trackbar, so
-     * the DC and the DIB section are built once instead of on every WM_PAINT.
+     * Built once per size and kept across paints. Every layered window owns its own: a second
+     * window's size would churn a shared one on every repaint.
      */
     class Surface {
         HDC _dc = nullptr;
@@ -88,7 +88,7 @@ namespace LayeredWindow {
     /**
      * @brief Draws through the callback and pushes the result to the layered window.
      */
-    inline void Render(HWND hwnd, int width, int height, const POINT& windowPos,
+    inline void Render(HWND hwnd, Surface& surface, int width, int height, const POINT& windowPos,
                        const RenderCallback& renderFunc) {
         if (!hwnd || !renderFunc) {
             return;
@@ -99,7 +99,6 @@ namespace LayeredWindow {
             return;
         }
 
-        static Surface surface;
         HDC memoryDC = surface.Get(screenDC, width, height);
         if (!memoryDC) {
             ReleaseDC(hwnd, screenDC);

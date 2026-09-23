@@ -90,6 +90,7 @@ private:
     void ShowTrayContextMenu();
 
     TrayIcon _trayIcon;
+    LayeredWindow::Surface _surface;
 
     // Not owned: LoadIcon returns shared icons, the view model keeps them alive
     HICON _currentIcon = nullptr;

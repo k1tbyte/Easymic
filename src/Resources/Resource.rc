@@ -45,24 +45,24 @@ END
 // Settings Window Dialog
 /////////////////////////////////////////////////////////////////////////////
 
-IDD_SETTINGS_MAIN DIALOGEX 0, 0, 340, 213
+IDD_SETTINGS_MAIN DIALOGEX 0, 0, 400, 240
 STYLE DS_SETFONT | DS_CENTER | WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
 CAPTION "EasyLauncher - settings"
 FONT 8, "Ms Shell Dlg"
 {
-    CONTROL         "", IDC_SETTINGS_TREE, WC_TREEVIEW, TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_TRACKSELECT | TVS_FULLROWSELECT | TVS_DISABLEDRAGDROP | WS_TABSTOP, 5, 5, 75, 176, WS_EX_STATICEDGE
+    CONTROL         "", IDC_SETTINGS_TREE, WC_TREEVIEW, TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_TRACKSELECT | TVS_FULLROWSELECT | TVS_DISABLEDRAGDROP | WS_TABSTOP, 5, 5, 75, 203, WS_EX_STATICEDGE
     // WS_EX_CONTROLPARENT is required, not cosmetic: the category pages live inside this group
     // box, and without it the dialog manager cannot walk into them - its focus/tab search never
     // finds the focused control and spins forever (hangs on every modal dialog opened from a page)
-    GROUPBOX        "", IDC_SETTINGS_GROUPBOX, 85, 5, 250, 176, BS_GROUPBOX | WS_CHILD | WS_VISIBLE, WS_EX_CONTROLPARENT
-    LTEXT           "", IDC_SETTINGS_VERSION, 5, 197, 100, 10
-    DEFPUSHBUTTON   "OK", IDOK, 229, 194, 50, 14
-    PUSHBUTTON      "Cancel", IDCANCEL, 284, 194, 50, 14
+    GROUPBOX        "", IDC_SETTINGS_GROUPBOX, 85, 5, 310, 203, BS_GROUPBOX | WS_CHILD | WS_VISIBLE, WS_EX_CONTROLPARENT
+    LTEXT           "", IDC_SETTINGS_VERSION, 5, 224, 100, 10
+    DEFPUSHBUTTON   "OK", IDOK, 289, 221, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 344, 221, 50, 14
 }
 
 // The one page every settings row is built into - SettingsRows lays out its controls, the dialog
 // manager supplies the font and DPI scale they are measured in
-IDD_SETTINGS_PAGE DIALOGEX 0, 0, 250, 176
+IDD_SETTINGS_PAGE DIALOGEX 0, 0, 310, 203
 STYLE WS_CHILD | WS_SYSMENU | WS_TABSTOP | WS_GROUP | DS_SHELLFONT | DS_CONTROL
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "Ms Shell Dlg"

@@ -6,6 +6,7 @@
 #include "Core/Feedback.hpp"
 #include "Core/Host.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
+#include "Features/Desktops/Desktops.hpp"
 #include "Features/Keyboard/Keyboard.hpp"
 #include "Features/Launcher/Launcher.hpp"
 #include "Features/Microphone/Microphone.hpp"
@@ -19,7 +20,7 @@
 /// Every feature there is. Adding one is this line plus its own folder - nothing else in the app
 /// knows the list, and the order here is the order the "Add action" menu shows them in.
 constexpr void (*Modules[])(Host&) = {
-    &Mic::Register, &Keyboard::Register, &Launcher::Register,
+    &Mic::Register, &Keyboard::Register, &Launcher::Register, &Desktops::Register,
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)

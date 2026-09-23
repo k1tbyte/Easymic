@@ -90,6 +90,43 @@ struct TraySettings {
     bool operator==(const TraySettings&) const = default;
 };
 
+/// Where one window of an app goes. The rect is the visible frame in physical pixels of the
+/// virtual screen; a zero size picks the desktop only and leaves the geometry alone.
+struct WindowRule {
+    /// Image name, lowercase - "chrome.exe".
+    std::string Exe;
+    int32_t X = 0;
+    int32_t Y = 0;
+    int32_t Width = 0;
+    int32_t Height = 0;
+    bool Maximized = false;
+
+    bool operator==(const WindowRule&) const = default;
+};
+
+struct DesktopPreset {
+    /// Given to the real desktop. Empty leaves its name alone.
+    std::string Name;
+    /// An app's k-th open window takes its k-th rule, desktops counted in order.
+    std::vector<WindowRule> Windows;
+
+    bool operator==(const DesktopPreset&) const = default;
+};
+
+struct DesktopSettings {
+    /// One per virtual desktop, by position.
+    std::vector<DesktopPreset> Presets;
+    /// Places windows as they open, not only when asked to.
+    bool Watch = true;
+    /// Goes along with a window the user just opened when it is sent to another desktop.
+    bool Follow = true;
+    bool ApplyOnStartup = false;
+    /// The new desktop's name on the overlay when the desktop changes, whoever changed it.
+    bool AnnounceSwitch = true;
+
+    bool operator==(const DesktopSettings&) const = default;
+};
+
 /**
  * @brief What sets a binding off.
  *
@@ -152,6 +189,7 @@ struct AppConfig {
     KeyboardSettings Keyboard;
     OverlaySettings Overlay;
     TraySettings Tray;
+    DesktopSettings Desktops;
     /// Every binding in the order the settings list shows them.
     std::vector<Binding> Bindings;
     /// One list behind every sound picker, whatever the picker is for.

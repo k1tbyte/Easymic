@@ -70,15 +70,18 @@ src/
     Str.hpp Event.hpp Logger.* Registry.hpp ComObject.hpp Win32Hook.hpp RateLimiter.hpp
     Gdi.hpp                  rounded pill, text measure, centred draw - a layer's whole toolkit
     TrayIconTheme.hpp        light taskbar detection, and the darkened copy of an icon
+    LayeredWindow.hpp        per-pixel alpha surface + UpdateLayeredWindow
+    Controls.hpp             a child control placed in dialog units
     UIAccess/ UACService.* CrashHandler.* UpdateManager.* Version.*
 
   Features/                vertical slices
     Microphone/            Wasapi/, actions, its overlay layer, its icons, its settings page
     Keyboard/              InputLanguage, actions, its overlay layer, its settings page
     Launcher/              CommandRunner, ShellLaunch, ShellContext, {dir}/{stdout}
+    Desktops/              virtual desktop COM facade, presets, placer, page, tile editor, tracker
 
   UI/                      Win32 plumbing, feature-agnostic
-    BaseWindow.hpp LayeredWindow.hpp TrayIcon.hpp DialogControls.hpp
+    BaseWindow.hpp TrayIcon.hpp
     Overlay/               the surface, the slot layout, the text pill
     Settings/              page host, declarative row builder
 
@@ -97,6 +100,11 @@ what keeps the whole design from rotting back into `Lib/`:
 - **No file under `Features/` may include a header under `src/UI`.** A feature describes itself
   to the frame - an action, an overlay layer, a settings page, a tray provider - and never
   reaches up into a window.
+
+**A feature may own a private window.** Its own class, its own message loop if it is modal, built
+from `Platform/` helpers only: the Desktops page panel and the fullscreen tile editor are both
+this. A helper both the frame and a feature need moves down to `Platform/` (`LayeredWindow.hpp`,
+`Controls.hpp`), never up into a feature.
 
 None of the ways of breaking either rule is a compile error: `src/UI` is on the include path, so
 `#include "MainWindow.hpp"` builds, and a quoted include searches the includer's own directory
@@ -463,6 +471,10 @@ are lost on the next save. Reading them is supported, round-tripping them is not
      `Measure`, `Render` and `Tick` on an overlay layer are this thread and only this thread;
      `Overlay::Invalidate` is the one entry point that may be called from any other.
    - WASAPI notification thread: writes state through atomics only.
+   - Threadpool: feature background work that must not ride the action worker, which only runs
+     while hotkeys do (window placement, the desktop registry watch). Publishes through atomics
+     or a mutex and may call `Tray::Changed`; anything that reads the config, `Feedback::Post`
+     included, hops through `Dispatcher::ToUi`.
 4. **Config keys are permanent.** `ActionDesc::Id` is written to disk. Renaming one is a
    migration, not an edit.
 5. **A layer may not be polled for nothing.** `TickMs` runs a timer on the UI thread, and this
@@ -496,8 +508,12 @@ static constexpr SettingsRow General[] = {
 ```
 
 Row kinds: `Check`, `Combo`, `Slider`, `SoundPicker`, `Radio`, `Text`, `Group`, and `Custom` for
-the two controls that are not a grid row - the action list and the log. `Radio` arrived with the
-tray page in step 11, where it was first needed.
+what is not a grid row - the action list, the log, and the Desktops panel. `Radio` arrived with the
+tray page in step 11, where it was first needed. A page too rich for rows is one `Custom` row that
+creates a feature-owned panel window; the panel handles its own notifications and edits the live
+config, so Cancel and `Commit` still work unchanged. No row kind was added for it. A page whose
+rows run past its window gets a vertical scroll bar before the rows are laid out, so they take
+the narrower width; the page scrolls its children itself, wheel included.
 
 The builder carries a **string-valued field** (`SoundPicker` binds `MicSettings::MuteSound` through
 `RowField::Text`) and a **runtime item list**: `Items` is a function read when the page is built,
@@ -559,6 +575,7 @@ What this settles, in the shape it exists today:
 | Tray | the frame (it owns the icon) | did not exist - the icon was the microphone's by default |
 | Microphone | `Features/Microphone` | split across "Sounds" and "Indicator" |
 | Keyboard | `Features/Keyboard` | did not exist |
+| Desktops | `Features/Desktops` | did not exist |
 | Hotkeys | the frame | unchanged |
 | About | the frame | unchanged |
 
@@ -1171,6 +1188,49 @@ exclusivity is real and the user is the one who resolves it - see section 4.
 
   None of the four could be run here: with no capture device the talking path was checked against
   the old `OnTimerTick` by reading, not on screen.
+
+### Step 12 - Virtual desktops
+
+Not a migration step: the first feature written on the finished architecture, and the test of
+"one folder plus one line in `Modules[]`".
+
+- [x] `VirtualDesktops.*`: the undocumented shell COM (24H2 layout, build gate 26100..26999),
+      reconnect once after explorer restarts. The only file that knows those GUIDs
+- [x] Actions `vd.switch`, `vd.move_window`, `vd.move_window_follow` (arg: number, name, `next`,
+      `prev`), `vd.pin_window`, `vd.apply`, `vd.remember_window`
+- [x] `DesktopSettings`: presets by desktop position, window rules (exe, frame, maximized),
+      `Watch`, `Follow`, `ApplyOnStartup`, `AnnounceSwitch`
+- [x] `Placer.*`: shell hook on a message-only window, placement on the threadpool; an app's k-th
+      open window takes its k-th rule
+- [x] Desktops page: one `Custom` row hosting a feature-owned panel (`Page.*`, `Preview.*`). The
+      settings window grew to 400x240 DLU
+- [x] Fullscreen tile editor: `Editor/Tiles.*` pure geometry, `Editor/Editor.*` modal layered
+      window, `Painter.*` shared with the preview
+- [x] `Tracker.*`: registry notification on the VirtualDesktops key -> overlay pill with the
+      name, tray provider with the number
+
+- **Result:** met. Outside the slice: the `Modules[]` line, the config section, `runtimeobject`
+  and `dwmapi` linked, `LayeredWindow.hpp` moved from `UI/` to `Platform/`, `Controls.hpp` taken
+  out of `SettingsRows`, the settings window size. No new row kind, no `Core/` change. MinSizeRel
+  1013 KB uncompressed, ~20 KB of the growth is glaze for the new config.
+
+  Checked on this machine: live probes (switch, move, pin, a new window placed by the watcher,
+  maximize and restore), the tile geometry harness (11 cases), page screenshots. Not checked by
+  hand: focus after `vd.move_window_follow`, taskbar flashing after a switch, the pill and the
+  tray icon at runtime.
+
+  Reviews caught: remember overwrote the app's first rule for its second window (now: append
+  while the desktop has fewer rules than open windows, else update the nearest); Delete erased a
+  preset and shifted the later ones onto the wrong desktops (now: clear it, trim the empty tail);
+  Alt+F4 destroyed the editor under its own modal loop, which then never ended; an edge already
+  on a snap guide jumped off it, a 0 shift read as "no guide"; overlapping registry callbacks
+  raced on the last seen desktop (serialised); the switch pill read the config from the
+  threadpool (now hops through `Dispatcher::ToUi`); the editor copied every tile per paint; dead
+  public accessors.
+
+  Found by hand: Qt apps (Telegram) keep a new window app-cloaked for about a second after the
+  shell announces it, so the placer skipped it. It now matches the exe first and waits up to 3 s
+  for the window to become an app window.
 
 ---
 
