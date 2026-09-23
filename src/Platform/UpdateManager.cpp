@@ -7,6 +7,7 @@
 #include <glaze/glaze.hpp>
 
 #include "AppConfig.hpp"
+#include "Core/Dispatcher.hpp"
 #include "Resources/Resource.h"
 #include "Str.hpp"
 #include "definitions.h"
@@ -36,11 +37,16 @@ namespace {
      * a 404 from GitHub would be written to disk and then copied over the running executable.
      */
     bool Fetch(const std::string& url, const std::function<void(const char*, DWORD)>& sink) {
+        constexpr DWORD NetworkTimeoutMs = 10000;
         const InternetHandle session(InternetOpenA("EasyLauncher-Updater", INTERNET_OPEN_TYPE_PRECONFIG,
                                                    nullptr, nullptr, 0));
         if (!session) {
             return false;
         }
+
+        DWORD timeout = NetworkTimeoutMs;
+        InternetSetOptionA(session, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+        InternetSetOptionA(session, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
         const InternetHandle connection(InternetOpenUrlA(session, url.c_str(), nullptr, 0,
                                                          INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0));
@@ -82,40 +88,57 @@ namespace {
 UpdateManager::UpdateManager(AppConfig& config) : _cfg(config) {
 }
 
+UpdateManager::~UpdateManager() {
+    Stop();
+}
+
+void UpdateManager::Stop() {
+    if (_updateWorker.joinable()) {
+        _updateWorker.join();
+    }
+}
+
 std::string UpdateManager::GetApiUrl() {
     return "https://api.github.com/repos/" GITHUB_OWNER "/" GITHUB_REPO "/releases/latest";
 }
 
 void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::string&)> callback) {
-    // Run in background thread to avoid blocking UI
-    std::thread([this, callback = std::move(callback)] {
+    Stop();
+    _updateWorker = std::thread([this, callback = std::move(callback)]() mutable {
+        GitHubRelease release;
+        std::string error;
+        bool hasUpdate = false;
         std::string response;
+
         if (!Fetch(GetApiUrl(), [&response](const char* data, DWORD size) { response.append(data, size); })) {
-            callback(false, "Failed to reach GitHub");
-            return;
+            error = "Failed to reach GitHub";
+        } else if (const auto parseResult = glz::read<glz::opts{.error_on_unknown_keys = false}>(
+                       release, response)) {
+            error = "Failed to parse JSON response: " + glz::format_error(parseResult, response);
+        } else if (GetExecutableAssets(release).empty()) {
+            error = "Release " + release.tag_name + " carries no executable";
+        } else {
+            hasUpdate = Version(release.tag_name) > g_AppVersion;
         }
 
-        // Use glaze to parse JSON response
-        if (const auto parseResult = glz::read<glz::opts{.error_on_unknown_keys = false}>(_latestRelease, response)) {
-            callback(false, "Failed to parse JSON response: " + glz::format_error(parseResult, response));
-            return;
-        }
+        Dispatcher::ToUi([this, callback = std::move(callback), release = std::move(release),
+                          hasUpdate, error = std::move(error)]() mutable {
+            if (!error.empty()) {
+                callback(false, error);
+                return;
+            }
 
-        // If any .exe asset is found, consider it for update
-        if (GetExecutableAssets().empty()) {
-            callback(false, "Release " + _latestRelease.tag_name + " carries no executable");
-            return;
-        }
+            _latestRelease = std::move(release);
+            if (IsVersionSkipped(_latestRelease.tag_name)) {
+                _hasUpdate = false;
+                callback(false, "Version " + _latestRelease.tag_name + " is skipped");
+                return;
+            }
 
-        if (IsVersionSkipped(_latestRelease.tag_name)) {
-            _hasUpdate = false;
-            callback(false, "Version " + _latestRelease.tag_name + " is skipped");
-            return;
-        }
-
-        _hasUpdate = Version(_latestRelease.tag_name) > g_AppVersion;
-        callback(_hasUpdate, "");
-    }).detach();
+            _hasUpdate = hasUpdate;
+            callback(_hasUpdate, "");
+        });
+    });
 }
 
 void UpdateManager::ShowUpdateNotification() {
@@ -151,23 +174,27 @@ void UpdateManager::ShowUpdateNotification() {
 }
 
 void UpdateManager::DownloadAndInstallUpdate() {
-    const auto assets = GetExecutableAssets();
+    const auto assets = GetExecutableAssets(_latestRelease);
     if (!_hasUpdate || assets.empty()) {
         MessageBoxW(nullptr, L"No update available or no assets found.", L"Update Error", MB_ICONERROR);
         return;
     }
 
-    const std::wstring downloadPath = DownloadFile(assets[0].browser_download_url, assets[0].name);
-
-    if (downloadPath.empty() || !ApplyUpdate(downloadPath)) {
-        MessageBoxW(nullptr, L"The update could not be downloaded or installed.", L"Update Error",
-                    MB_ICONERROR);
-    }
+    Stop();
+    _updateWorker = std::thread([url = assets[0].browser_download_url, name = assets[0].name] {
+        const std::wstring downloadPath = DownloadFile(url, name);
+        Dispatcher::ToUi([downloadPath] {
+            if (downloadPath.empty() || !ApplyUpdate(downloadPath)) {
+                MessageBoxW(nullptr, L"The update could not be downloaded or installed.", L"Update Error",
+                            MB_ICONERROR);
+            }
+        });
+    });
 }
 
-std::vector<GitHubAsset> UpdateManager::GetExecutableAssets() const {
+std::vector<GitHubAsset> UpdateManager::GetExecutableAssets(const GitHubRelease& release) {
     std::vector<GitHubAsset> exeAssets;
-    for (const auto& asset : _latestRelease.assets) {
+    for (const auto& asset : release.assets) {
         if (asset.name.ends_with(".exe")) {
             exeAssets.push_back(asset);
         }
@@ -237,12 +264,8 @@ bool UpdateManager::ApplyUpdate(const std::wstring& filePath) {
         return false;
     }
 
-    // Exit current application after a short delay
-    std::thread([] {
-        Sleep(500);
-        ExitProcess(0);
-    }).detach();
-
+    // The updater waits before replacing the executable, so leave through the normal message loop.
+    PostQuitMessage(0);
     return true;
 }
 

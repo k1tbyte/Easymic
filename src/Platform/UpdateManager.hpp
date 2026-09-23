@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <thread>
 #include <vector>
 #include <windows.h>
 
@@ -24,9 +25,11 @@ struct GitHubRelease {
 class UpdateManager {
 public:
     explicit UpdateManager(AppConfig& config);
+    ~UpdateManager();
 
-    /// Answers on a background thread, so the callback must not touch the UI directly.
+    /// The callback runs on the UI thread after the background check completes.
     void CheckForUpdatesAsync(std::function<void(bool hasUpdate, const std::string& error)> callback);
+    void Stop();
 
     void ShowUpdateNotification();
     void SkipVersion();
@@ -36,8 +39,9 @@ private:
     AppConfig& _cfg;
     bool _hasUpdate = false;
     GitHubRelease _latestRelease;
+    std::thread _updateWorker;
 
-    std::vector<GitHubAsset> GetExecutableAssets() const;
+    static std::vector<GitHubAsset> GetExecutableAssets(const GitHubRelease& release);
     bool IsVersionSkipped(const std::string& version) const;
 
     static INT_PTR CALLBACK UpdateDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);

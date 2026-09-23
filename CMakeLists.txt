@@ -27,12 +27,40 @@ add_subdirectory(vendor)
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+if(WIN32)
+    find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+    if(NOT POWERSHELL_EXECUTABLE)
+        message(FATAL_ERROR "PowerShell is required for the architecture check")
+    endif()
+
+    set(ARCHITECTURE_CHECK_COMMAND
+            "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-architecture.ps1"
+            -Root "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    execute_process(
+            COMMAND ${ARCHITECTURE_CHECK_COMMAND}
+            RESULT_VARIABLE ARCHITECTURE_CHECK_RESULT
+    )
+    if(NOT ARCHITECTURE_CHECK_RESULT EQUAL 0)
+        message(FATAL_ERROR "architecture check failed")
+    endif()
+
+    add_custom_target(EasyLauncherArchitectureCheck ALL
+            COMMAND ${ARCHITECTURE_CHECK_COMMAND}
+            VERBATIM)
+endif()
+
 
 file(GLOB_RECURSE CPP_FILES CONFIGURE_DEPENDS "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE HPP_FILES CONFIGURE_DEPENDS "${SRC_DIR}/*.hpp")
 
 
 add_executable(${PROJECT_NAME} #[[WIN32]])
+
+if(WIN32)
+    add_dependencies(${PROJECT_NAME} EasyLauncherArchitectureCheck)
+endif()
 
 if(WIN32)
     # Win10 API surface (GetDpiForWindow etc) - MinGW headers gate these behind _WIN32_WINNT.

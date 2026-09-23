@@ -14,6 +14,8 @@
 #include "UpdateManager.hpp"
 #include "UACService.hpp"
 
+#include <memory>
+
 /// Every feature there is. Adding one is this line plus its own folder - nothing else in the app
 /// knows the list, and the order here is the order the "Add action" menu shows them in.
 constexpr void (*Modules[])(Host&) = {
@@ -41,8 +43,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    // Static: the update thread and the statics below hold references to it and outlive WinMain
+    // Static: feature registrations and the feedback object keep references to the config.
     static AppConfig config = AppConfig::Load();
+    std::unique_ptr<UpdateManager> updateManager;
 
     if (config.Core.SkipUac && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
         // The elevated instance claims this very name, and the name lives as long as a handle is
@@ -76,25 +79,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());
 
-    if (config.Core.Updates) {
-        static UpdateManager updateManager(config);
-        updateManager.CheckForUpdatesAsync([](bool hasUpdate, const std::string& error) {
-            if (!error.empty()) {
-                if (error.find("is skipped") != std::string::npos) {
-                    LOG_INFO("Update check: %s", error.c_str());
-                } else {
-                    LOG_WARNING("Update check failed: %s", error.c_str());
-                }
-                return;
-            }
-
-            if (hasUpdate) {
-                LOG_INFO("Update available - showing notification");
-                updateManager.ShowUpdateNotification();
-            }
-        });
-    }
-
     // Static for the same reason the config is: an action registered here outlives WinMain, and
     // every module holds on to what the host carries
     static Feedback feedback(config);
@@ -121,6 +105,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     LOG_INFO("MainWindow initialized successfully");
 
+    if (config.Core.Updates) {
+        updateManager = std::make_unique<UpdateManager>(config);
+        UpdateManager* const manager = updateManager.get();
+        manager->CheckForUpdatesAsync([manager](bool hasUpdate, const std::string& error) {
+            if (!error.empty()) {
+                if (error.find("is skipped") != std::string::npos) {
+                    LOG_INFO("Update check: %s", error.c_str());
+                } else {
+                    LOG_WARNING("Update check failed: %s", error.c_str());
+                }
+                return;
+            }
+
+            if (hasUpdate) {
+                LOG_INFO("Update available - showing notification");
+                manager->ShowUpdateNotification();
+            }
+        });
+    }
+
     atexit([] {
         LOG_INFO("Application shutting down");
         mainWindow.Hide();
@@ -130,6 +134,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     while (GetMessage(&callbackMsg, nullptr, 0, 0)) {
         TranslateMessage(&callbackMsg);
         DispatchMessage(&callbackMsg);
+    }
+
+    // Finish window teardown before destroying the services that may post to it.
+    mainWindow.Close();
+    if (updateManager) {
+        updateManager->Stop();
     }
 
     // The action worker outlives the message loop, and ~thread() on a joinable thread calls

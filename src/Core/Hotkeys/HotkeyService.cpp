@@ -166,13 +166,15 @@ namespace HotkeyService {
 
         // Every press closes a wait that is not its own - bound or not, and whether or not it
         // opens one of its own. Leaving it open lets an intervening key pass unnoticed and the
-        // press after it count as the second of a pair. A modifier is exempt: it is chord state
-        // rather than a combination, so re-taking Ctrl between two taps must not end the count.
-        if (pressed && !ModifierTable[vkCode] && _pendingMask
-            && (_pendingMask != countingMask
-                || std::chrono::steady_clock::now() >= _pendingDeadline)) {
-            Dispatcher::FlushDeferred();
-            _clearPending();
+        // press after it count as the second of a pair. An intervening modifier is exempt while
+        // the wait is live because it is chord state rather than a combination.
+        if (pressed && _pendingMask) {
+            const bool interveningModifier = ModifierTable[vkCode] && _pendingMask != countingMask;
+            const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
+            if (expired || (!interveningModifier && _pendingMask != countingMask)) {
+                Dispatcher::FlushDeferred();
+                _clearPending();
+            }
         }
 
         bool blocked = false;
