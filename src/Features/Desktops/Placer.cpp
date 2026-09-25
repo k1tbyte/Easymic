@@ -95,12 +95,16 @@ namespace {
         const Placement& where = app->Places[open];
 
         _place(window, where);
-        // By now the app has restored its own saved position, and taken the foreground if it will
+        _grow(rules, where.Desktop + 1);
+        const bool follow = rules.Follow && GetForegroundWindow() == window;
+        // Give a newly opened window time to take focus before moving it away when Follow is on.
+        const bool moved = (!rules.Follow || follow) && VirtualDesktops::MoveWindow(window, where.Desktop);
+        const bool followed = moved && follow && VirtualDesktops::Switch(where.Desktop);
+
         Sleep(300);
         _place(window, where);
-        const bool follow = rules.Follow && GetForegroundWindow() == window;
-        _grow(rules, where.Desktop + 1);
-        if (VirtualDesktops::MoveWindow(window, where.Desktop) && follow) {
+        if (VirtualDesktops::MoveWindow(window, where.Desktop)
+            && !followed && rules.Follow && GetForegroundWindow() == window) {
             VirtualDesktops::Switch(where.Desktop);
         }
 
