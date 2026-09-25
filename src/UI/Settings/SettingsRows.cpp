@@ -30,7 +30,7 @@ namespace {
             case RowKind::Slider:      return 15;
             case RowKind::Combo:
             case RowKind::SoundPicker: return 13;
-            case RowKind::Radio:       return static_cast<int>(row.Items().size()) * RadioPitch - 2;
+            case RowKind::Radio:       return static_cast<int>(row.Items().size() + 1) * RadioPitch - 2;
             case RowKind::Custom:      return row.Height;
             default:                   return 10;
         }
@@ -192,7 +192,6 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
         const int left = group ? GroupIndent : 0;
         const int right = width - left;
         const int height = HeightOf(row);
-        // A radio's label reads against its first choice, the rest against the middle of the row
         const int labelTop = row.Kind == RowKind::Radio ? y + 1 : y + (height - TextHeight) / 2;
 
         if (row.Kind != RowKind::Check && row.Kind != RowKind::Text && row.Kind != RowKind::Custom) {
@@ -236,9 +235,9 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
             case RowKind::Radio: {
                 const auto items = row.Items();
                 for (int part = 0; part < static_cast<int>(items.size()) && part < IdsPerRow; part++) {
-                    const int top = y + part * RadioPitch;
+                    const int top = y + (part + 1) * RadioPitch;
                     Control(page, WC_BUTTONW, items[part], BS_AUTORADIOBUTTON | (part ? 0 : WS_GROUP | WS_TABSTOP),
-                            {ControlLeft, top, right, top + TextHeight + 2}, id + part);
+                            {left, top, right, top + TextHeight + 2}, id + part);
                 }
                 break;
             }
