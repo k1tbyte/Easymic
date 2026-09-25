@@ -34,6 +34,11 @@ namespace InputLanguage {
         return foreground;
     }
 
+    /// A layout is per thread, so this is the one keystrokes into the window are read with.
+    inline HKL LayoutOf(const HWND window) {
+        return GetKeyboardLayout(GetWindowThreadProcessId(window, nullptr));
+    }
+
     namespace Detail {
         /**
          * @brief Every layout the user has, in the order the language bar cycles them.
@@ -145,27 +150,27 @@ namespace InputLanguage {
      * entry is where they asked to end up - which is also what makes a one entry list a plain
      * "switch to this one".
      *
-     * @return false when nothing has focus or nothing in the list is installed.
+     * @return the layout asked for, null when nothing has focus, nothing in the list is installed
+     * or the window refused the post.
      */
-    inline bool SwitchNext(const std::string_view locales = {}) {
+    inline HKL SwitchNext(const std::string_view locales = {}) {
         const HWND target = FocusedWindow();
         if (!target) {
-            return false;
+            return nullptr;
         }
 
         const std::vector<HKL> ring = Detail::Ring(locales);
         if (ring.empty()) {
-            return false;
+            return nullptr;
         }
 
-        const HKL current = GetKeyboardLayout(GetWindowThreadProcessId(target, nullptr));
-        const size_t at = std::ranges::find(ring, current) - ring.begin();
+        const size_t at = std::ranges::find(ring, LayoutOf(target)) - ring.begin();
         const HKL next = ring[at + 1 < ring.size() ? at + 1 : 0];
 
         // The flag alone is enough for a plain Win32 window, but a TSF app reads the handle, so
         // both are sent and the ignored half costs nothing.
-        return PostMessageW(target, WM_INPUTLANGCHANGEREQUEST,
-                            INPUTLANGCHANGE_FORWARD, reinterpret_cast<LPARAM>(next));
+        return PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD,
+                            reinterpret_cast<LPARAM>(next)) ? next : nullptr;
     }
 }
 

@@ -16,7 +16,11 @@ namespace {
          .ArgsLabel = "Locales",
          .ArgsHint = "en, ru - empty for all",
          .Make = [](const ActionContext& context) -> ActionFn {
-             return [locales = context.Args] { InputLanguage::SwitchNext(locales); };
+             return [locales = context.Args] {
+                 if (const HKL next = InputLanguage::SwitchNext(locales)) {
+                     LayoutLayer::Requested(next);
+                 }
+             };
          }},
     };
 

@@ -1078,7 +1078,7 @@ the overlay, and count what it costs.
 
 - [x] `Features/Keyboard/LayoutLayer.cpp`: `Measure` returns the width of the layout's two letters
       or 0 when the setting is off, `Render` draws them, `TickMs` watches the foreground window's
-      layout
+      layout (since replaced by WinEvents, see the result below)
 - [x] One `Check` row on the Keyboard page, one `ShowLayout` field in `KeyboardSettings`
 - [x] `Features/Keyboard` registers that Keyboard page - moved here from step 9, which had no row
       to put on it
@@ -1098,9 +1098,15 @@ the overlay, and count what it costs.
   No revision bump: glaze reads a v4 file without the new key and keeps the default, so adding a
   section discards nothing.
 
-  Windows sends no notice when another app's thread changes layout, so the layer polls the
-  foreground window's thread every 200 ms - and only while the setting is on. With it off
-  `Measure` returns width 0 and no `WantsTick`, and the surface stops the timer (invariant 5).
+  Windows sends no notice when another app's thread changes layout (`HSHELL_LANGUAGE` never
+  arrives on 24H2), so the layer first polled the foreground window's thread every 200 ms. Later
+  it went event-driven, with no timer: while the setting is on, two out-of-context WinEvent
+  hooks re-read the focused thread's layout. One fires on `EVENT_SYSTEM_FOREGROUND`, the other
+  on `EVENT_OBJECT_CREATE`, because a switching thread rebuilds its `MSCTFIME UI` window once
+  the new layout is in, about 1 ms after the request. The layer reads the focused window, not
+  the foreground one: focus can sit in another process (an embedded browser), and that is the
+  thread the switch changes. A switch made through `kbd.switch_layout` is shown at once through
+  `LayoutLayer::Requested`.
 
   Checked on screen with nobody at the desk. In the settings preview the row widens the strip from
   32 to 81 px and the capture shows the mic glyph beside "RU". After OK, with no capture device on
