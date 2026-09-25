@@ -27,3 +27,7 @@ Makefile
 # Log files
 *.log
 _codeql_detected_source_root
+
+# Local notes and artwork scratch
+/plan.md
+/artwork/
