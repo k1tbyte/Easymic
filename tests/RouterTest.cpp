@@ -1,8 +1,9 @@
-// The router's rules, driven with made-up events. Run with .\build.ps1 -Test
+// The router's and the hold's rules, driven with made-up events. Run with .\build.ps1 -Test
 #include <cstdio>
 #include <string>
 #include <vector>
 
+#include "Input/Hold.hpp"
 #include "Input/Router.hpp"
 
 using namespace Input;
@@ -22,6 +23,7 @@ namespace {
         char Name;
         Verdict Answer = Verdict::Next;
         int Resets = 0;
+        HoldId LastHold = 0;
         void (*During)(const KeyEvent&) = nullptr;
     };
 
@@ -42,6 +44,9 @@ namespace {
 
     template <Probe& P>
     void _onReset() { ++P.Resets; }
+
+    template <Probe& P>
+    void _onHold(const HoldId id) { P.LastHold = id; }
 
     constexpr uint8_t A = 'A', B = 'B', Button = VK_LBUTTON;
     size_t a, b, c;
@@ -192,12 +197,132 @@ namespace {
         Check(Router::Needed() == 0, "nothing enabled wants nothing");
     }
 
+    void HoldReachesEnabledStages() {
+        Fresh();
+        Router::Disable(b);
+        Router::NotifyHold(7);
+        Check(_a.LastHold == 7 && _b.LastHold == 0 && _c.LastHold == 7, "only enabled stages hear of a hold");
+    }
+
+    INPUT Ev(const char vk) {
+        INPUT input{.type = INPUT_KEYBOARD};
+        input.ki.wVk = static_cast<WORD>(vk);
+        return input;
+    }
+
+    std::string Keys(const std::vector<INPUT>& inputs) {
+        std::string keys;
+        for (const INPUT& input : inputs) {
+            keys += static_cast<char>(input.ki.wVk);
+        }
+        return keys;
+    }
+
+    /// Everything due, as it goes out, each event coming back through the hook at once.
+    std::string Drain() {
+        std::string sent;
+        std::vector<INPUT> out;
+        while (Hold::Outgoing(out)) {
+            sent += Keys(out);
+            for (size_t i = 0; i < out.size(); ++i) {
+                Hold::Arrived();
+            }
+        }
+        return sent;
+    }
+
+    void TypingThroughAHold() {
+        const HoldId id = Hold::Begin(0);
+        Check(id != 0 && Hold::Active(), "a hold starts");
+        Check(Hold::Begin(0) == 0, "one hold at a time");
+        for (const char key : std::string{"abc"}) {
+            Hold::Take(Ev(key));
+        }
+        std::vector<INPUT> out;
+        Check(!Hold::Outgoing(out), "nothing goes out before the edit");
+
+        const INPUT edit[] = {Ev('X'), Ev('Y')};
+        Check(Hold::Commit(id, edit, 10), "the pending hold takes its edit");
+        Check(Hold::Outgoing(out) && Keys(out) == "XYabc", "the edit goes out ahead of what was held");
+        Hold::Take(Ev('d'));
+        Check(!Hold::Outgoing(out), "typing while the batch is in flight is held");
+        for (int i = 0; i < 4; ++i) {
+            Hold::Arrived();
+        }
+        Check(Hold::Active(), "the hold stays up while one event is still out");
+        Hold::Take(Ev('e'));
+        Hold::Arrived();
+        Check(Drain() == "de", "what arrived meanwhile follows the batch, in order");
+        Check(!Hold::Active(), "the hold ends once everything came back");
+        Check(!Hold::Commit(id, edit, 20), "a late commit does nothing");
+    }
+
+    void TimeoutReplaysWithoutEdit() {
+        const HoldId id = Hold::Begin(1000);
+        Hold::Take(Ev('a'));
+        Hold::Tick(1000 + Hold::TimeoutMs - 1);
+        std::vector<INPUT> out;
+        Check(!Hold::Outgoing(out), "a hold within its time waits");
+        Hold::Tick(1000 + Hold::TimeoutMs);
+        const INPUT edit[] = {Ev('X')};
+        Check(!Hold::Commit(id, edit, 1200), "an expired hold takes no edit");
+        Check(Drain() == "a" && !Hold::Active(), "it replays what it held and ends");
+    }
+
+    void FullRingGoesOut() {
+        const HoldId id = Hold::Begin(0);
+        std::string typed;
+        for (size_t i = 0; i < Hold::Capacity; ++i) {
+            typed += static_cast<char>('0' + i % 10);
+            Hold::Take(Ev(typed.back()));
+        }
+        Check(!Hold::Commit(id, {}, 0), "a full ring expires the hold");
+        Check(Drain() == typed && !Hold::Active(), "and goes out whole");
+    }
+
+    void FullRingGoesOutWhileInFlight() {
+        const INPUT edit[] = {Ev('X')};
+        Hold::Commit(Hold::Begin(0), edit, 0);
+        std::vector<INPUT> out;
+        Hold::Outgoing(out);
+        for (size_t i = 0; i < Hold::Capacity; ++i) {
+            Hold::Take(Ev('a'));
+        }
+        Check(Hold::Outgoing(out) && out.size() == Hold::Capacity, "a full ring does not wait for the batch");
+        for (size_t i = 0; i <= Hold::Capacity; ++i) {
+            Hold::Arrived();
+        }
+        Check(!Hold::Active(), "and the hold ends when both came back");
+    }
+
+    void UnsentIsNotWaitedFor() {
+        const HoldId id = Hold::Begin(0);
+        Hold::Take(Ev('a'));
+        Hold::Commit(id, {}, 0);
+        std::vector<INPUT> out;
+        Hold::Outgoing(out);
+        Hold::Unsent(out.size());
+        Check(!Hold::Active(), "what SendInput refused never comes back");
+    }
+
+    void StuckEventsAreGivenUp() {
+        const INPUT edit[] = {Ev('X')};
+        Hold::Commit(Hold::Begin(0), edit, 0);
+        std::vector<INPUT> out;
+        Hold::Outgoing(out);
+        Hold::Take(Ev('b'));
+        Hold::Tick(Hold::TimeoutMs - 1);
+        Check(!Hold::Outgoing(out), "an event still out is waited for");
+        Hold::Tick(Hold::TimeoutMs);
+        Check(Drain() == "b" && !Hold::Active(), "until the timeout, then what is held goes out");
+    }
+
 } // anonymous namespace
 
 int main() {
-    Router::Add({.Id = "c", .Order = 200, .OnKey = &_onKey<_c>, .OnReset = &_onReset<_c>});
-    Router::Add({.Id = "a", .Order = 0, .OnKey = &_onKey<_a>, .OnReset = &_onReset<_a>});
-    Router::Add({.Id = "b", .Order = 100, .OnKey = &_onKey<_b>, .OnReset = &_onReset<_b>});
+    Router::Add({.Id = "c", .Order = 200, .OnKey = &_onKey<_c>, .OnReset = &_onReset<_c>, .OnHold = &_onHold<_c>});
+    Router::Add({.Id = "a", .Order = 0, .OnKey = &_onKey<_a>, .OnReset = &_onReset<_a>, .OnHold = &_onHold<_a>});
+    Router::Add({.Id = "b", .Order = 100, .OnKey = &_onKey<_b>, .OnReset = &_onReset<_b>, .OnHold = &_onHold<_b>});
     a = Router::Find("a");
     b = Router::Find("b");
     c = Router::Find("c");
@@ -216,7 +341,15 @@ int main() {
     ResetForgetsEverything();
     SendReentersInsideTheSender();
     NeededIsTheUnion();
+    HoldReachesEnabledStages();
 
-    std::printf(_failures ? "%d check(s) failed\n" : "all router checks passed\n", _failures);
+    TypingThroughAHold();
+    TimeoutReplaysWithoutEdit();
+    FullRingGoesOut();
+    FullRingGoesOutWhileInFlight();
+    UnsentIsNotWaitedFor();
+    StuckEventsAreGivenUp();
+
+    std::printf(_failures ? "%d check(s) failed\n" : "all router and hold checks passed\n", _failures);
     return _failures ? 1 : 0;
 }

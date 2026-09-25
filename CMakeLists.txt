@@ -162,7 +162,8 @@ elseif(MSVC)
 endif()
 
 # The input router's rules without a hook: .\build.ps1 -Test
-add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/Router.cpp)
+add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/Router.cpp
+               src/Core/Input/Hold.cpp)
 target_include_directories(RouterTest PRIVATE src/Core)
 target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
 

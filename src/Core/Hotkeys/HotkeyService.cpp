@@ -52,7 +52,7 @@ namespace {
                     return nullptr;
                 }
                 const auto& binding = scope->bindings[index];
-                return binding.onPress || binding.onRelease ? &binding : nullptr;
+                return binding.onPress || binding.onRelease || binding.onEdit ? &binding : nullptr;
             };
             if (const auto* binding = bound(app)) {
                 return binding;
@@ -152,11 +152,37 @@ namespace {
         }
     }
 
+    /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
+    /// that fired it can be delivered.
+    void _press(const HotkeyBinding& binding) {
+        Dispatcher::Post(binding.onPress);
+        if (binding.onEdit) {
+            Input::Edit(binding.onEdit);
+        }
+    }
+
     void _fireOnce(const Match& entry) {
         const auto* binding = entry.At(0);
         if (binding && (entry.count == 1 || binding->onRelease)) {
-            Dispatcher::Post(binding->onPress);
+            _press(*binding);
         }
+    }
+
+    /// One Dispatcher action for the press half, the edit included: a binding that waited out the
+    /// multi-press window starts its hold from the worker, which Input::Edit hands over with.
+    std::function<void()> _pressAction(const HotkeyBinding* binding) {
+        if (!binding) {
+            return {};
+        }
+        if (!binding->onEdit) {
+            return binding->onPress;
+        }
+        return [press = binding->onPress, edit = binding->onEdit] {
+            if (press) {
+                press();
+            }
+            Input::Edit(edit);
+        };
     }
 
     void _count(const Match& entry, const uint64_t mask, const HWND window) {
@@ -167,7 +193,10 @@ namespace {
 
         if (_pendingCount >= entry.count) {
             Dispatcher::CancelDeferred();
-            Dispatcher::Post(binding ? binding->onPress : std::function<void()>{});
+            // In-proc, like _fireOnce: an edit's hold has to catch the key that fired it
+            if (binding) {
+                _press(*binding);
+            }
             _clearPending();
         } else {
             _pendingDeadline = std::chrono::steady_clock::now() + _active->MultiPressWindow;
@@ -175,7 +204,7 @@ namespace {
                 Dispatcher::CancelDeferred();
                 Dispatcher::Post(binding->onPress);
             } else {
-                Dispatcher::Defer(_pendingDeadline, binding ? binding->onPress : std::function<void()>{});
+                Dispatcher::Defer(_pendingDeadline, _pressAction(binding));
             }
         }
     }
@@ -283,7 +312,7 @@ namespace {
         MaskBindings& bindings = scope.bindings;
         if (presses <= bindings.size()) {
             const auto& previous = bindings[presses - 1];
-            if (previous.onPress || previous.onRelease) {
+            if (previous.onPress || previous.onRelease || previous.onEdit) {
                 return false;
             }
         }

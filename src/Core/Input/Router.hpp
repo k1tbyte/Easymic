@@ -24,6 +24,8 @@ namespace Input::Router {
     Wants Needed();
     /// Nothing held so far can be trusted: every owner and every down is forgotten.
     void Reset();
+    /// Tells every enabled stage a hold began.
+    void NotifyHold(HoldId id);
 
     /**
      * @brief Walks one event through the stages.

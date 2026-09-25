@@ -85,7 +85,10 @@ public:
             if (!sound.empty()) {
                 SoundCatalog::Play(_instance, sound, soundVolume);
             }
-            handler();
+            // Empty for an action whose handler runs somewhere else - sound and text still apply
+            if (handler) {
+                handler();
+            }
             Notify(notification);
         };
     }

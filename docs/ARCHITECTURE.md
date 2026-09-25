@@ -60,7 +60,7 @@ src/
     SoundCatalog.hpp         bundled sounds, and the lookup every picker goes through
     AppConfig.hpp            the on-disk shape, one section per module
     Host.hpp                 the facade a feature module sees
-    Input/                   the input thread, LL hooks on demand, the stage pipeline
+    Input/                   the input thread, LL hooks on demand, the stage pipeline, the hold
     Hotkeys/                 one trigger source, not the concept - a stage of Input
       HotkeyService.*          key masks, multi-press
       KeyChord.hpp             downs and ups -> a mask
@@ -469,7 +469,10 @@ are lost on the next save. Reading them is supported, round-tripping them is not
 3. **Threading contract, stated once and for all** (today it lives in scattered comments):
    - Input thread: owns the LL hooks and walks each event through the stage pipeline
      (`Core/Input`, `docs/INPUT.md`). A stage's `OnKey` is a lookup and an enqueue, nothing more;
-     the hotkey table reaches it whole, through `Input::Post`.
+     the hotkey table reaches it whole, through `Input::Post`. While an edit holds delivery,
+     this thread also owns the hold ring and its timer.
+   - Edit lane: the threadpool, reached through `Input::Edit`. A text edit runs here under a
+     hold, with `Input::CurrentHold()` naming it, and answers with `Input::Post` + `Commit`.
    - Action worker: where every action body runs. Feature callbacks land here. Joined while the
      settings window is open, so an action may read and save the config.
    - UI thread: everything touching a window or the config. Reached via `Dispatcher::ToUi`.
@@ -1245,7 +1248,7 @@ Not a migration step: the first feature written on the finished architecture, an
 
 ### Steps 13-16 - Input pipeline and layout conversion
 
-Step 13 is done, 14-16 are open. The design, the decisions and the checklist live in
+Steps 13 and 14 are done, 15-16 are open. The design, the decisions and the checklist live in
 `docs/INPUT.md` and move here once all four land.
 
 ---

@@ -1,9 +1,12 @@
 #include "Input.hpp"
 
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <thread>
+#include <vector>
 
+#include "Hold.hpp"
 #include "Router.hpp"
 #include "Win32Hook.hpp"
 #include "definitions.h"
@@ -20,14 +23,109 @@ namespace {
     /// Our events carry this above the low byte, and the sender's level in it.
     constexpr ULONG_PTR Signature = 0x454C'4C41'554E'4300ull;
     static_assert(sizeof(ULONG_PTR) == 8, "the signature needs a 64-bit dwExtraInfo");
+    /// Edits and what a hold replays: past every stage.
+    constexpr uint8_t EditLevel = 0xFF;
+    constexpr UINT HoldTickMs = 50;
 
     std::thread _thread;
     std::atomic<DWORD> _threadId{0};
     std::unique_ptr<Win32Hook> _keyboard;
     std::unique_ptr<Win32Hook> _mouse;
 
+    UINT_PTR _holdTimer = 0;
+    /// Outgoing swaps buffers with the hold, so it reserves what the hold may fill
+    std::vector<INPUT> _outgoing = [] {
+        std::vector<INPUT> outgoing;
+        outgoing.reserve(Hold::Capacity * 4);
+        return outgoing;
+    }();
+    bool _flushing = false;
+
+    struct EditJob {
+        HoldId Id;
+        std::function<void()> Work;
+    };
+    /// Lane callbacks still running. Stop waits for them: they read state main destroys next.
+    std::atomic<int> _edits{0};
+    thread_local HoldId _currentHold = 0;
+
     uint8_t _level(const ULONG_PTR extra) {
         return (extra & ~ULONG_PTR{0xFF}) == Signature ? static_cast<uint8_t>(extra) : 0;
+    }
+
+    UINT _send(const std::span<INPUT> inputs, const uint8_t level) {
+        const ULONG_PTR tag = Signature | level;
+        for (INPUT& input : inputs) {
+            if (input.type == INPUT_KEYBOARD) {
+                input.ki.dwExtraInfo = tag;
+            } else if (input.type == INPUT_MOUSE) {
+                input.mi.dwExtraInfo = tag;
+            }
+        }
+
+        const UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+        if (sent != inputs.size()) {
+            LOG_WARNING("SendInput took %u of %zu events: 0x%08lX", sent, inputs.size(), GetLastError());
+        }
+        return sent;
+    }
+
+    /// Sends what the hold has due, and keeps its timer running exactly while it is up.
+    void _flush() {
+        // Our SendInput re-enters the hook; the loop here picks up whatever that made due
+        if (!_flushing) {
+            _flushing = true;
+            while (Hold::Outgoing(_outgoing)) {
+                Hold::Unsent(_outgoing.size() - _send(_outgoing, EditLevel));
+            }
+            _flushing = false;
+        }
+
+        const bool active = Hold::Active();
+        if (active && !_holdTimer) {
+            _holdTimer = SetTimer(nullptr, 0, HoldTickMs, nullptr);
+        } else if (!active && _holdTimer) {
+            KillTimer(nullptr, _holdTimer);
+            _holdTimer = 0;
+        }
+    }
+
+    /// Our own event came back through the hook. Only the events a hold sends carry EditLevel.
+    void _arrived() {
+        Hold::Arrived();
+        _flush();
+    }
+
+    void _hold(const INPUT& event) {
+        Hold::Take(event);
+        _flush();
+    }
+
+    INPUT _keyInput(const KBDLLHOOKSTRUCT& info, const bool down) {
+        // Someone else's Unicode injection: the character rides in the scan code
+        const bool unicode = info.vkCode == VK_PACKET;
+        INPUT input{.type = INPUT_KEYBOARD};
+        input.ki = {.wVk = static_cast<WORD>(unicode ? 0 : info.vkCode),
+                    .wScan = static_cast<WORD>(info.scanCode),
+                    .dwFlags = (down ? 0u : KEYEVENTF_KEYUP)
+                               | (info.flags & LLKHF_EXTENDED ? KEYEVENTF_EXTENDEDKEY : 0u)
+                               | (unicode ? KEYEVENTF_UNICODE : 0u)};
+        return input;
+    }
+
+    /// No coordinates: a held click lands wherever the cursor is when it goes out.
+    INPUT _buttonInput(const uint8_t vk, const bool down) {
+        INPUT input{.type = INPUT_MOUSE};
+        switch (vk) {
+            case VK_LBUTTON: input.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP; break;
+            case VK_RBUTTON: input.mi.dwFlags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP; break;
+            case VK_MBUTTON: input.mi.dwFlags = down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP; break;
+            default:
+                input.mi.dwFlags = down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+                input.mi.mouseData = vk == VK_XBUTTON1 ? XBUTTON1 : XBUTTON2;
+                break;
+        }
+        return input;
     }
 
     LRESULT CALLBACK _keyboardProc(const int code, const WPARAM wParam, const LPARAM lParam) {
@@ -35,8 +133,14 @@ namespace {
             const auto* info = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
             // The struct carries a raw DWORD, and injected input is free to put anything in it
             const bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
-            if (info->vkCode < 256
-                && Router::Key(static_cast<uint8_t>(info->vkCode), down, false, _level(info->dwExtraInfo))) {
+            const uint8_t level = _level(info->dwExtraInfo);
+            if (level == EditLevel) {
+                _arrived();
+            } else if (info->vkCode < 256
+                       && Router::Key(static_cast<uint8_t>(info->vkCode), down, false, level)) {
+                return 1;
+            } else if (Hold::Active()) {
+                _hold(_keyInput(*info, down));
                 return 1;
             }
         }
@@ -65,7 +169,14 @@ namespace {
                 }
                 default: break;
             }
-            if (vk && Router::Key(vk, down, true, _level(info->dwExtraInfo))) {
+            if (const uint8_t level = _level(info->dwExtraInfo); !vk) {
+                // Moves and the wheel are never held
+            } else if (level == EditLevel) {
+                _arrived();
+            } else if (Router::Key(vk, down, true, level)) {
+                return 1;
+            } else if (Hold::Active()) {
+                _hold(_buttonInput(vk, down));
                 return 1;
             }
         }
@@ -104,6 +215,46 @@ namespace {
     /// ups of whatever was held when it came up are gone.
     void CALLBACK _onDesktopSwitch(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
         Router::Reset();
+        // What a hold is keeping goes out now, edit or not: the secure desktop would only eat it
+        Hold::Tick(UINT64_MAX);
+        _flush();
+        Hold::Tick(UINT64_MAX);
+        _flush();
+    }
+
+    void CALLBACK _runEdit(PTP_CALLBACK_INSTANCE, void* context) {
+        {
+            const std::unique_ptr<EditJob> job(static_cast<EditJob*>(context));
+            _currentHold = job->Id;
+            try {
+                job->Work();
+            } catch (const std::exception& e) {
+                LOG_ERROR("Input: edit threw: %s", e.what());
+            } catch (...) {
+                LOG_ERROR("Input: edit threw an unknown exception");
+            }
+            _currentHold = 0;
+            // Queued behind the work's own Commit, if it posted one - that one takes the hold first
+            Post([id = job->Id] { Commit(id, {}); });
+        }
+        --_edits;
+    }
+
+    void _startEdit(std::function<void()> work) {
+        const HoldId id = Hold::Begin(GetTickCount64());
+        if (!id) {
+            return;
+        }
+        Router::NotifyHold(id);
+        _flush();
+
+        auto* job = new EditJob{id, std::move(work)};
+        ++_edits;
+        if (!TrySubmitThreadpoolCallback(_runEdit, job, nullptr)) {
+            delete job;
+            --_edits;
+            Commit(id, {});
+        }
     }
 
     void _run(const HANDLE ready) {
@@ -121,6 +272,9 @@ namespace {
             if (msg.message == WM_INPUT_RUN) {
                 const std::unique_ptr<Work> work(reinterpret_cast<Work*>(msg.lParam));
                 (*work)();
+            } else if (msg.message == WM_TIMER) {
+                Hold::Tick(GetTickCount64());
+                _flush();
             }
         }
 
@@ -128,6 +282,12 @@ namespace {
         if (desktopSwitch) {
             UnhookWinEvent(desktopSwitch);
         }
+        // What is held goes out without its edit rather than being lost; nothing that comes
+        // back is waited for, since the hooks go down next
+        Hold::Tick(UINT64_MAX);
+        _flush();
+        Hold::Tick(UINT64_MAX);
+        _flush();
         _keyboard = nullptr;
         _mouse = nullptr;
         while (PeekMessageW(&msg, nullptr, WM_INPUT_RUN, WM_INPUT_RUN, PM_REMOVE)) {
@@ -163,6 +323,9 @@ void Stop() {
     }
     PostThreadMessageW(GetThreadId(_thread.native_handle()), WM_QUIT, 0, 0);
     _thread.join();
+    while (_edits.load()) {
+        Sleep(1);
+    }
 }
 
 void Enable(const std::string_view id, const Wants wants) {
@@ -200,21 +363,30 @@ UINT Send(const std::span<INPUT> inputs, const std::string_view from) {
     if (stage < 0 || inputs.empty()) {
         return 0;
     }
+    return _send(inputs, static_cast<uint8_t>(stage + 1));
+}
 
-    const ULONG_PTR tag = Signature | static_cast<ULONG_PTR>(stage + 1);
-    for (INPUT& input : inputs) {
-        if (input.type == INPUT_KEYBOARD) {
-            input.ki.dwExtraInfo = tag;
-        } else if (input.type == INPUT_MOUSE) {
-            input.mi.dwExtraInfo = tag;
-        }
+void Edit(std::function<void()> work) {
+    if (!work) {
+        return;
     }
+    if (GetCurrentThreadId() == _threadId) {
+        _startEdit(std::move(work));
+    } else {
+        Post([work = std::move(work)]() mutable { _startEdit(std::move(work)); });
+    }
+}
 
-    const UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
-    if (sent != inputs.size()) {
-        LOG_WARNING("SendInput took %u of %zu events: 0x%08lX", sent, inputs.size(), GetLastError());
+HoldId CurrentHold() {
+    return _currentHold;
+}
+
+bool Commit(const HoldId id, const std::span<const INPUT> edit) {
+    if (!Hold::Commit(id, edit, GetTickCount64())) {
+        return false;
     }
-    return sent;
+    _flush();
+    return true;
 }
 
 }

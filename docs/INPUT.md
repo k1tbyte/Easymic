@@ -123,9 +123,17 @@ namespace Input {
 }
 ```
 
-Later steps add: `Stage::OnHold`, `Hold`, `Commit` and the `Edit` level (step 14); `Wants` for
-wheel and moves with `OnMouse` and a `MouseEvent`, with their first consumer. `KeyEvent` gains the
-scan code and flags when the hold replay needs them.
+```cpp
+    // Added in step 14:
+    struct Stage { ...; void (*OnHold)(HoldId); };  // a hold began: snapshot and start fresh
+    void Edit(std::function<void()> work);          // hold delivery, run work on the edit lane
+    HoldId CurrentHold();                           // the hold the running edit works under
+    bool Commit(HoldId, std::span<const INPUT>);    // input thread: edit + held go out, no stage
+                                                    // sees them (the Edit level, 0xFF)
+```
+
+A later step adds `Wants` for wheel and moves with `OnMouse` and a `MouseEvent`, with their first
+consumer.
 
 ### Threads
 
@@ -161,33 +169,48 @@ scan code and flags when the hold replay needs them.
    `MainWindowViewModel::RestoreConfig`, so capture keeps working in Debug.
 8. Step 14: while a hold is active, a delivered event is swallowed into a fixed ring of 64. Keys
    and mouse buttons are held; moves and wheel pass. Clicks are held so they cannot move the caret
-   mid-edit.
+   mid-edit. The hold ends only when every event it sent has come back through our own hook -
+   until then a physical event already queued could still overtake the batch. What arrives
+   meanwhile is held and goes out behind it. A desktop switch and shutdown release the hold
+   without an edit.
 9. Remap stage: `Disable(stage)` sends the up for every key the stage put down through `Send` and
    has not released yet, so no key stays stuck when a remap goes away.
 
 ### Hold and edits
 
-- `Hold` calls every enabled stage's `OnHold(id)` in-proc. The event that started the hold is held
-  too, so an edit on Space does not have to erase the Space.
-- One hold at a time: `Hold` during a hold returns 0, and the second edit is skipped.
-- A timeout (start at 150 ms, then measure) or a full ring replays without an edit and expires
+Built in step 14. `Hold` is not public: the entry point is `Input::Edit(work)`, and the pure
+state (ring, outbox, deadlines) is `Core/Input/Hold.*`, driven by `tests/RouterTest.cpp`.
+
+- `Edit` from the input thread starts the hold in-proc, so the event being handled is held too;
+  from anywhere else it starts once that thread gets to it. Every enabled stage gets `OnHold(id)`.
+- One hold at a time: `Edit` during a hold is skipped.
+- A timeout (150 ms, on a 50 ms thread timer) or a full ring replays without an edit and expires
   the id.
-- `Commit(id, edit)` runs on the input thread: one `SendInput(edit + replay)` tagged `Edit`.
+- `Commit(id, edit)` runs on the input thread: one `SendInput(edit + replay)` tagged with the
+  Edit level. `SendInput` re-enters our hook before it returns (verified live), so the events are
+  counted as they pass and the hold stays up until the last one came back.
 - The replay keeps scan codes and the extended and up flags. A held click is replayed at the
   current cursor position. Replayed input counts as injected, so apps that reject injection
   (games, anti-cheat) must be excluded from text features.
 - The edit lane runs on the threadpool and is pure: a snapshot in, an `INPUT` list out, then
-  `Input::Post(apply)`. `apply` checks the id, updates the stage's state and calls `Commit`.
+  `Input::Post(apply)`. `apply` checks the id, updates the stage's state and calls `Commit`. When
+  the work returns, the lane releases the hold itself - a `Commit` it posted comes first, a work
+  that declined commits nothing.
 
 ### Actions that type
 
-- New `ActionFlags::EditsText`. `Bindings::Apply` marks the hotkey. When the hotkey fires, the
-  hotkey stage calls `Hold` in-proc and submits the handler to the edit lane instead of
-  `Dispatcher::Post`.
-- The lane gives the handler the hold id (thread-local, set around the call), so `ActionFn` keeps
-  its signature.
-- A handler that declines still releases the hold with `Commit(id, {})`. The timeout is only a
-  safety net.
+Built in step 14.
+
+- New `ActionFlags::EditsText`. `Bindings::Apply` puts the handler on `HotkeyBinding::onEdit` and
+  wraps an empty handler for the sound and the notification, which still run on the Dispatcher
+  worker. The binding is always blocked: the firing key must not reach the app.
+- When the hotkey fires - on the press, and on the press that completes a multi-press - the
+  hotkey stage starts the edit in-proc through `Input::Edit`. A binding still waiting out the
+  multi-press window defers press and edit together, and the hold starts when the worker gets to
+  it.
+- The lane gives the handler the hold id (`Input::CurrentHold()`, thread-local), so `ActionFn`
+  keeps its signature.
+- A handler that declines commits nothing; the lane's own release and the timeout are the net.
 
 ### Stages
 
@@ -225,7 +248,7 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
 - Backspace pops a key. The word clears on: focus change, mouse button down, Enter, Tab, Esc,
   arrows, Home/End/PgUp/PgDn, Del, Ins, any Ctrl/Alt/Win chord, and a key with no character in the
   layout.
-- For autocorrect, Space ends the word: `Hold`, then the snapshot goes to the edit lane.
+- For autocorrect, Space ends the word: `Input::Edit`, then the snapshot goes to the edit lane.
 - `OnHold(id)` copies the word into the edit slot and starts a fresh buffer. Keys typed during the
   hold land after the edit, so they are the next word.
 - After a conversion the tracker remembers which side of the pair the word is rendered in, so the
@@ -315,11 +338,33 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
 
 ### Step 14 - Hold and the edit lane
 
-- [ ] `Hold`/`Commit`/`Post`, `OnHold`, the ring of 64, the timeout
-- [ ] Edit lane on the threadpool; the hold id reaches the handler
-- [ ] `ActionFlags::EditsText` through `Bindings::Apply` and the hotkey stage
+- [x] `Edit`/`Commit`, `OnHold`, the ring of 64, the timeout; the hold outlives its batch until
+      every sent event came back through the hook
+- [x] Edit lane on the threadpool; the hold id reaches the handler (`CurrentHold`)
+- [x] `ActionFlags::EditsText` through `Bindings::Apply` and the hotkey stage, always blocked,
+      press-only
 - **Done when:** the harness types through a hold at full speed and nothing is lost or reordered; a
   timeout replays without an edit; a late `Commit` does nothing.
+- **Result:** met where it could be checked here; the gaps are listed.
+  - Binary 1,119,232 -> 1,127,424 bytes (+8 KB): the hold, the lane, the timer.
+  - `.\build.ps1 -Test`: 20 cases pass - typing through a hold (incl. arrivals mid-batch), timeout
+    replay, late commit, one hold at a time, full ring pending and in flight, `Unsent`, a stuck
+    drain, `NotifyHold` to enabled stages only.
+  - Live OS check (standalone probe, not in the repo): `SendInput` re-enters our own LL hook
+    before it returns, and the `dwExtraInfo` tag survives intact - the re-entry guard and the
+    Edit level rest on that.
+  - Regression probe passes; it now focuses its own Notepad first, so the per-app case no longer
+    depends on what the user has focused.
+  - Not checked live: a real hold with a real edit - no `EditsText` action ships before step 15,
+    so the hold path is verified by the harness and the OS check only.
+  - Reviews. Architecture on the design: no findings. Quality, bug-hunt and architecture on the
+    change: a multi-press binding that completes now starts its edit in-proc (a Dispatcher round
+    trip let the firing key and the next keystrokes leak ahead of the hold); a stray condition
+    fired a multi-press edit binding on its first press; an edit binding is always blocked, or the
+    firing key lands in the text; the duplicate-registration check counts `onEdit`; the hold
+    buffers reserve once instead of allocating in the hook; a desktop switch drains the hold
+    instead of waiting out the timeout. A re-check found the `onEdit` duplicate check; the rest
+    came back clean.
 
 ### Step 15 - Engine and manual conversion
 

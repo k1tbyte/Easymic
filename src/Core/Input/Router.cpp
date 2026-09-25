@@ -92,6 +92,14 @@ void Reset() {
     }
 }
 
+void NotifyHold(const HoldId id) {
+    for (size_t i = 0; i < _stages.size(); ++i) {
+        if (_state[i].Enabled && _stages[i].OnHold) {
+            _stages[i].OnHold(id);
+        }
+    }
+}
+
 bool Key(const uint8_t vk, const bool down, const bool button, const uint8_t level) {
     if (level >= _owners.size()) {
         return false;

@@ -73,7 +73,19 @@ public static class Probe {
 
 if (Test-Path $cfg) { Copy-Item $cfg $backup -Force }
 $appLogLines = if (Test-Path $appLog) { (Get-Content $appLog).Count } else { 0 }
-$fg = [Probe]::ForegroundExe()
+
+# A window of our own in the foreground, so the per-app case does not depend on what the user
+# happens to have focused
+$np = Start-Process notepad -PassThru
+$shell = New-Object -ComObject WScript.Shell
+$fg = $null
+foreach ($try in 1..30) {
+    $shell.AppActivate($np.Id) | Out-Null
+    Start-Sleep -Milliseconds 100
+    $fg = [Probe]::ForegroundExe()
+    if ($fg -eq 'notepad.exe') { break }
+}
+if ($fg -ne 'notepad.exe') { "PROBE FAILED: notepad never took the foreground (foreground=$fg)"; exit 1 }
 
 function Run($tag) { "cmd /c echo $tag>>$log" }
 $bindings = @(
@@ -120,6 +132,7 @@ try {
 } finally {
     [Probe]::Remove()
     if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force; 'killed' }
+    if ($np -and -not $np.HasExited) { $np.CloseMainWindow() | Out-Null }
     if (Test-Path $backup) { Move-Item $backup $cfg -Force } else { Remove-Item $cfg -ErrorAction SilentlyContinue }
 }
 

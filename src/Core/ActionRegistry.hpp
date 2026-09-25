@@ -19,6 +19,9 @@ enum class ActionFlags : uint32_t {
     /// The argument is a command line, so the command tokens apply to it and the dialog offers a
     /// command row rather than a plain text one.
     RunsCommand = 1u << 1,
+    /// The action rewrites typed text: it fires on press only, and its handler runs on the edit
+    /// lane under a hold (Input::Edit), not on the action worker.
+    EditsText = 1u << 2,
 };
 
 constexpr ActionFlags operator|(const ActionFlags a, const ActionFlags b) {

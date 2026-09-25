@@ -43,13 +43,21 @@ namespace Bindings {
             }
 
             // An action that runs a command announces itself once the command answers, which can
-            // be minutes later, so the wrapper must not announce it as well
-            auto run = feedback.Wrap(std::move(handler), entry.Sound, entry.SoundVolume,
+            // be minutes later, so the wrapper must not announce it as well. One that types runs
+            // on the edit lane instead: the sound and the text wrap an empty handler.
+            const bool edits = HasFlag(desc->Flags, ActionFlags::EditsText);
+            auto run = feedback.Wrap(edits ? ActionFn{} : std::move(handler), entry.Sound,
+                                     entry.SoundVolume,
                                      HasFlag(desc->Flags, ActionFlags::RunsCommand)
                                          ? std::string{} : text);
 
-            HotkeyService::HotkeyBinding hotkey{.block = entry.Trigger.Block};
-            if (desc->MakeRelease) {
+            // The key that fires a text edit must not reach the app: the edit assumes the text
+            // still ends where the word did
+            HotkeyService::HotkeyBinding hotkey{.block = entry.Trigger.Block || edits};
+            if (edits) {
+                hotkey.onPress = std::move(run);
+                hotkey.onEdit = std::move(handler);
+            } else if (desc->MakeRelease) {
                 hotkey.onPress = std::move(run);
                 hotkey.onRelease = desc->MakeRelease(context);
             } else if (entry.Trigger.OnRelease) {

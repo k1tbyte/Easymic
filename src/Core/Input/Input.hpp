@@ -31,6 +31,9 @@ namespace Input {
         Consume,
     };
 
+    /// Names one hold on delivery to apps; 0 is none.
+    using HoldId = uint32_t;
+
     struct KeyEvent {
         uint8_t Vk;
         bool Down;
@@ -49,6 +52,9 @@ namespace Input {
         /// Input thread. What the stage knew about held keys is void: it was just enabled, or the
         /// hooks or the desktop changed under it.
         void (*OnReset)() = nullptr;
+        /// Input thread, when an edit starts: the stage copies what the edit is about and starts
+        /// fresh - whatever it sees from here lands after the edit.
+        void (*OnHold)(HoldId) = nullptr;
     };
 
     /// Before Start - the pipeline is fixed once the thread runs.
@@ -69,4 +75,22 @@ namespace Input {
     /// Any thread. Tags the events with the sender's level so only the stages after it see them.
     /// @return how many events SendInput took.
     UINT Send(std::span<INPUT> inputs, std::string_view from);
+
+    /**
+     * @brief Rewrites typed text without racing the typing. Any thread.
+     *
+     * Delivery to apps is held from here (stages still see input at once), every enabled stage
+     * gets OnHold, and the work runs on the edit lane, the threadpool, where CurrentHold names the
+     * hold. The work Posts its Commit before it returns; the lane then releases the hold itself,
+     * so a work that declines commits nothing. From the input thread the hold starts at once, the
+     * event being handled included; from anywhere else once that thread gets to it. Skipped while
+     * another hold is active.
+     */
+    void Edit(std::function<void()> work);
+    /// On the edit lane, the hold the running work edits under; 0 anywhere else.
+    HoldId CurrentHold();
+    /// Input thread. Sends the edit, then everything held, where no stage sees them, and releases
+    /// the hold. False, sending nothing, once the hold is gone: after 150 ms, or 64 held events, it
+    /// goes out without an edit.
+    bool Commit(HoldId id, std::span<const INPUT> edit);
 }
