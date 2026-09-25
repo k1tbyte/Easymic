@@ -67,6 +67,8 @@
 #define IDC_ACTION_TAP_ONLY                          472
 #define IDC_ACTION_ARGS_LABEL                        473
 #define IDC_ACTION_ARGS                              474
+#define IDC_ACTION_APP_LABEL                         475
+#define IDC_ACTION_APP                               476
 
 #define IDD_UPDATE_DIALOG                            601
 #define IDC_UPDATE_TITLE                             602

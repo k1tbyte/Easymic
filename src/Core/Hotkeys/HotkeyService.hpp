@@ -1,8 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include <windows.h>
 #include <functional>
+#include <string_view>
+#include <windows.h>
 
 namespace Keys {
 
@@ -49,10 +50,9 @@ namespace HotkeyService {
         bool tapOnly = false;
     };
 
-    /// Binds an action to a combination pressed `presses` times in a row. Two actions may share
-    /// a combination as long as the count differs; only the pair has to be unique.
+    /// A combination and press count can be registered once per application.
     bool RegisterHotkey(uint64_t keysMask, uint8_t presses, const HotkeyBinding& binding,
-                        bool overwrite = false);
+                        std::string_view app = {});
     /// How long a combination waits for another press. Only a combination with more than one
     /// bound count ever waits - everything else still fires on the press itself.
     void SetMultiPressWindow(uint16_t milliseconds);

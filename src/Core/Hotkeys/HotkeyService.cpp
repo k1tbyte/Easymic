@@ -7,10 +7,12 @@
 #include <array>
 #include <chrono>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "Dispatcher.hpp"
+#include "Foreground.hpp"
 #include "Win32Hook.hpp"
 #include "definitions.h"
 
@@ -33,18 +35,55 @@ namespace HotkeyService {
 
     uint64_t _sequenceMask = 0;
 
-    /// Every binding of one combination, indexed by press count minus one. A count nobody bound
-    /// is a default entry, and Dispatcher::Post already ignores an empty function - so an exact
-    /// match is all this has to express, and a gap in the range costs no branch of its own.
     using MaskBindings = std::vector<HotkeyBinding>;
 
-    struct MaskEntry {
+    struct Scope {
         MaskBindings bindings;
-        /// True when any count bound here asked to swallow the key - see HotkeyBinding::block.
+    };
+
+    struct AppHash {
+        using is_transparent = void;
+        size_t operator()(const std::string_view app) const {
+            return std::hash<std::string_view>{}(app);
+        }
+    };
+
+    struct MaskEntry {
+        Scope global;
+        std::unordered_map<std::string, Scope, AppHash, std::equal_to<>> apps;
+    };
+
+    struct Match {
+        const Scope* global = nullptr;
+        const Scope* app = nullptr;
+        size_t count = 0;
         bool block = false;
+
+        const HotkeyBinding* At(const size_t index) const {
+            const auto bound = [index](const Scope* scope) -> const HotkeyBinding* {
+                if (!scope || index >= scope->bindings.size()) {
+                    return nullptr;
+                }
+                const auto& binding = scope->bindings[index];
+                return binding.onPress || binding.onRelease ? &binding : nullptr;
+            };
+            if (const auto* binding = bound(app)) {
+                return binding;
+            }
+            return bound(global);
+        }
+
+        explicit operator bool() const { return count != 0; }
+    };
+
+    struct ReleaseClaim {
+        uint64_t mask;
+        const HotkeyBinding* binding;
     };
 
     std::unordered_map<uint64_t, MaskEntry> _hotkeys;
+    std::vector<ReleaseClaim> _releases;
+    size_t _releaseBindings = 0;
     BindingCallback _onBindingCallback = nullptr;
 
     uint8_t _keys[256];
@@ -62,138 +101,150 @@ namespace HotkeyService {
     /// than one bound count ever waits - everything else fires on the press, as it always did.
     std::chrono::milliseconds _multiPressWindow{200};
 
-    /**
-     * @brief The press being counted.
-     *
-     * Unguarded on purpose: both low-level hooks are dispatched to the thread that installed
-     * them, and everything that registers, clears or retimes a hotkey is the same UI thread, so
-     * nothing here is ever touched from two places. The action waiting on the count lives in
-     * Dispatcher, which does its own locking.
-     */
+    // Hooks and registration run on the UI thread; Dispatcher owns deferred action locking.
     uint64_t _pendingMask = 0;
     uint8_t _pendingCount = 0;
+    HWND _pendingWindow = nullptr;
     std::chrono::steady_clock::time_point _pendingDeadline{};
 
     void _clearPending() {
         _pendingMask = 0;
         _pendingCount = 0;
+        _pendingWindow = nullptr;
     }
 
-    /// Bindings registered on a mask, or nullptr when there are none.
-    const MaskEntry* _lookup(const uint64_t mask) {
+    const MaskEntry* _entry(const uint64_t mask) {
         const auto it = _hotkeys.find(mask);
-        return it == _hotkeys.end() || it->second.bindings.empty() ? nullptr : &it->second;
+        return it == _hotkeys.end() ? nullptr : &it->second;
     }
 
-    /**
-     * @brief Runs a mask that is not counting this event.
-     *
-     * @param alone false when another key went down while this one was held - what a tapOnly
-     *        binding asks about, since that is the key being used as a modifier.
-     * @return true when the combination is bound to swallow the key.
-     */
-    bool _fireOnce(const MaskEntry& entry, const Keys::State state, const bool alone) {
-        const HotkeyBinding& binding = entry.bindings[0];
-
-        if (state == Keys::State::KEY_PRESSED) {
-            // A mask with more than one bound count acts through _count alone: firing bindings[0]
-            // here would run the single-press action now and again when the window closed
-            if (entry.bindings.size() == 1) {
-                Dispatcher::Post(binding.onPress);
-            }
-        } else if (alone || !binding.tapOnly) {
-            // Only count 1 can carry a release - the dialog pins Presses to 1 for both kinds that
-            // do - so a mask that counts still owes its held action the key going up
-            Dispatcher::Post(binding.onRelease);
+    Match _lookup(const MaskEntry* entry, const std::string_view exe) {
+        if (!entry) {
+            return {};
         }
 
-        return entry.block;
+        const auto found = entry->apps.find(exe);
+        Match match{.global = &entry->global,
+                    .app = found == entry->apps.end() ? nullptr : &found->second};
+        match.count = std::max(entry->global.bindings.size(),
+                               match.app ? match.app->bindings.size() : size_t{0});
+        for (size_t i = 0; i < match.count; ++i) {
+            if (const auto* binding = match.At(i)) {
+                match.block |= binding->block;
+            }
+        }
+        return match;
     }
 
-    /**
-     * @brief Advances the press count on the mask that holds the wait.
-     *
-     * One rule decides everything: a count that has reached the highest one bound on this mask
-     * fires at once, anything below it waits for the window to close. The action for the count
-     * reached so far is handed to Dispatcher as it is counted, rather than looked up again when
-     * the window closes - that is what keeps the counting here and out of the worker's way.
-     */
-    bool _count(const MaskEntry& entry, const uint64_t mask) {
-        const MaskBindings& bindings = entry.bindings;
-        _pendingMask = mask;
-        _pendingCount++;
+    bool _contains(const uint64_t mask, const uint8_t vkCode) {
+        if (const auto bit = ModifierTable[vkCode]) {
+            return (mask & bit) != 0;
+        }
+        for (int i = 1; i < 8; ++i) {
+            if (((mask >> (i * 8)) & 0xFF) == vkCode) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-        if (_pendingCount >= bindings.size()) {
+    void _releaseClaims(const uint8_t vkCode) {
+        const bool alone = _lastDownVk == vkCode;
+        for (size_t i = 0; i < _releases.size();) {
+            const auto claim = _releases[i];
+            if (!_contains(claim.mask, vkCode)) {
+                ++i;
+                continue;
+            }
+            if (alone || !claim.binding->tapOnly) {
+                Dispatcher::Post(claim.binding->onRelease);
+            }
+            _releases.erase(_releases.begin() + i);
+        }
+    }
+
+    void _fireOnce(const Match& entry) {
+        const auto* binding = entry.At(0);
+        if (binding && (entry.count == 1 || binding->onRelease)) {
+            Dispatcher::Post(binding->onPress);
+        }
+    }
+
+    void _count(const Match& entry, const uint64_t mask, const HWND window) {
+        _pendingMask = mask;
+        _pendingWindow = window;
+        ++_pendingCount;
+        const auto* binding = entry.At(_pendingCount - 1);
+
+        if (_pendingCount >= entry.count) {
             Dispatcher::CancelDeferred();
-            Dispatcher::Post(bindings[_pendingCount - 1].onPress);
+            Dispatcher::Post(binding ? binding->onPress : std::function<void()>{});
             _clearPending();
         } else {
             _pendingDeadline = std::chrono::steady_clock::now() + _multiPressWindow;
-            Dispatcher::Defer(_pendingDeadline, bindings[_pendingCount - 1].onPress);
+            if (_pendingCount == 1 && binding && binding->onRelease && binding->onPress) {
+                Dispatcher::CancelDeferred();
+                Dispatcher::Post(binding->onPress);
+            } else {
+                Dispatcher::Defer(_pendingDeadline, binding ? binding->onPress : std::function<void()>{});
+            }
         }
-
-        return entry.block;
     }
 
-    /**
-     * @brief Offers one key event to the single key and to the whole sequence.
-     *
-     * The two are separate bindings, so both have to be offered. Counting is the exception: the
-     * wait is a single slot in Dispatcher, so exactly one mask may hold it per event. The
-     * sequence takes it when both could count - it is the more specific of the two, and a
-     * modifier held down is what tells them apart.
-     */
-    bool _raiseAction(const Keys::State state, const uint8_t vkCode) {
-        const auto singleMask = static_cast<uint64_t>(vkCode) << 8;
-        const bool alone = _lastDownVk == vkCode;
-        const bool pressed = state == Keys::State::KEY_PRESSED;
-
-        const MaskEntry* const single = _lookup(singleMask);
-        const MaskEntry* const sequence =
-            singleMask == _sequenceMask ? nullptr : _lookup(_sequenceMask);
-
-        const MaskEntry* counting = nullptr;
-        uint64_t countingMask = 0;
-        if (pressed) {
-            if (sequence && sequence->bindings.size() > 1) {
-                counting = sequence;
-                countingMask = _sequenceMask;
-            } else if (single && single->bindings.size() > 1) {
-                counting = single;
-                countingMask = singleMask;
+    bool _raiseAction(const uint8_t vkCode) {
+        const uint64_t singleMask = static_cast<uint64_t>(vkCode) << 8;
+        const auto* singleEntry = _entry(singleMask);
+        const auto* sequenceEntry = singleMask == _sequenceMask ? nullptr : _entry(_sequenceMask);
+        const auto needsWindow = [](const MaskEntry* entry) {
+            return entry && (!entry->apps.empty() || entry->global.bindings.size() > 1);
+        };
+        HWND window = nullptr;
+        std::string_view exe;
+        if (_pendingMask || needsWindow(singleEntry) || needsWindow(sequenceEntry)) {
+            window = GetForegroundWindow();
+            const auto& cached = Foreground::CurrentOnUi();
+            if (cached.Window == window) {
+                exe = cached.Exe;
             }
         }
 
-        // Every press closes a wait that is not its own - bound or not, and whether or not it
-        // opens one of its own. Leaving it open lets an intervening key pass unnoticed and the
-        // press after it count as the second of a pair. An intervening modifier is exempt while
-        // the wait is live because it is chord state rather than a combination.
-        if (pressed && _pendingMask) {
-            const bool interveningModifier = ModifierTable[vkCode] && _pendingMask != countingMask;
+        const Match single = _lookup(singleEntry, exe);
+        const Match sequence = _lookup(sequenceEntry, exe);
+        const Match* counting = sequence.count > 1 ? &sequence : single.count > 1 ? &single : nullptr;
+        const uint64_t countingMask = counting == &sequence ? _sequenceMask : singleMask;
+
+        if (_pendingMask) {
+            const bool changed = window != _pendingWindow;
+            const bool modifier = ModifierTable[vkCode] && _pendingMask != countingMask;
             const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
-            if (expired || (!interveningModifier && _pendingMask != countingMask)) {
+            if (changed || expired || (!modifier && _pendingMask != countingMask)) {
                 Dispatcher::FlushDeferred();
                 _clearPending();
             }
         }
 
         bool blocked = false;
-        for (const MaskEntry* const entry : {single, sequence}) {
-            if (!entry) {
+        for (const Match* entry : {&single, &sequence}) {
+            if (!*entry) {
                 continue;
             }
-            blocked = (entry == counting ? _count(*entry, countingMask)
-                                         : _fireOnce(*entry, state, alone))
-                      || blocked;
+            const bool firstPress = entry != counting || _pendingCount == 0;
+            if (entry == counting) {
+                _count(*entry, countingMask, window);
+            } else {
+                _fireOnce(*entry);
+            }
+            if (const auto* binding = entry->At(0); firstPress && binding && binding->onRelease) {
+                _releases.push_back({entry == &single ? singleMask : _sequenceMask, binding});
+            }
+            blocked |= entry->block;
         }
-
         return blocked;
     }
 
     void _onKeyRelease(const uint8_t vkCode) {
-        // The action fires on the mask that was still complete when the key went up
         if (!_onBindingCallback) {
-            _raiseAction(Keys::State::KEY_RELEASED, vkCode);
+            _releaseClaims(vkCode);
         }
 
         if (const auto modifierBit = ModifierTable[vkCode]) {
@@ -219,13 +270,9 @@ namespace HotkeyService {
         if (const auto modifierBit = ModifierTable[vkCode]) {
             _sequenceMask |= modifierBit;
         } else {
-            // 1. Save the current (first) byte of modifiers
             const uint8_t modifiers = _sequenceMask & 0xFF;
-            // 2 Shift the existing sequence 1 byte to the left. Excluding the first byte
             uint64_t sequence = (_sequenceMask & ~0xFF) << 8;
-            // 3. Add a new key to the second byte
             sequence |= (static_cast<uint64_t>(vkCode) << 8);
-            // 4. Restore modifier byte
             _sequenceMask = sequence | modifiers;
         }
 
@@ -237,7 +284,7 @@ namespace HotkeyService {
         }
 
 
-        return _raiseAction(Keys::State::KEY_PRESSED, vkCode);
+        return _raiseAction(vkCode);
     }
 
     LRESULT CALLBACK _lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -345,39 +392,29 @@ namespace HotkeyService {
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
     }
 
-    /**
-     * @brief Binds an action to a combination pressed a given number of times in a row.
-     *
-     * The slot is the count, so two actions on one combination no longer collide - what has to
-     * be unique is the pair. Registering a high count with nothing below it leaves the counts in
-     * between empty on purpose: they are the ones that must stay silent.
-     */
-    bool RegisterHotkey(const uint64_t keysMask, const uint8_t presses, const HotkeyBinding &binding,
-                        const bool overwrite) {
+    bool RegisterHotkey(const uint64_t keysMask, const uint8_t presses, const HotkeyBinding& binding,
+                        const std::string_view app) {
         if (!presses) {
             return false;
         }
 
         MaskEntry& entry = _hotkeys[keysMask];
-        MaskBindings& bindings = entry.bindings;
-
-        // Checked before the resize, or a rejected registration would still raise the maximum
-        // and make every count below it start waiting for a press that can never resolve
-        const bool taken = presses <= bindings.size()
-                           && (bindings[presses - 1].onPress || bindings[presses - 1].onRelease);
-        if (taken && !overwrite) {
-            return false;
+        Scope& scope = app.empty() ? entry.global : entry.apps[std::string{app}];
+        MaskBindings& bindings = scope.bindings;
+        if (presses <= bindings.size()) {
+            const auto& previous = bindings[presses - 1];
+            if (previous.onPress || previous.onRelease) {
+                return false;
+            }
         }
 
         if (bindings.size() < presses) {
             bindings.resize(presses);
         }
-
         bindings[presses - 1] = binding;
-
-        // Recomputed rather than or-ed in: an overwrite that drops block would otherwise leave
-        // the combination swallowed by a binding that no longer asks for it
-        entry.block = std::ranges::any_of(bindings, [](const HotkeyBinding& b) { return b.block; });
+        if (binding.onRelease && ++_releaseBindings > _releases.capacity()) {
+            _releases.reserve(std::max(_releaseBindings, _releases.capacity() * 2));
+        }
         return true;
     }
 
@@ -439,6 +476,8 @@ namespace HotkeyService {
         // The waiting action is a copy of a binding that is about to go away, so it has to go
         // with it - otherwise a combination dropped mid-count still fires once
         Dispatcher::CancelDeferred();
+        _releases.clear();
+        _releaseBindings = 0;
         _hotkeys.clear();
         _clearPending();
     }
@@ -449,6 +488,8 @@ namespace HotkeyService {
         _onBindingCallback = nullptr;
         Dispatcher::Stop();
         _sequenceMask = 0;
+        _releases.clear();
+        _releaseBindings = 0;
         _hotkeys.clear();
         _clearPending();
         memset(_keys, Keys::KEY_RELEASED, sizeof(_keys));

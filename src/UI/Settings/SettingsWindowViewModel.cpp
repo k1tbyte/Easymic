@@ -4,6 +4,7 @@
 #include "Core/Overlay.hpp"
 #include "Core/Tray.hpp"
 #include "MainWindow.hpp"
+#include "Platform/Foreground.hpp"
 #include "Resources/Resource.h"
 #include "definitions.h"
 #include "Registry.hpp"
@@ -190,6 +191,9 @@ void SettingsWindowViewModel::RefreshActionRows() const {
             return hotkey;
         }
 
+        if (!trigger.App.empty()) {
+            hotkey += " [" + trigger.App + "]";
+        }
         if (trigger.Presses > 1) {
             hotkey += " x" + std::to_string(trigger.Presses);
         }
@@ -225,14 +229,15 @@ void SettingsWindowViewModel::RefreshActionRows() const {
  * because every stored name came out of KeyNames::Format, which is canonical.
  */
 void SettingsWindowViewModel::ClearHotkey(const std::string& keys, const uint8_t presses,
-                                          const int exceptIndex) {
+                                          const std::string& app, const int exceptIndex) {
     if (keys.empty()) {
         return;
     }
 
     for (int i = 0; i < static_cast<int>(_cfg.Bindings.size()); i++) {
         if (i != exceptIndex && _cfg.Bindings[i].Trigger.Keys == keys
-            && _cfg.Bindings[i].Trigger.Presses == presses) {
+            && _cfg.Bindings[i].Trigger.Presses == presses
+            && _cfg.Bindings[i].Trigger.App == app) {
             _cfg.Bindings[i].Trigger.Keys.clear();
         }
     }
@@ -312,6 +317,7 @@ void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
         .Notification = !stored.Notification.empty() ? stored.Notification
                         : desc ? std::string{desc->DefaultNotification}
                                : std::string{ActionRegistry::DefaultNotification},
+        .App = stored.Trigger.App,
         // The dialog and the capture both work in masks; the name is what goes to disk
         .Hotkey = KeyNames::Parse(stored.Trigger.Keys),
         .OnRelease = stored.Trigger.OnRelease,
@@ -336,7 +342,8 @@ void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
     }
 
     const std::string keys = edit.Hotkey ? KeyNames::Format(edit.Hotkey) : std::string{};
-    ClearHotkey(keys, edit.Presses, isExisting ? index : -1);
+    const std::string app = Foreground::CanonicalApp(edit.App);
+    ClearHotkey(keys, edit.Presses, app, isExisting ? index : -1);
 
     // Starts from what was stored so the action id the entry points at survives the edit
     Binding binding = stored;
@@ -350,7 +357,8 @@ void SettingsWindowViewModel::EditAction(int index, const Binding& seed) {
                        .Presses = edit.Presses,
                        .OnRelease = edit.OnRelease,
                        .Block = edit.Block,
-                       .TapOnly = edit.TapOnly};
+                       .TapOnly = edit.TapOnly,
+                       .App = app};
 
     if (isExisting) {
         _cfg.Bindings[index] = binding;

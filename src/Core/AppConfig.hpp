@@ -8,6 +8,7 @@
 #include <windows.h>
 #include "definitions.h"
 #include "Hotkeys/KeyNames.hpp"
+#include "Platform/Foreground.hpp"
 
 #ifdef CONFIG_ENABLED
 #include <glaze/glaze.hpp>
@@ -147,6 +148,9 @@ struct HotkeyTrigger {
     /// Release only: skips the action when another key was pressed while this one was held, which
     /// is what lets the same key double as a modifier.
     bool TapOnly = false;
+    /// Optional exe basename (e.g. "chrome.exe"). When non-empty the binding fires only while
+    /// that application is in the foreground. Stored canonical (lowercase basename).
+    std::string App;
 
     bool operator==(const HotkeyTrigger&) const = default;
 };
@@ -205,6 +209,9 @@ struct AppConfig {
     void Save() {
         Version = CurrentVersion;
 #ifdef CONFIG_ENABLED
+        for (auto& binding : Bindings) {
+            binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
+        }
         if (const auto ec = glz::write_file_json<glz::opts{.prettify = true}>(
                 *this, GetConfigPath(), std::string{})) {
             LOG_ERROR("Config save failed: %s", glz::format_error(ec).c_str());
@@ -251,6 +258,7 @@ struct AppConfig {
             if (const uint64_t mask = KeyNames::Parse(binding.Trigger.Keys)) {
                 binding.Trigger.Keys = KeyNames::Format(mask);
             }
+            binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
         }
 #endif // CONFIG_ENABLED
         return config;

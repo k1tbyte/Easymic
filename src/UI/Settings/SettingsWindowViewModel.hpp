@@ -29,7 +29,7 @@ private:
     HFONT _linkFont = nullptr;
 
     void RefreshActionRows() const;
-    void ClearHotkey(const std::string& keys, uint8_t presses, int exceptIndex);
+    void ClearHotkey(const std::string& keys, uint8_t presses, const std::string& app, int exceptIndex);
     void HandleActionActivated(int rowIndex);
     void AddAction();
     void EditAction(int index, const Binding& seed);

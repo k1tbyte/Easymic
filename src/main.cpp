@@ -6,6 +6,7 @@
 #include "Core/Feedback.hpp"
 #include "Core/Host.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
+#include "Foreground.hpp"
 #include "Features/Desktops/Desktops.hpp"
 #include "Features/Keyboard/Keyboard.hpp"
 #include "Features/Launcher/Launcher.hpp"
@@ -138,6 +139,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // Finish window teardown before destroying the services that may post to it.
+    Foreground::Stop();
     mainWindow.Close();
     if (updateManager) {
         updateManager->Stop();

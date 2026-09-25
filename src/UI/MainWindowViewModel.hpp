@@ -11,6 +11,7 @@
 #include "Core/Hotkeys/HotkeyService.hpp"
 #include "Core/Lifecycle.hpp"
 #include "Core/Tray.hpp"
+#include "Foreground.hpp"
 #include "Overlay/OverlaySurface.hpp"
 #include "Settings/SettingsWindowViewModel.hpp"
 #include "ViewModel.hpp"
@@ -122,6 +123,9 @@ private:
 
 public:
     void Init() override {
+        if (!Foreground::Start()) {
+            LOG_ERROR("Foreground tracking unavailable; app-specific hotkeys will use global bindings");
+        }
         _overlay.Bind();
         Tray::Refresh = &MainWindow::PostTrayRefresh;
         _feedback.Bind(_view->GetHInstance(), &MainWindow::PostNotification);

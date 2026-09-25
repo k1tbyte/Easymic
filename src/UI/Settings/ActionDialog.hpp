@@ -24,6 +24,8 @@ struct ActionEdit {
     std::string Sound;        // SoundCatalog key or file path, empty means none
     uint8_t SoundVolume = 100; // 0-100, this action's own level
     std::string Notification; // overlay text, {token} aware
+    /// Optional exe basename the hotkey is scoped to (e.g. "chrome.exe"). Empty means global.
+    std::string App;
     uint64_t Hotkey = 0;
     bool OnRelease = false;
     /// How many presses of the combination in a row run this action.

@@ -6,6 +6,7 @@
 #include "ActionRegistry.hpp"
 #include "AppConfig.hpp"
 #include "Feedback.hpp"
+#include "Foreground.hpp"
 #include "HotkeyService.hpp"
 #include "KeyNames.hpp"
 
@@ -62,7 +63,8 @@ namespace Bindings {
             }
 
             registered |= HotkeyService::RegisterHotkey(
-                mask, entry.Trigger.Presses ? entry.Trigger.Presses : 1, hotkey);
+                mask, entry.Trigger.Presses ? entry.Trigger.Presses : 1, hotkey,
+                Foreground::CanonicalApp(entry.Trigger.App));
         }
 
         return registered;

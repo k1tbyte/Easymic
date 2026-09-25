@@ -7,6 +7,8 @@
 #include "Core/Hotkeys/HotkeyCapture.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
+#include "Platform/Foreground.hpp"
+#include "Platform/WindowCatalog.hpp"
 #include "Str.hpp"
 
 namespace {
@@ -37,6 +39,27 @@ namespace {
         const int copied = GetWindowTextW(control, text.data(), length + 1);
         text.resize(copied);
         return text;
+    }
+
+    void PopulateAppCombo(HWND dialog) {
+        const HWND combo = GetDlgItem(dialog, IDC_ACTION_APP);
+        const std::wstring text = GetDlgItemWideString(dialog, IDC_ACTION_APP);
+        std::set<std::wstring> names;
+        for (const HWND window : WindowCatalog::AppWindows()) {
+            DWORD process = 0;
+            GetWindowThreadProcessId(window, &process);
+            if (process != GetCurrentProcessId()) {
+                if (auto name = Foreground::ExeName(window); !name.empty()) {
+                    names.insert(std::move(name));
+                }
+            }
+        }
+
+        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+        for (const auto& name : names) {
+            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
+        }
+        SetWindowTextW(combo, text.c_str());
     }
 
     /// While a combination is being typed the dialog manager must not read ESC as Cancel or
@@ -196,6 +219,10 @@ namespace {
                 CheckDlgButton(dialog, IDC_ACTION_TAP_ONLY, action.TapOnly ? BST_CHECKED : BST_UNCHECKED);
                 SyncTapOnly(dialog);
                 CheckDlgButton(dialog, IDC_ACTION_BLOCK, action.Block ? BST_CHECKED : BST_UNCHECKED);
+                SetDlgItemTextW(dialog, IDC_ACTION_APP, Str::Utf8ToWide(action.App).c_str());
+                SendDlgItemMessageW(dialog, IDC_ACTION_APP, CB_SETCUEBANNER, 0,
+                    reinterpret_cast<LPARAM>(L"e.g. chrome.exe (empty = global)"));
+
                 SetHotkeyButtonText(dialog, action.Hotkey);
                 DialogControls::PopulateSoundCombo(GetDlgItem(dialog, IDC_ACTION_SOUND),
                                                    *state->recentSounds, action.Sound);
@@ -261,6 +288,16 @@ namespace {
                         }
                         return TRUE;
 
+                    case IDC_ACTION_APP:
+                        if (HIWORD(wParam) == CBN_DROPDOWN) {
+                            if (HotkeyCapture::IsActive()) {
+                                HotkeyCapture::Cancel();
+                                SetHotkeyButtonText(dialog, action.Hotkey);
+                            }
+                            PopulateAppCombo(dialog);
+                        }
+                        return TRUE;
+
                     case IDC_ACTION_NOTIFICATION_TOKENS:
                         ShowTokenMenu(dialog, IDC_ACTION_NOTIFICATION, IDC_ACTION_NOTIFICATION_TOKENS,
                                       Tokens::Notification, action.RunsCommand);
@@ -301,6 +338,9 @@ namespace {
                         action.Name = std::move(name);
                         action.Command = std::move(command);
                         action.Args = Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_ARGS));
+
+                        action.App = Foreground::CanonicalApp(
+                            Str::WideToUtf8(GetDlgItemWideString(dialog, IDC_ACTION_APP)));
 
                         action.Presses = action.HoldOnly ? uint8_t{1}
                                                         : static_cast<uint8_t>(SelectedPresses(dialog));
