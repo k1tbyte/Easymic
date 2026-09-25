@@ -93,6 +93,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 set(RESOURCE "${CMAKE_SOURCE_DIR}/src/Resources/Resource.rc")
 
+# rc.exe embeds the .ico files at compile time and CMake does not scan ICON statements -
+# without this, a changed .ico never reaches the exe until the .rc itself changes
+set_property(SOURCE ${RESOURCE} PROPERTY OBJECT_DEPENDS
+        ${CMAKE_SOURCE_DIR}/src/Resources/appicon.ico
+        ${CMAKE_SOURCE_DIR}/src/Resources/mic-muted.ico
+        ${CMAKE_SOURCE_DIR}/src/Resources/mic-unmuted.ico
+        ${CMAKE_SOURCE_DIR}/src/Resources/mic-active.ico
+)
+
 target_sources(${PROJECT_NAME} PRIVATE ${RESOURCE}
         ${CPP_FILES}
         ${HPP_FILES}
