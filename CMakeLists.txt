@@ -161,6 +161,11 @@ elseif(MSVC)
     endif()
 endif()
 
+# The input router's rules without a hook: .\build.ps1 -Test
+add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/Router.cpp)
+target_include_directories(RouterTest PRIVATE src/Core)
+target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
+
 if(IS_DEBUG)
     # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint
     target_compile_definitions(${PROJECT_NAME} PRIVATE APP_NO_GLOBAL_HOOKS)

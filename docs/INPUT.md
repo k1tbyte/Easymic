@@ -12,7 +12,7 @@ conversion has to watch typed text and rewrite it; remapping, snippets and mouse
 after. They all need the same things: input on demand, a synchronous verdict, injection without
 loops, and ordering. That is built once, in `Core/`.
 
-What in the current code stands in the way:
+What stood in the way before step 13 (all of it is gone since, line numbers are from then):
 
 - Hooks live on the UI thread and go up only when `Bindings::Apply` registered something
   (`src/UI/MainWindowViewModel.hpp:67-70`). A feature with no hotkey gets no input.
@@ -32,7 +32,9 @@ What in the current code stands in the way:
   architecture after each step, one fix round, then a re-check.
 - Every step builds with `.\build.ps1` (MinSizeRel) and `.\build.ps1 -Config Debug`. Debug skips
   the hooks (`APP_NO_GLOBAL_HOOKS`), so hook behaviour is checked on MinSizeRel, and the router's
-  rules in a standalone harness (not linked into the exe) that feeds it synthetic events.
+  rules in a standalone harness (not linked into the exe) that feeds it synthetic events:
+  `.\build.ps1 -Test`. `.\tests\HotkeyProbe.ps1` drives the real hooks end to end; it needs no
+  other EasyLauncher running, and each step extends it with its own cases.
 
 ## Decisions (fixed)
 
@@ -88,89 +90,76 @@ What in the current code stands in the way:
 
 ## Contract: `Core/Input`
 
+Built in step 13. Steps 14-16 add to it (marked below); nothing here is removed by them.
+
 ```
 Core/Input/
   Input.hpp          the contract below
-  Router.hpp/.cpp    levels, ownership, verdicts, hold ring - pure, harness-tested
-  InputThread.cpp    the thread, hooks by demand, SendInput, the message loop
-Core/Hotkeys/        the hotkey stage, the capture stage, KeyNames, Bindings
+  Input.cpp          the thread, hooks by demand, SendInput, the message loop
+  Router.hpp/.cpp    levels, ownership, verdicts - pure, driven by tests/RouterTest.cpp
+Core/Hotkeys/        the hotkey and capture stages, KeyChord, KeyNames, Bindings
 ```
 
 ```cpp
-enum class Wants : uint8_t { Keys = 1, Buttons = 2, Wheel = 4, Move = 8 };
-enum class Verdict : uint8_t { Next, Deliver, Consume };
-
-struct KeyEvent {
-    uint16_t Vk, Scan;
-    uint32_t Flags;      // KBDLLHOOKSTRUCT::flags
-    uint32_t Time;
-    bool Down, Repeat;   // Repeat: a down while already down, computed by the router
-};
-
-struct MouseEvent {
-    enum Kind : uint8_t { Button, Wheel, Move } Kind;
-    uint8_t Vk;          // VK_LBUTTON..VK_XBUTTON2 for Button
-    bool Down;
-    int16_t Delta;       // Wheel
-    POINT Pt;
-};
-
-using HoldId = uint32_t; // 0 = none
-
-struct InputStage {
-    std::string_view Id;                              // "hotkeys.capture", "hotkeys", "kbd.text"
-    int Order;
-    Verdict (*OnKey)(const KeyEvent&) = nullptr;      // input thread, O(1), no allocation
-    Verdict (*OnMouse)(const MouseEvent&) = nullptr;
-    void (*OnHold)(HoldId) = nullptr;                 // freeze what the edit will act on
-    void (*OnReset)() = nullptr;                      // hooks reinstalled, state is stale
-};
-
 namespace Input {
-    void Add(const InputStage&);                      // at startup, before the thread runs
-    void Enable(std::string_view id, Wants);          // any thread
-    void Disable(std::string_view id);
-    void Post(std::function<void()>);                 // runs on the input thread, cold path
-    void Send(std::span<const INPUT>, std::string_view from);  // any thread, tagged
-    HoldId Hold(std::chrono::milliseconds limit);     // from OnKey/OnMouse only
-    bool Commit(HoldId, std::span<const INPUT> edit); // input thread; false once expired
+    using Wants = uint8_t;                  // WantKeys, WantButtons
+    enum class Verdict : uint8_t { Next, Deliver, Consume };
+
+    struct KeyEvent { uint8_t Vk; bool Down, Repeat; };  // a mouse button is its VK_*BUTTON
+
+    struct Stage {
+        std::string_view Id;                // "hotkeys.capture", "hotkeys", "kbd.text"
+        int Order;
+        Verdict (*OnKey)(const KeyEvent&);  // input thread, O(1), no allocation
+        void (*OnReset)();                  // enabled, or hooks/desktop changed: held state is void
+    };
+
+    void Add(const Stage&);                 // before Start
+    bool Start(); void Stop();              // main, around the window's lifetime
+    void Enable(std::string_view id, Wants); void Disable(std::string_view id);  // any thread
+    void Post(std::move_only_function<void()>);           // runs on the input thread
+    UINT Send(std::span<INPUT>, std::string_view from);   // any thread, tagged with from's level
 }
 ```
 
-The shapes are a sketch; the rules below are the contract.
+Later steps add: `Stage::OnHold`, `Hold`, `Commit` and the `Edit` level (step 14); `Wants` for
+wheel and moves with `OnMouse` and a `MouseEvent`, with their first consumer. `KeyEvent` gains the
+scan code and flags when the hold replay needs them.
 
 ### Threads
 
-- The input thread owns the hooks, the router, every stage's `OnKey` state and the hold ring. It
-  runs a message-only loop at raised priority (measure how high).
+- The input thread owns the hooks, the router and every stage's `OnKey` state. A message-only
+  loop at `THREAD_PRIORITY_HIGHEST`; `Post` travels as a thread message.
 - UI -> input: `Enable`/`Disable`, and the hotkey table, which is built on the UI thread, handed
   over whole through `Post` and freed on the input thread.
-- Input -> out: `Dispatcher::Post` (actions), `PostMessage` (capture preview and done), the
-  threadpool (edit lane).
-- `Foreground` publishes a snapshot the input thread can read (atomic handoff); the hotkey stage
-  stops calling `CurrentOnUi`.
-- `HotkeyCapture`'s statics become atomics, or travel as `PostMessage` payloads.
+- Input -> out: `Dispatcher::Post` (actions), `PostMessage` (capture preview and done).
+- `Foreground::Current()` is an atomic `shared_ptr` snapshot, still written on the UI thread only.
+- `HotkeyCapture`'s target, captured mask and pending flag are atomics.
+- `Dispatcher` and the input thread start and stop in `main`, on every exit path.
 
 ### Routing rules
 
-1. `dwExtraInfo` holds a 48-bit signature and a level: the sending stage's index + 1, or `Edit`
-   (the maximum). Our event at level L goes to the stages after L; `Edit` goes to no stage.
-   Everything else, foreign `LLKHF_INJECTED` included, counts as physical and starts at the first
-   stage.
-2. A stage that consumes a down owns that vk until its up: repeats and the up go to the owner only
-   and are swallowed. This replaces `_blockedKeys`. The router also records the mask each key went
-   down under, which fixes the chord-release known bug.
-3. `Deliver` skips the later stages. An event that passes the last stage with `Next` is delivered.
-4. While a hold is active, a delivered event is swallowed into a fixed ring of 64. Keys and mouse
-   buttons are held; moves and wheel pass. Clicks are held so they cannot move the caret mid-edit.
+1. `dwExtraInfo` holds a 56-bit signature and an 8-bit level: the sending stage's index + 1. Our
+   event at level L goes to the stages after L. Everything else, foreign `LLKHF_INJECTED`
+   included, counts as physical and starts at the first stage.
+2. A stage that consumes a down owns that vk in that level until its up. Repeats and the up go
+   to the stages up to the owner that saw the down, whatever they answer, and are swallowed. A
+   disabled stage is not called, but the rest stays eaten. This replaces `_blockedKeys`.
+3. Each stage has its own down bits: it never gets an up without its down, and `Repeat` is a down
+   while its bit is set. The verdict of an up counts only as `Deliver`.
+4. `Deliver` skips the later stages. An event that passes the last stage with `Next` is delivered.
 5. A `Send` from inside `OnKey` re-enters the router before it returns.
-6. `Disable(stage)` sends the up for every key the stage put down through `Send` and has not
-   released yet, so no key stays stuck when a remap goes away.
-7. Hooks follow the union of the enabled `Wants`, re-evaluated on the input thread after every
-   `Enable`/`Disable`. When no stage wants `Move`, a move goes straight to `CallNextHookEx`.
-   Reinstalling hooks resets router state and calls every `OnReset`. Under `APP_NO_GLOBAL_HOOKS`
-   no hook is installed; the router still runs, and so does the harness.
-8. An event no stage wants costs one level check and a `CallNextHookEx`.
+6. Hooks follow the union of the enabled `Wants`, re-evaluated on the input thread after every
+   `Enable`/`Disable`. `WM_MOUSEMOVE` and the wheel go straight to `CallNextHookEx`. Changing the
+   installed hook set, or a desktop switch (lock, Ctrl+Alt+Del, UAC), resets router state and calls
+   every enabled stage's `OnReset`. Enabling a stage resets that stage alone.
+7. `APP_NO_GLOBAL_HOOKS` (Debug) still gates the bindings only, in
+   `MainWindowViewModel::RestoreConfig`, so capture keeps working in Debug.
+8. Step 14: while a hold is active, a delivered event is swallowed into a fixed ring of 64. Keys
+   and mouse buttons are held; moves and wheel pass. Clicks are held so they cannot move the caret
+   mid-edit.
+9. Remap stage: `Disable(stage)` sends the up for every key the stage put down through `Send` and
+   has not released yet, so no key stays stuck when a remap goes away.
 
 ### Hold and edits
 
@@ -202,7 +191,7 @@ The shapes are a sketch; the rules below are the contract.
 |---|---|---|---|---|
 | `hotkeys.capture` | 0 | Keys, Buttons | `Core/Hotkeys` | the action dialog captures a combination |
 | `remap` | 100 | Keys, Buttons | future | - |
-| `hotkeys` | 200 | Keys; Buttons only if a mask has a mouse button | `Core/Hotkeys` | a hotkey is registered |
+| `hotkeys` | 200 | Keys; Buttons only if a mask has a mouse button or a binding is tap-only | `Core/Hotkeys` | a hotkey is registered |
 | `kbd.text` | 300 | Keys, Buttons | `Features/Keyboard` | `kbd.convert_word` is bound or autocorrect is on |
 
 ## Keyboard: layout conversion
@@ -271,26 +260,54 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
 
 ### Step 13 - `Core/Input`, no user-visible change
 
-- [ ] `Core/Input/`: the thread, the router, stages, hooks by demand, `Send` with levels, key
-      ownership, the per-key down mask
-- [ ] `HotkeyService` -> stage `hotkeys`: the table is built on UI and handed to the input thread;
-      it asks for `Buttons` only when a mask has a mouse button
-- [ ] `HotkeyCapture` -> stage `hotkeys.capture`: returns `Deliver` and no longer disposes anyone's
+- [x] `Core/Input/`: the thread, the router, stages, hooks by demand, `Send` with levels, key
+      ownership, per-stage down bits, a reset on desktop switch
+- [x] `HotkeyService` -> stage `hotkeys`: the table is built on UI and handed to the input thread;
+      it asks for `Buttons` only when a mask has a mouse button or a binding is tap-only
+- [x] `HotkeyCapture` -> stage `hotkeys.capture`: returns `Deliver` and no longer disposes anyone's
       hooks
-- [ ] `Foreground` snapshot readable from the input thread; capture state thread-safe
-- [ ] `Dispatcher::Start/Stop` move to `main`
-- [ ] `MainWindowViewModel` stops calling `HotkeyService::Initialize/Dispose`; Suspend and Restore
-      go through `Enable`/`Disable`
-- [ ] Close "Chord release fires against the wrong mask" in `docs/known-bugs.md`
-- [ ] Docs: the threading contract in `ARCHITECTURE.md` section 5, the layout in `CLAUDE.md`;
-      align `AGENTS.md` with `CLAUDE.md` (it still says "Refactor in progress")
+- [x] `KeyChord`: the sequence-mask arithmetic both stages share
+- [x] `Foreground::Current()` readable from the input thread; capture state atomic
+- [x] `Dispatcher::Start/Stop` and `Input::Start/Stop` in `main`, on every exit path
+- [x] `MainWindowViewModel` stops calling `HotkeyService::Initialize/Dispose`; `Bindings::Apply`
+      publishes, Suspend publishes an empty table
+- [x] "Chord release fires against the wrong mask": stale, reworded in `docs/known-bugs.md` (see
+      Result)
+- [x] Docs: the threading contract in `ARCHITECTURE.md` section 5, the layout there and in
+      `CLAUDE.md`; `AGENTS.md` is `CLAUDE.md` again
 - **Done when:**
   - multi-press, push-to-talk, tap-only, per-app bindings and capture behave as before;
-  - `WH_MOUSE_LL` is not installed without a mouse binding;
+  - `WH_MOUSE_LL` is not installed without a mouse or tap-only binding;
   - the harness passes: down/up, autorepeat, ownership, levels, foreign injection, re-entrant
-    `Send`, capture, stuck-key release on `Disable`;
+    `Send`;
   - Win+L and Ctrl+Alt+Del leave no modifier stuck;
   - the binary size change is recorded.
+- **Result:** met where it could be checked here; the gaps are listed.
+  - Binary 1,109,504 -> 1,119,232 bytes (+9.5 KB): the thread, `std::move_only_function`, the
+    atomic `shared_ptr`, the router.
+  - `.\build.ps1 -Test`: 13 router cases pass. Debug builds clean.
+  - Live probe on MinSizeRel: a separate process injects with `SendInput` and keeps its own LL
+    hook below ours, so it sees what was swallowed. Per-app scope (bound app fires, other app does
+    not), a blocked key (no down, repeat or up leaks), one vs two presses, tap-only tapped vs held
+    over another key, LCtrl chord, settings open (hotkeys off, keys pass) and closed (hotkeys
+    back), exit code 0.
+  - Not checked: capture in the action dialog (by hand), push-to-talk (no capture device here),
+    the mouse hook's absence (no API shows another process's hooks; it follows from `Needed()`),
+    Win+L and Ctrl+Alt+Del (a probe cannot unlock the session) - the desktop-switch reset is in,
+    unverified.
+  - Behaviour change: without a mouse or tap-only binding, a held mouse button no longer enters
+    keyboard chords, so Ctrl+M fires while dragging.
+  - The chord-release entry was stale: release claims are taken at press time, so the release
+    order no longer matters. What remains is that a single-key binding also fires inside a chord,
+    recorded as its own entry.
+  - Reviews. Architecture on the design: 3 findings, 2 already handled (queue before the first
+    post, an owned up whose owner is disabled), 1 rejected (the input thread may free a replaced
+    `Foreground` snapshot - one small free, and the hook already allocates in `Dispatcher::Post`).
+    Quality, bug-hunt and architecture on the change: 2 defects, both fixed. Stages before a
+    consuming stage never got the up, kept a stale down bit and saw the next press as a repeat;
+    the up and repeats now go to every stage up to the owner. Capture teardown had lost the
+    `_pending` reset, so a `WM_CAPTURE_DONE` after Cancel called an empty `std::function`. A
+    re-check of both fixes found nothing.
 
 ### Step 14 - Hold and the edit lane
 

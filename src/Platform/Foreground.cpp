@@ -13,14 +13,15 @@ namespace {
 
     HWINEVENTHOOK _hook = nullptr;
     PTP_WORK _work = nullptr;
-    Snapshot _uiSnapshot;
+    /// Written on the UI thread only, so the hop below still orders a resolve against a newer focus
+    std::atomic<std::shared_ptr<const Snapshot>> _snapshot;
     std::atomic<HWND> _latestHwnd{nullptr};
     std::atomic<uint64_t> _generation{0};
     std::atomic<bool> _running{false};
     std::mutex _lifetimeMutex;
 
     void _publish(HWND window, std::string exe) {
-        _uiSnapshot = {window, std::move(exe)};
+        _snapshot.store(std::make_shared<const Snapshot>(Snapshot{window, std::move(exe)}));
     }
 
     void CALLBACK _resolve(PTP_CALLBACK_INSTANCE, void*, PTP_WORK) {
@@ -100,8 +101,8 @@ void Stop() {
     _publish(nullptr, {});
 }
 
-const Snapshot& CurrentOnUi() {
-    return _uiSnapshot;
+std::shared_ptr<const Snapshot> Current() {
+    return _snapshot.load();
 }
 
 std::wstring ExeName(HWND window) {

@@ -8,13 +8,15 @@
     .\build.ps1                          # MinSizeRel
     .\build.ps1 -Config Debug -Run
     .\build.ps1 -Clean
+    .\build.ps1 -Test                    # also builds and runs the harnesses
 #>
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release", "MinSizeRel", "RelWithDebInfo")]
     [string]$Config = "MinSizeRel",
     [switch]$Clean,
-    [switch]$Run
+    [switch]$Run,
+    [switch]$Test
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,5 +55,12 @@ if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 $exe = Join-Path $buildDir "EasyLauncher.exe"
 Write-Host "`n$exe  ($([math]::Round((Get-Item $exe).Length / 1KB)) KB)" -ForegroundColor Green
+
+if ($Test) {
+    cmake --build $buildDir --target RouterTest
+    if ($LASTEXITCODE -ne 0) { throw "test build failed" }
+    & (Join-Path $buildDir "RouterTest.exe")
+    if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+}
 
 if ($Run) { & $exe }

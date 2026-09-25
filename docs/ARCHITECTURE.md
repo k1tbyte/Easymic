@@ -60,8 +60,10 @@ src/
     SoundCatalog.hpp         bundled sounds, and the lookup every picker goes through
     AppConfig.hpp            the on-disk shape, one section per module
     Host.hpp                 the facade a feature module sees
-    Hotkeys/                 one trigger source, not the concept
-      HotkeyService.*          LL hooks, key masks, multi-press
+    Input/                   the input thread, LL hooks on demand, the stage pipeline
+    Hotkeys/                 one trigger source, not the concept - a stage of Input
+      HotkeyService.*          key masks, multi-press
+      KeyChord.hpp             downs and ups -> a mask
       KeyNames.*               the 256-entry VK name table and its inverse
       HotkeyCapture.hpp        the capture field the action dialog uses
       Bindings.hpp             configured bindings -> registered hotkeys
@@ -465,14 +467,16 @@ are lost on the next save. Reading them is supported, round-tripping them is not
 2. **Actions never run inside the hook proc.** A proc that overruns `LowLevelHooksTimeout` is
    silently dropped by Windows and input stalls desktop-wide.
 3. **Threading contract, stated once and for all** (today it lives in scattered comments):
-   - LL hook proc: mask lookup and enqueue only.
+   - Input thread: owns the LL hooks and walks each event through the stage pipeline
+     (`Core/Input`, `docs/INPUT.md`). A stage's `OnKey` is a lookup and an enqueue, nothing more;
+     the hotkey table reaches it whole, through `Input::Post`.
    - Action worker: where every action body runs. Feature callbacks land here.
    - UI thread: everything touching a window or the config. Reached via `Dispatcher::ToUi`.
      `Measure`, `Render` and `Tick` on an overlay layer are this thread and only this thread;
      `Overlay::Invalidate` is the one entry point that may be called from any other.
    - WASAPI notification thread: writes state through atomics only.
-   - Threadpool: feature background work that must not ride the action worker, which only runs
-     while hotkeys do (window placement, the desktop registry watch). Publishes through atomics
+   - Threadpool: feature background work that must not queue behind actions on the serial worker
+     (window placement, the desktop registry watch). Publishes through atomics
      or a mutex and may call `Tray::Changed`; anything that reads the config, `Feedback::Post`
      included, hops through `Dispatcher::ToUi`.
 4. **Config keys are permanent.** `ActionDesc::Id` is written to disk. Renaming one is a
@@ -1240,8 +1244,8 @@ Not a migration step: the first feature written on the finished architecture, an
 
 ### Steps 13-16 - Input pipeline and layout conversion
 
-Planned, not started. The design, the decisions and the checklist live in `docs/INPUT.md` and
-move here once the steps land.
+Step 13 is done, 14-16 are open. The design, the decisions and the checklist live in
+`docs/INPUT.md` and move here once all four land.
 
 ---
 

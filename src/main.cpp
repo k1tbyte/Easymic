@@ -3,9 +3,12 @@
 #include "CrashHandler.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowViewModel.hpp"
+#include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
 #include "Core/Host.hpp"
+#include "Core/Hotkeys/HotkeyCapture.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
+#include "Core/Input/Input.hpp"
 #include "Foreground.hpp"
 #include "Features/Desktops/Desktops.hpp"
 #include "Features/Keyboard/Keyboard.hpp"
@@ -92,15 +95,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // pages and still ahead of About, which pins itself last
     SettingsWindowViewModel::RegisterPages();
 
+    HotkeyCapture::Register();
+    HotkeyService::Register();
     for (const auto& registerModule : Modules) {
         registerModule(host);
     }
+
+    // Both outlive the message loop, and ~thread() on a joinable thread calls std::terminate -
+    // every exit path has to stop them
+    const auto stopThreads = [] {
+        Input::Stop();
+        Dispatcher::Stop();
+    };
+    Dispatcher::Start();
+    Input::Start();
 
     static MainWindow mainWindow(hInstance);
     mainWindow.AttachViewModel<MainWindowViewModel>(config, feedback);
 
     if (!mainWindow.Initialize({})) {
         LOG_ERROR("Failed to initialize MainWindow");
+        stopThreads();
         CloseHandle(mutex);
         return 1;
     }
@@ -145,9 +160,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         updateManager->Stop();
     }
 
-    // The action worker outlives the message loop, and ~thread() on a joinable thread calls
-    // std::terminate - every clean exit used to end in a crash report
-    HotkeyService::Dispose();
+    // Input first: its hooks are what posts to the worker
+    stopThreads();
 
     CloseHandle(mutex);
     return 0;

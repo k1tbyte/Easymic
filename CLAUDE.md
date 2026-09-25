@@ -10,6 +10,8 @@ binary size, simplicity.
 .\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/EasyLauncher.exe
 .\build.ps1 -Config Debug -Run
 .\build.ps1 -Clean
+.\build.ps1 -Test                # also builds and runs tests/ (the input router harness)
+.\tests\HotkeyProbe.ps1          # live hotkey check on MinSizeRel; stop a running instance first
 ```
 
 The script imports the MSVC environment itself (`cl.exe` is never in the global PATH).
@@ -27,12 +29,14 @@ features register into it.
   and the hop back to the UI thread), `Feedback` (sound and overlay text), `SettingsHost`
   (settings pages as `SettingsRow` tables), `Overlay` (id -> `OverlayLayer`, what a feature
   draws on the overlay), `Tray` (providers: who paints the tray icon, who adds a menu item),
-  `Lifecycle` (settings taking the config and handing it back, as events), `AppConfig`, and
-  `Hotkeys/` for the one trigger source there is so far -
-  `HotkeyService` (LL hooks and key masks), `KeyNames` (mask <-> text), `HotkeyCapture`,
-  `Bindings` (config -> registered hotkeys). Hook procs must stay O(1): actions run on the worker
-  thread, never inside the proc. A file in `Core/` says `"Hotkeys/KeyNames.hpp"`, everyone else
-  says the full `"Core/Hotkeys/KeyNames.hpp"`.
+  `Lifecycle` (settings taking the config and handing it back, as events), `AppConfig`,
+  `Input/` (the input thread: LL hooks up only while an enabled stage wants them, and the stage
+  pipeline every consumer of input sits in), and `Hotkeys/` for the one trigger source there is
+  so far, a stage of `Input` - `HotkeyService` (key masks, multi-press), `KeyChord` (downs and
+  ups -> a mask), `KeyNames` (mask <-> text), `HotkeyCapture`, `Bindings` (config -> registered
+  hotkeys). A stage's `OnKey` must stay O(1): actions run on the worker thread, never inside the
+  hook. A file in `Core/` says `"Hotkeys/KeyNames.hpp"`, everyone else says the full
+  `"Core/Hotkeys/KeyNames.hpp"`.
 - `src/Platform/` - thin Win32 wrappers with no domain knowledge: `Str`, `Event`, `Logger`,
   `Registry`, `Win32Hook`, `Gdi` (rounded pill, text measure, centred draw), `TrayIconTheme`,
   `LayeredWindow` (per-pixel alpha surface), `Controls` (child control in dialog units),
@@ -61,7 +65,7 @@ with its settings page, overlay layer and tray provider if it has them.
 `docs/ARCHITECTURE.md` holds the architecture and the migration checklist, all of it done (steps
 0-11). Read it before touching settings, the overlay or the tray.
 
-`docs/INPUT.md` holds the planned input pipeline and layout conversion (steps 13-16, not started).
-Read it before touching hooks, hotkeys or `Features/Keyboard`.
+`docs/INPUT.md` holds the input pipeline and layout conversion: the contract and the checklist
+(step 13 done, 14-16 open). Read it before touching hooks, hotkeys or `Features/Keyboard`.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

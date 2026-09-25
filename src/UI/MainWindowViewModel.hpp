@@ -44,7 +44,7 @@ private:
     void SuspendActivity() {
         _overlay.Suspend();
         Lifecycle::Suspend();
-        HotkeyService::Dispose(); // also drops every registered hotkey
+        HotkeyService::ClearHotkeys();
     }
 
     /// The provider the config names paints the icon, and says the tooltip.
@@ -61,14 +61,11 @@ private:
     }
 
     void RestoreConfig() {
-        HotkeyService::ClearHotkeys();
         HotkeyService::SetMultiPressWindow(_cfg.Core.MultiPressWindowMs);
 
 #ifndef APP_NO_GLOBAL_HOOKS
-        if (Bindings::Apply(_cfg.Bindings, _feedback)) {
-            HotkeyService::Initialize();
-        }
-#endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks
+        Bindings::Apply(_cfg.Bindings, _feedback);
+#endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks for bindings
 
         // Ahead of the overlay: a layer may measure what a module only knows again once it resumes
         Lifecycle::Restore();

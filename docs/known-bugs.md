@@ -7,26 +7,19 @@ Fixed defects are not recorded here; git history is the record for those.
 
 ---
 
-## Chord release fires against the wrong mask
+## A single-key binding also fires inside a chord
 
-**Where:** `src/Core/Hotkeys/HotkeyService.cpp`, `_onKeyRelease`
-**Severity:** minor - wrong action on an unusual release order
+**Where:** `src/Core/Hotkeys/HotkeyService.cpp`, `_raiseAction`
+**Severity:** minor - an extra action when both a key and a chord with it are bound
 
-`_onKeyRelease` raises the action *before* it updates `_sequenceMask`, so a release is evaluated
-against the combination that was still complete when the key went up. That is correct for the
-last key of a chord and wrong for every key before it.
+Every down looks the key up by itself as well as the whole chord, so with bindings on `A` and
+`CTRL + A`, pressing Ctrl+A runs both: on the press, and on the release for release bindings.
+Release claims are taken at press time, so the order the keys come up in does not matter. The
+entry this replaces ("chord release fires against the wrong mask") described an order dependence
+the claims no longer have.
 
-With `Ctrl+A` held and a release binding on `Ctrl+A`:
-
-- release `A` first: fires against `Ctrl+A`. Correct.
-- release `Ctrl` first: fires against `Ctrl+A` - also correct - and then `_sequenceMask` drops to
-  `A`. Releasing `A` afterwards fires against `A`, so a release binding on plain `A` triggers
-  even though the user never pressed `A` alone.
-
-**Why it waits:** the fix is to remember which mask a key was pressed under and evaluate the
-release against that, which means per-key state the hook proc has to write on every press. That
-is the hot path, and the payoff is one release order almost nobody uses. Revisit when the
-keyboard and mouse procs merge - the bookkeeping is cheaper to add once, in one place.
+**Why it waits:** changing it changes what existing configs do - a mouse button or an F-key bound
+alone fires with a modifier held today - so it needs a decision, not a fix.
 
 ---
 

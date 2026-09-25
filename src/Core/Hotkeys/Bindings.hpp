@@ -15,18 +15,15 @@
 namespace Bindings {
 
     /**
-     * @brief Registers every configured binding that can actually be registered.
+     * @brief Registers every configured binding that can actually be registered, and publishes
+     * the result.
      *
      * A configured trigger is not a registered one: the combination can be missing or unparseable,
      * the id can name an action no module registered, and the action itself can decline the
      * argument it was given - hooking the desktop for any of those is not free. None of them drops
      * the binding; it stays in the list, visible in settings, and simply never fires.
-     *
-     * @return true when at least one hotkey took, which is what makes installing the hooks worth it.
      */
-    inline bool Apply(const std::vector<Binding>& bindings, Feedback& feedback) {
-        bool registered = false;
-
+    inline void Apply(const std::vector<Binding>& bindings, Feedback& feedback) {
         for (const auto& entry : bindings) {
             const ActionDesc* const desc = ActionRegistry::Find(entry.ActionId);
             const uint64_t mask = KeyNames::Parse(entry.Trigger.Keys);
@@ -62,11 +59,10 @@ namespace Bindings {
                 hotkey.onPress = std::move(run);
             }
 
-            registered |= HotkeyService::RegisterHotkey(
-                mask, entry.Trigger.Presses ? entry.Trigger.Presses : 1, hotkey,
-                Foreground::CanonicalApp(entry.Trigger.App));
+            HotkeyService::RegisterHotkey(mask, entry.Trigger.Presses ? entry.Trigger.Presses : 1,
+                                          hotkey, Foreground::CanonicalApp(entry.Trigger.App));
         }
 
-        return registered;
+        HotkeyService::Publish();
     }
 }

@@ -3,40 +3,15 @@
 #include <cstdint>
 #include <functional>
 #include <string_view>
-#include <windows.h>
-
-namespace Keys {
-
-    typedef enum {
-        KEY_RELEASED = 0,
-        KEY_PRESSED  = 1
-    } State;
-
-    typedef enum {
-        MOD_LCTRL  = 0x04,
-        MOD_LSHIFT = 0x08,
-        MOD_LALT   = 0x10,
-        MOD_RCTRL  = 0x20,
-        MOD_RSHIFT = 0x40,
-        MOD_RALT   = 0x80
-    } Modifier;
-}
 
 /**
- * @brief The low-level hooks and the mask table they look combinations up in.
+ * @brief The hotkey stage of the input pipeline: the mask table and multi-press counting.
  *
- * Nothing here runs an action: the hook proc resolves a mask and hands the work to Dispatcher,
- * which owns the worker thread. Naming a combination belongs to KeyNames.
+ * The table is built on the UI thread and handed to the input thread whole by Publish, so the hook
+ * never reads what the UI is writing. Nothing here runs an action: a match is posted to
+ * Dispatcher. Naming a combination belongs to KeyNames, the chord arithmetic to KeyChord.
  */
 namespace HotkeyService {
-
-    /**
-     * @brief Raised from inside the low-level hook proc while a combination is being bound.
-     *
-     * Everything it does counts against LowLevelHooksTimeout, so it gets the raw mask and nothing
-     * else - formatting a name or touching a window here is what makes Windows drop the hook.
-     */
-    using BindingCallback = std::function<void(uint8_t lastCode, Keys::State lastState, uint64_t sequenceMask)>;
 
     struct HotkeyBinding {
         std::function<void()> onPress;
@@ -50,20 +25,20 @@ namespace HotkeyService {
         bool tapOnly = false;
     };
 
-    /// A combination and press count can be registered once per application.
+    /// Adds the stage to the pipeline. Once, before Input::Start.
+    void Register();
+
+    /// UI thread, into the table the next Publish hands over. A combination and press count can
+    /// be registered once per application.
     bool RegisterHotkey(uint64_t keysMask, uint8_t presses, const HotkeyBinding& binding,
                         std::string_view app = {});
     /// How long a combination waits for another press. Only a combination with more than one
     /// bound count ever waits - everything else still fires on the press itself.
     void SetMultiPressWindow(uint16_t milliseconds);
-    void BindStart(const BindingCallback& callback);
-    void BindStop();
-    /// False when the hooks are already up or the OS refused them - never throws, it is called
-    /// from inside Win32 callbacks.
-    bool Initialize();
-    /// True while the low-level hooks are installed.
-    bool IsHooked();
+    /// Puts the table built since the last Publish into effect and starts an empty one. The stage
+    /// is on while its table holds anything; whatever the old table had waiting is dropped.
+    void Publish();
+    /// An empty Publish.
     void ClearHotkeys();
-    void Dispose();
 
 }
