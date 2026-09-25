@@ -22,15 +22,20 @@ namespace Gdi {
         path.CloseFigure();
     }
 
-    inline Gdiplus::Font TextFont(const float size) {
-        return {L"Segoe UI", size, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel};
+    inline Gdiplus::Font TextFont(const float size, const wchar_t* family = L"Segoe UI") {
+        return {family, size, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel};
     }
 
-    /// Measured against the screen DC, so the width agrees with what the render pass paints
-    /// rather than with whatever DC the caller happens to hold.
-    inline int MeasureText(const std::wstring& text, const Gdiplus::Font& font) {
+    struct TextMetrics {
+        int Width;
+        float CenterOffset;
+    };
+
+    /// MeasureString centers the line box; glyph outlines locate the visible centre.
+    inline TextMetrics MeasureText(const std::wstring& text, const Gdiplus::Font& font) {
         HDC screenDC = GetDC(nullptr);
         Gdiplus::RectF bounds;
+        Gdiplus::RectF ink;
 
         { // the Graphics has to go before the DC it was built on
             Gdiplus::Graphics graphics(screenDC);
@@ -39,10 +44,17 @@ namespace Gdi {
             format.SetFormatFlags(Gdiplus::StringFormatFlagsMeasureTrailingSpaces);
 
             graphics.MeasureString(text.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &bounds);
+            Gdiplus::FontFamily family;
+            font.GetFamily(&family);
+            Gdiplus::GraphicsPath path;
+            path.AddString(text.c_str(), -1, &family, font.GetStyle(), font.GetSize(),
+                           Gdiplus::PointF(0, 0), &format);
+            path.GetBounds(&ink);
         }
 
         ReleaseDC(nullptr, screenDC);
-        return static_cast<int>(std::ceil(bounds.Width));
+        return {static_cast<int>(std::ceil(bounds.Width)),
+                bounds.Height / 2.0f - ink.Y - ink.Height / 2.0f};
     }
 
     /// Off-white rather than white by default: on the overlay's dark pill, pure white on a

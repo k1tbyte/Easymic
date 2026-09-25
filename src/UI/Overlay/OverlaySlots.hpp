@@ -57,7 +57,7 @@ struct OverlaySlots {
      * the gap between two of them is the same everywhere. Both are what stops a pill a feature
      * contributed from looking like a different app.
      */
-    static OverlaySlots Measure(const int iconSize, const bool preview) {
+    static OverlaySlots Measure(const int iconSize, const bool preview, const wchar_t* fontFamily = L"Segoe UI") {
         OverlaySlots slots;
         slots.Height = PillHeight(iconSize);
 
@@ -65,6 +65,7 @@ struct OverlaySlots {
         slots.Cell = {.Height = slots.Height,
                       .IconSize = iconSize,
                       .FontSize = std::clamp(pillHeight * FontScale, MinFontSize, MaxFontSize),
+                      .FontFamily = fontFamily,
                       .Padding = std::max(MinPadding, static_cast<int>(pillHeight * PaddingScale)),
                       .Preview = preview};
 

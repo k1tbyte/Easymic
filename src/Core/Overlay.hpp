@@ -13,6 +13,7 @@ struct OverlayCell {
     int Height = 0;
     int IconSize = 0;
     float FontSize = 0.0f;
+    const wchar_t* FontFamily = L"Segoe UI";
     /// Side padding a text pill leaves around its glyphs. Handed over rather than derived, so
     /// two layers that draw text cannot disagree about it.
     int Padding = 0;

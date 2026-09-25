@@ -13,6 +13,7 @@
 #include "UACService.hpp"
 #include <windows.h>
 #include <commctrl.h>
+#include <gdiplus.h>
 
 namespace {
     /// At most one settings window is ever open - MainWindowViewModel::OpenSettings brings the
@@ -56,6 +57,29 @@ SettingsWindowViewModel::~SettingsWindowViewModel() {
     }
     if (_current == this) {
         _current = nullptr;
+    }
+}
+
+void SettingsWindowViewModel::LoadFonts() {
+    _fontNames.clear();
+    const HDC dc = GetDC(nullptr);
+    LOGFONTW query{.lfCharSet = DEFAULT_CHARSET};
+    EnumFontFamiliesExW(dc, &query, [](const LOGFONTW* font, const TEXTMETRICW*, DWORD, LPARAM data) -> int {
+        if (font->lfFaceName[0] != L'@') {
+            reinterpret_cast<std::vector<std::wstring>*>(data)->emplace_back(font->lfFaceName);
+        }
+        return 1;
+    }, reinterpret_cast<LPARAM>(&_fontNames), 0);
+    ReleaseDC(nullptr, dc);
+
+    std::ranges::sort(_fontNames);
+    _fontNames.erase(std::ranges::unique(_fontNames).begin(), _fontNames.end());
+    std::erase_if(_fontNames, [](const std::wstring& name) {
+        return Gdiplus::FontFamily(name.c_str()).GetLastStatus() != Gdiplus::Ok;
+    });
+    _fontItems.clear();
+    for (const auto& name : _fontNames) {
+        _fontItems.push_back(name.c_str());
     }
 }
 
@@ -111,6 +135,26 @@ void SettingsWindowViewModel::RegisterPages() {
         {.Kind = RowKind::Slider, .Label = L"Size (px)",
          .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Size>(), .Min = 10, .Max = 32,
          .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
+        {.Kind = RowKind::Combo, .Label = L"Text font",
+         .Field = {.Get = [](const AppConfig& cfg) {
+                       const auto indexOf = [](const std::wstring& name) {
+                           const auto it = std::ranges::find(_current->_fontNames, name);
+                           return it == _current->_fontNames.end() ? -1
+                                : static_cast<int>(it - _current->_fontNames.begin());
+                       };
+                       const int selected = indexOf(Str::Utf8ToWide(cfg.Overlay.FontFamily));
+                       return selected >= 0 ? selected : indexOf(L"Segoe UI");
+                   },
+                   .Set = [](AppConfig& cfg, int index) {
+                       if (index >= 0 && index < static_cast<int>(_current->_fontNames.size())) {
+                           cfg.Overlay.FontFamily = Str::WideToUtf8(_current->_fontNames[index]);
+                       }
+                   }},
+         .Items = [] {
+             _current->LoadFonts();
+             return std::span<const wchar_t* const>{_current->_fontItems};
+         },
+         .Changed = [](HWND, AppConfig&) { _current->_previewFont(); }},
     };
 
     static constexpr SettingsRow TrayRows[] = {
@@ -412,10 +456,7 @@ void SettingsWindowViewModel::Init() {
     _view->OnActionActivated = [this](int rowIndex) { HandleActionActivated(rowIndex); };
 
     _view->OnApply += [this] {
-        _mainWindow->UpdateRect();
-        _cfg.Overlay.PosX = _mainWindow->GetPositionX();
-        _cfg.Overlay.PosY = _mainWindow->GetPositionY();
-
+        _captureOverlayPosition();
         // Every page's rows, not only the open one's - a choice made on a page left earlier is
         // still waiting for this
         for (const SettingsPage& page : SettingsHost::Pages) {

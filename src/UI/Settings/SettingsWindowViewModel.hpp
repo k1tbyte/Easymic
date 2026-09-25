@@ -4,7 +4,9 @@
 
 #pragma once
 
+#include <functional>
 #include <span>
+#include <vector>
 
 #include "Core/ActionRegistry.hpp"
 #include "Core/SettingsHost.hpp"
@@ -18,6 +20,11 @@
 class SettingsWindowViewModel final : public BaseViewModel<SettingsWindow> {
 private:
     AppConfig& _cfg;
+    std::function<void()> _captureOverlayPosition;
+    std::function<void()> _previewFont;
+    std::vector<std::wstring> _fontNames;
+    std::vector<const wchar_t*> _fontItems;
+    void LoadFonts();
     /// What OK compares against and Cancel puts back - the whole config, so no row needs an undo.
     AppConfig _cfgPrev;
     MainWindow* _mainWindow = nullptr;
@@ -38,8 +45,10 @@ private:
     void CleanupLogDisplay();
 
 public:
-    SettingsWindowViewModel(BaseWindow* baseView, AppConfig& config)
-        : BaseViewModel(baseView), _cfg(config) {
+    SettingsWindowViewModel(BaseWindow* baseView, AppConfig& config, std::function<void()> captureOverlayPosition,
+                            std::function<void()> previewFont)
+        : BaseViewModel(baseView), _cfg(config), _captureOverlayPosition(std::move(captureOverlayPosition)),
+          _previewFont(std::move(previewFont)) {
     }
 
     ~SettingsWindowViewModel() override;

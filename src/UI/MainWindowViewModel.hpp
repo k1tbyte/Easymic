@@ -85,7 +85,8 @@ private:
         SuspendActivity();
 
         auto settings = std::make_unique<SettingsWindow>(_view->GetHInstance());
-        settings->AttachViewModel<SettingsWindowViewModel>(_cfg);
+        settings->AttachViewModel<SettingsWindowViewModel>(_cfg, [this] { _overlay.CommitPosition(); },
+                                                           [this] { _overlay.PreviewFont(); });
 
         if (!settings->Initialize({.parentHwnd = _view->GetHandle()})) {
             // A tray app that cannot open its settings has no business taking the desktop with it

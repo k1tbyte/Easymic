@@ -76,6 +76,7 @@ struct OverlaySettings {
     int32_t PosY = 0;
     /// Icon edge in pixels; a pill is twice this, and everything else scales off it.
     uint8_t Size = 16;
+    std::string FontFamily = "Segoe UI";
     bool ExcludeFromCapture = false;
     bool OnTopExclusive = false;
     /// Master switch for the on-screen action notifications; per binding, an empty text is the off.

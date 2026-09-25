@@ -10,6 +10,7 @@
 #include "MainWindow.hpp"
 #include "OverlaySlots.hpp"
 #include "TextLayer.hpp"
+#include "Str.hpp"
 #include "UACService.hpp"
 #include "UIAccess/UIAccessManager.hpp"
 
@@ -32,14 +33,30 @@ class OverlaySurface {
 
     MainWindow* _view;
     OverlaySettings& _cfg;
+    std::string _fontSource;
+    std::wstring _fontFamily = L"Segoe UI";
 
     OverlaySlots _slots;
     /// Where the user left the overlay. Widening it for a notification must not move this.
     POINT _anchor{};
+    POINT _previewOrigin{};
+    bool _previewPlaced = false;
     /// The settings window is open, so every layer shows a state rather than nothing - the user
     /// is dragging the overlay and has to see what they are dragging.
     bool _preview = false;
     std::array<bool, Overlay::MaxLayers> _ticking{};
+
+    void _syncFont() {
+        if (_fontSource == _cfg.FontFamily) {
+            return;
+        }
+        _fontSource = _cfg.FontFamily;
+        std::wstring family = Str::Utf8ToWide(_fontSource);
+        if (family.empty() || Gdiplus::FontFamily(family.c_str()).GetLastStatus() != Gdiplus::Ok) {
+            family = L"Segoe UI";
+        }
+        _fontFamily = std::move(family);
+    }
 
     /// A pill that grew must not shove the first one sideways, so the strip grows to the right -
     /// or to the left instead, when the right edge of the work area is in the way.
@@ -55,6 +72,14 @@ class OverlaySurface {
                                 && _anchor.x + _slots.TotalWidth > info.rcWork.right;
 
         return spillsOver ? _anchor.x - overhang : _anchor.x;
+    }
+
+    void _capturePreviewPosition() {
+        _view->UpdateRect();
+        const POINT position{_view->GetPositionX(), _view->GetPositionY()};
+        _anchor.x += position.x - _previewOrigin.x;
+        _anchor.y += position.y - _previewOrigin.y;
+        _previewOrigin = position;
     }
 
     void _applyDisplayAffinity() const {
@@ -130,11 +155,14 @@ public:
         // While nothing has widened the strip, where the window is *is* the anchor - that is how
         // dragging it is stored. Reading it back while a pill is up would walk it across the
         // screen notification by notification, because the work-area clamp shifts it left.
-        if (_slots.TotalWidth <= _slots.Height) {
+        if (_preview && _previewPlaced) {
+            _capturePreviewPosition();
+        } else if (_slots.TotalWidth <= _slots.Height) {
             _anchor = {_view->GetPositionX(), _view->GetPositionY()};
         }
 
-        _slots = OverlaySlots::Measure(_cfg.Size, _preview);
+        _syncFont();
+        _slots = OverlaySlots::Measure(_cfg.Size, _preview, _fontFamily.c_str());
         _syncTimers();
 
         if (!_slots.TotalWidth) {
@@ -156,10 +184,22 @@ public:
 
         _view->Show();
         _view->RefreshPos(HWND_TOPMOST);
+        if (_preview) {
+            _previewOrigin = {_view->GetPositionX(), _view->GetPositionY()};
+            _previewPlaced = true;
+        }
         _view->Invalidate();
     }
 
     void Render(Gdiplus::Graphics& canvas) const { _slots.Render(canvas); }
+
+    void PreviewFont() {
+        if (_preview) {
+            // MSVC's source codepage cannot reliably decode Cyrillic literals.
+            TextLayer::Text = {L'A', L'a', L' ', 0x042F, 0x044F};
+            Relayout();
+        }
+    }
 
     void OnTimer(const UINT_PTR timerId) {
         if (timerId == ID_TEXT_TIMER) {
@@ -187,6 +227,7 @@ public:
     void Suspend() {
         _killTimers();
         _preview = true;
+        _previewPlaced = false;
 
         if (_view->IsOvershadowed()) {
             _view->Hide();
@@ -196,9 +237,21 @@ public:
         Relayout();
     }
 
+    void CommitPosition() {
+        if (_previewPlaced) {
+            _capturePreviewPosition();
+        }
+        _cfg.PosX = _anchor.x;
+        _cfg.PosY = _anchor.y;
+    }
+
     /// The settings window is gone: put back the window properties the config asks for.
     void Restore() {
+        _killText();
         _preview = false;
+        _previewPlaced = false;
+        _anchor = {_cfg.PosX, _cfg.PosY};
+        _view->SetPositionX(_anchor.x)->SetPositionY(_anchor.y);
 
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             _view->Hide();

@@ -16,18 +16,21 @@
 namespace TextLayer {
 
     inline std::wstring Text;
+    inline float CenterOffset = 0.0f;
 
     inline OverlaySlot Measure(const OverlayCell& cell) {
         if (Text.empty()) {
             return {};
         }
 
-        return {.Width = Gdi::MeasureText(Text, Gdi::TextFont(cell.FontSize)) + cell.Padding * 2};
+        const auto metrics = Gdi::MeasureText(Text, Gdi::TextFont(cell.FontSize, cell.FontFamily));
+        CenterOffset = metrics.CenterOffset;
+        return {.Width = metrics.Width + cell.Padding * 2};
     }
 
     inline void Render(const OverlayCell& cell, Gdiplus::Graphics& canvas, const int width) {
-        Gdi::DrawCentred(canvas, Text, Gdi::TextFont(cell.FontSize),
-                         Gdiplus::RectF(0, 0, static_cast<Gdiplus::REAL>(width),
+        Gdi::DrawCentred(canvas, Text, Gdi::TextFont(cell.FontSize, cell.FontFamily),
+                         Gdiplus::RectF(0, CenterOffset, static_cast<Gdiplus::REAL>(width),
                                         static_cast<Gdiplus::REAL>(cell.Height)));
     }
 }
