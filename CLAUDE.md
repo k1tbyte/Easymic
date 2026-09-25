@@ -61,4 +61,7 @@ with its settings page, overlay layer and tray provider if it has them.
 `docs/ARCHITECTURE.md` holds the architecture and the migration checklist, all of it done (steps
 0-11). Read it before touching settings, the overlay or the tray.
 
+`docs/INPUT.md` holds the planned input pipeline and layout conversion (steps 13-16, not started).
+Read it before touching hooks, hotkeys or `Features/Keyboard`.
+
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

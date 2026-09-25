@@ -56,4 +56,7 @@ and 8 are done; step 6 is not - the settings pages are still `IDD_SETTINGS_*` te
 `Initialize*Section` per page. Read it before touching settings. Steps 9-11 give each feature its
 own settings page and let the user pick which feature owns the tray icon.
 
+`docs/INPUT.md` holds the planned input pipeline and layout conversion (steps 13-16, not started).
+Read it before touching hooks, hotkeys or `Features/Keyboard`.
+
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

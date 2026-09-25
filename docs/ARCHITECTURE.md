@@ -1238,6 +1238,11 @@ Not a migration step: the first feature written on the finished architecture, an
   shell announces it, so the placer skipped it. It now matches the exe first and waits up to 3 s
   for the window to become an app window.
 
+### Steps 13-16 - Input pipeline and layout conversion
+
+Planned, not started. The design, the decisions and the checklist live in `docs/INPUT.md` and
+move here once the steps land.
+
 ---
 
 ### What the reviews caught
