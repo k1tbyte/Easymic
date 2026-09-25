@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
 #include "Core/Hotkeys/Bindings.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
@@ -45,6 +46,8 @@ private:
         _overlay.Suspend();
         Lifecycle::Suspend();
         HotkeyService::ClearHotkeys();
+        // Actions read and save the config the settings window is about to edit
+        Dispatcher::Stop();
     }
 
     /// The provider the config names paints the icon, and says the tooltip.
@@ -61,6 +64,7 @@ private:
     }
 
     void RestoreConfig() {
+        Dispatcher::Start();
         HotkeyService::SetMultiPressWindow(_cfg.Core.MultiPressWindowMs);
 
 #ifndef APP_NO_GLOBAL_HOOKS

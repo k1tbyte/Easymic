@@ -470,7 +470,8 @@ are lost on the next save. Reading them is supported, round-tripping them is not
    - Input thread: owns the LL hooks and walks each event through the stage pipeline
      (`Core/Input`, `docs/INPUT.md`). A stage's `OnKey` is a lookup and an enqueue, nothing more;
      the hotkey table reaches it whole, through `Input::Post`.
-   - Action worker: where every action body runs. Feature callbacks land here.
+   - Action worker: where every action body runs. Feature callbacks land here. Joined while the
+     settings window is open, so an action may read and save the config.
    - UI thread: everything touching a window or the config. Reached via `Dispatcher::ToUi`.
      `Measure`, `Render` and `Tick` on an overlay layer are this thread and only this thread;
      `Overlay::Invalidate` is the one entry point that may be called from any other.

@@ -90,7 +90,13 @@ bool Start() {
         return false;
     }
 
-    _stop = false;
+    {
+        // A hook can still post between Stop and its stage going quiet; that press is stale now
+        std::lock_guard lock(_mutex);
+        _stop = false;
+        _queue.clear();
+        _deferred = nullptr;
+    }
     _worker = std::thread(_loop);
     return true;
 }

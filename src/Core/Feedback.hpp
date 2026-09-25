@@ -119,8 +119,8 @@ public:
         _post(Str::Utf8ToWide(resolved));
     }
 
-    // Reading the config from the worker is safe by construction: the settings window disposes
-    // every hotkey before it can be edited, and Dispose joins this thread.
+    // Reading the config from the worker is safe by construction: the worker is joined before
+    // the settings window opens and restarted after it closes.
     void Notify(const std::string& text) const {
         Post(Expand(text));
     }

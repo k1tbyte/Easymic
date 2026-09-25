@@ -64,7 +64,8 @@ What stood in the way before step 13 (all of it is gone since, line numbers are 
 - **Edits never queue on `Dispatcher`.** Its worker runs desktop COM calls and WASAPI, and an edit
   stuck behind them misses the hold timeout. Detection runs on the threadpool; the edit is applied
   on the input thread.
-- **`Dispatcher` lives as long as the app**, not as long as the hooks.
+- **`Dispatcher` is not tied to the hooks.** It stops only while the settings window is open,
+  because actions read and save the config that window edits.
 - **Stages never read `GetAsyncKeyState`.** After a consume or a remap the system state is not what
   the stage saw, so each stage tracks modifiers from its own stream.
 
@@ -135,7 +136,10 @@ scan code and flags when the hold replay needs them.
 - Input -> out: `Dispatcher::Post` (actions), `PostMessage` (capture preview and done).
 - `Foreground::Current()` is an atomic `shared_ptr` snapshot, still written on the UI thread only.
 - `HotkeyCapture`'s target, captured mask and pending flag are atomics.
-- `Dispatcher` and the input thread start and stop in `main`, on every exit path.
+- `Dispatcher` and the input thread start and stop in `main`, on every exit path. `Dispatcher`
+  also stops in `MainWindowViewModel::SuspendActivity` and starts again in `RestoreConfig`: an
+  action reads and saves the config, so none may run while settings edits it. `Start` drops what
+  a hook posted in between.
 
 ### Routing rules
 
