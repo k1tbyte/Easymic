@@ -135,6 +135,9 @@ void SettingsWindowViewModel::RegisterPages() {
         {.Kind = RowKind::Slider, .Label = L"Size (px)",
          .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Size>(), .Min = 10, .Max = 32,
          .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
+        {.Kind = RowKind::Slider, .Label = L"Opacity (%)",
+         .Field = Bind<&AppConfig::Overlay, &OverlaySettings::Opacity>(), .Min = 20, .Max = 100, .Step = 10,
+         .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
         {.Kind = RowKind::Combo, .Label = L"Text font",
          .Field = {.Get = [](const AppConfig& cfg) {
                        const auto indexOf = [](const std::wstring& name) {

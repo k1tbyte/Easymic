@@ -191,7 +191,10 @@ public:
         _view->Invalidate();
     }
 
-    void Render(Gdiplus::Graphics& canvas) const { _slots.Render(canvas); }
+    void Render(RenderContext& context) const {
+        context.alpha = static_cast<BYTE>(std::min<int>(_cfg.Opacity, 100) * 255 / 100);
+        _slots.Render(*context.graphics);
+    }
 
     void PreviewFont() {
         if (_preview) {

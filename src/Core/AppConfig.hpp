@@ -76,6 +76,8 @@ struct OverlaySettings {
     int32_t PosY = 0;
     /// Icon edge in pixels; a pill is twice this, and everything else scales off it.
     uint8_t Size = 16;
+    /// Of the whole strip, in percent.
+    uint8_t Opacity = 100;
     std::string FontFamily = "Segoe UI";
     bool ExcludeFromCapture = false;
     bool OnTopExclusive = false;

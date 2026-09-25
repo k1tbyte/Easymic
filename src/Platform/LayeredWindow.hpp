@@ -15,6 +15,8 @@ struct RenderContext {
     Gdiplus::Graphics* graphics = nullptr;
     int width = 0;
     int height = 0;
+    /// Of the whole window, for the callback to lower.
+    BYTE alpha = 255;
 };
 
 namespace LayeredWindow {
@@ -117,7 +119,7 @@ namespace LayeredWindow {
         POINT source = {0, 0};
         POINT destination = windowPos;
         SIZE size = {width, height};
-        BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        BLENDFUNCTION blend = {AC_SRC_OVER, 0, ctx.alpha, AC_SRC_ALPHA};
 
         UpdateLayeredWindow(hwnd, screenDC, &destination, &size, memoryDC, &source, 0, &blend, ULW_ALPHA);
 

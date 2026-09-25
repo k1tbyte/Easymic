@@ -134,9 +134,7 @@ public:
 
         _view->OnTrayMenu = [this](UINT_PTR commandId) { OnTrayMenuCommand(commandId); };
         _view->OnTrayRefresh = [this] { RefreshTray(); };
-        _view->OnRender = [this](const RenderContext& context) {
-            _overlay.Render(*context.graphics);
-        };
+        _view->OnRender = [this](RenderContext& context) { _overlay.Render(context); };
         _view->OnRelayout = [this] { _overlay.Relayout(); };
         _view->OnTimer = [this](UINT_PTR timerId) { _overlay.OnTimer(timerId); };
 
