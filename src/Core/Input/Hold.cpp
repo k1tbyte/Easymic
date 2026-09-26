@@ -42,7 +42,9 @@ bool Active() {
     return _pending || _held || _inFlight || !_outbox.empty();
 }
 
-void Take(const INPUT& event) {
+void Take(const INPUT& event, const uint64_t now) {
+    // WM_TIMER comes only when the queue is idle, so the deadline is checked where input arrives
+    Tick(now);
     _ring[_held++] = event;
     if (_held == Capacity) {
         _pending = 0;
@@ -51,6 +53,7 @@ void Take(const INPUT& event) {
 }
 
 bool Commit(const HoldId id, const std::span<const INPUT> edit, const uint64_t now) {
+    Tick(now);
     if (!id || id != _pending) {
         return false;
     }

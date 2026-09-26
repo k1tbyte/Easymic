@@ -26,6 +26,8 @@ namespace {
 
     struct Scope {
         MaskBindings bindings;
+        /// Whether a match resolved in this scope blocks, set once by Publish.
+        bool block = false;
     };
 
     struct AppHash {
@@ -95,6 +97,10 @@ namespace {
     uint8_t _pendingCount = 0;
     HWND _pendingWindow = nullptr;
     std::chrono::steady_clock::time_point _pendingDeadline{};
+    /// The edit of a press waiting out the window. It resolves on the input thread, never on the
+    /// action worker, which COM or WASAPI can keep busy past the hold's timeout.
+    const HotkeyBinding* _pendingEdit = nullptr;
+    PTP_TIMER _editTimer = nullptr;
 
     void _clearPending() {
         _pendingMask = 0;
@@ -102,27 +108,66 @@ namespace {
         _pendingWindow = nullptr;
     }
 
+    void _cancelDeferred() {
+        Dispatcher::CancelDeferred();
+        _pendingEdit = nullptr;
+    }
+
+    /// In-proc: the key that ended the window is held behind the edit.
+    void _flushDeferred() {
+        Dispatcher::FlushDeferred();
+        if (_pendingEdit) {
+            Input::Edit(std::exchange(_pendingEdit, nullptr)->onEdit);
+        }
+    }
+
+    void _armEdit(const std::chrono::steady_clock::duration delay) {
+        // Negative is relative, in 100 ns units
+        const int64_t due = -std::chrono::duration_cast<std::chrono::duration<int64_t, std::ratio<1, 10'000'000>>>(delay).count();
+        FILETIME at{.dwLowDateTime = static_cast<DWORD>(due), .dwHighDateTime = static_cast<DWORD>(due >> 32)};
+        SetThreadpoolTimer(_editTimer, &at, 0, 0);
+    }
+
+    /// A fire armed for an earlier window re-arms for what is left of this one.
+    void _editDue() {
+        if (!_pendingEdit) {
+            return;
+        }
+        if (const auto left = _pendingDeadline - std::chrono::steady_clock::now(); left > left.zero()) {
+            _armEdit(left);
+        } else {
+            Input::Edit(std::exchange(_pendingEdit, nullptr)->onEdit);
+        }
+    }
+
     const MaskEntry* _entry(const uint64_t mask) {
         const auto it = _active->Hotkeys.find(mask);
         return it == _active->Hotkeys.end() ? nullptr : &it->second;
+    }
+
+    Match _match(const Scope& global, const Scope* app) {
+        return {.global = &global,
+                .app = app,
+                .count = std::max(global.bindings.size(), app ? app->bindings.size() : size_t{0}),
+                .block = (app ? app : &global)->block};
     }
 
     Match _lookup(const MaskEntry* entry, const std::string_view exe) {
         if (!entry) {
             return {};
         }
-
         const auto found = entry->apps.find(exe);
-        Match match{.global = &entry->global,
-                    .app = found == entry->apps.end() ? nullptr : &found->second};
-        match.count = std::max(entry->global.bindings.size(),
-                               match.app ? match.app->bindings.size() : size_t{0});
+        return _match(entry->global, found == entry->apps.end() ? nullptr : &found->second);
+    }
+
+    /// Over every count the match resolves: a count the app leaves unbound falls to the global one.
+    bool _blocks(const Match& match) {
         for (size_t i = 0; i < match.count; ++i) {
-            if (const auto* binding = match.At(i)) {
-                match.block |= binding->block;
+            if (const auto* binding = match.At(i); binding && binding->block) {
+                return true;
             }
         }
-        return match;
+        return false;
     }
 
     bool _contains(const uint64_t mask, const uint8_t vkCode) {
@@ -139,17 +184,15 @@ namespace {
 
     void _releaseClaims(const uint8_t vkCode) {
         const bool alone = _lastDownVk == vkCode;
-        for (size_t i = 0; i < _releases.size();) {
-            const auto claim = _releases[i];
+        size_t kept = 0;
+        for (const ReleaseClaim& claim : _releases) {
             if (!_contains(claim.mask, vkCode)) {
-                ++i;
-                continue;
-            }
-            if (alone || !claim.binding->tapOnly) {
+                _releases[kept++] = claim;
+            } else if (alone || !claim.binding->tapOnly) {
                 Dispatcher::Post(claim.binding->onRelease);
             }
-            _releases.erase(_releases.begin() + i);
         }
+        _releases.resize(kept);
     }
 
     /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
@@ -168,23 +211,6 @@ namespace {
         }
     }
 
-    /// One Dispatcher action for the press half, the edit included: a binding that waited out the
-    /// multi-press window starts its hold from the worker, which Input::Edit hands over with.
-    std::function<void()> _pressAction(const HotkeyBinding* binding) {
-        if (!binding) {
-            return {};
-        }
-        if (!binding->onEdit) {
-            return binding->onPress;
-        }
-        return [press = binding->onPress, edit = binding->onEdit] {
-            if (press) {
-                press();
-            }
-            Input::Edit(edit);
-        };
-    }
-
     void _count(const Match& entry, const uint64_t mask, const HWND window) {
         _pendingMask = mask;
         _pendingWindow = window;
@@ -192,7 +218,7 @@ namespace {
         const auto* binding = entry.At(_pendingCount - 1);
 
         if (_pendingCount >= entry.count) {
-            Dispatcher::CancelDeferred();
+            _cancelDeferred();
             // In-proc, like _fireOnce: an edit's hold has to catch the key that fired it
             if (binding) {
                 _press(*binding);
@@ -201,10 +227,14 @@ namespace {
         } else {
             _pendingDeadline = std::chrono::steady_clock::now() + _active->MultiPressWindow;
             if (_pendingCount == 1 && binding && binding->onRelease && binding->onPress) {
-                Dispatcher::CancelDeferred();
+                _cancelDeferred();
                 Dispatcher::Post(binding->onPress);
             } else {
-                Dispatcher::Defer(_pendingDeadline, _pressAction(binding));
+                Dispatcher::Defer(_pendingDeadline, binding ? binding->onPress : std::function<void()>{});
+                _pendingEdit = binding && binding->onEdit ? binding : nullptr;
+                if (_pendingEdit) {
+                    _armEdit(_active->MultiPressWindow);
+                }
             }
         }
     }
@@ -214,15 +244,18 @@ namespace {
         const uint64_t sequenceMask = _chord.Mask;
         const auto* singleEntry = _entry(singleMask);
         const auto* sequenceEntry = singleMask == sequenceMask ? nullptr : _entry(sequenceMask);
-        const auto needsWindow = [](const MaskEntry* entry) {
-            return entry && (!entry->apps.empty() || entry->global.bindings.size() > 1);
-        };
+        const auto perApp = [](const MaskEntry* entry) { return entry && !entry->apps.empty(); };
+        const auto counts = [](const MaskEntry* entry) { return entry && entry->global.bindings.size() > 1; };
+        const bool apps = perApp(singleEntry) || perApp(sequenceEntry);
         HWND window = nullptr;
-        // Held for the lookups below: exe points into it
+        if (apps || _pendingMask || counts(singleEntry) || counts(sequenceEntry)) {
+            window = GetForegroundWindow();
+        }
+        // Held for the lookups below: exe points into it. Only a per-app binding reads it - the
+        // atomic shared_ptr behind it takes a lock
         std::shared_ptr<const Foreground::Snapshot> foreground;
         std::string_view exe;
-        if (_pendingMask || needsWindow(singleEntry) || needsWindow(sequenceEntry)) {
-            window = GetForegroundWindow();
+        if (apps) {
             foreground = Foreground::Current();
             if (foreground && foreground->Window == window) {
                 exe = foreground->Exe;
@@ -239,7 +272,7 @@ namespace {
             const bool modifier = ModifierBits[vkCode] && _pendingMask != countingMask;
             const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
             if (changed || expired || (!modifier && _pendingMask != countingMask)) {
-                Dispatcher::FlushDeferred();
+                _flushDeferred();
                 _clearPending();
             }
         }
@@ -281,7 +314,7 @@ namespace {
 
     void _reset() {
         // The waiting action and the claims belong to presses this stage no longer knows about
-        Dispatcher::CancelDeferred();
+        _cancelDeferred();
         _clearPending();
         _releases.clear();
         _chord = {};
@@ -299,6 +332,9 @@ namespace {
 
     void Register() {
         Input::Add({.Id = StageId, .Order = 200, .OnKey = &_onKey, .OnReset = &_reset});
+        _editTimer = CreateThreadpoolTimer([](PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) {
+            Input::Post(&_editDue);
+        }, nullptr, nullptr);
     }
 
     bool RegisterHotkey(const uint64_t keysMask, const uint8_t presses, const HotkeyBinding& binding,
@@ -332,6 +368,12 @@ namespace {
 
     void Publish() {
         std::unique_ptr<Table> table = std::exchange(_building, std::make_unique<Table>());
+        for (auto& [mask, entry] : table->Hotkeys) {
+            entry.global.block = _blocks(_match(entry.global, nullptr));
+            for (auto& [app, scope] : entry.apps) {
+                scope.block = _blocks(_match(entry.global, &scope));
+            }
+        }
         const bool any = !table->Hotkeys.empty();
         const Input::Wants wants = Input::WantKeys | (table->WantsButtons ? Input::WantButtons : 0);
 

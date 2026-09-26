@@ -24,9 +24,10 @@ namespace Input::Hold {
     bool Active();
 
     /// An event that would have been delivered. A full ring goes out as it is; a hold still
-    /// waiting for its edit expires with it.
-    void Take(const INPUT& event);
-    /// Queues the edit ahead of everything held. False when the id is not the pending hold.
+    /// waiting for its edit expires with it, and so does one past its deadline.
+    void Take(const INPUT& event, uint64_t now);
+    /// Queues the edit ahead of everything held. False when the id is not the pending hold or its
+    /// deadline has passed, Tick or not.
     bool Commit(HoldId id, std::span<const INPUT> edit, uint64_t now);
 
     /// Fills out with what to send now and counts it as in flight. False when nothing is due.

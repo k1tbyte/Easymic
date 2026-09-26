@@ -185,7 +185,8 @@ state (ring, outbox, deadlines) is `Core/Input/Hold.*`, driven by `tests/RouterT
   from anywhere else it starts once that thread gets to it. Every enabled stage gets `OnHold(id)`.
 - One hold at a time: `Edit` during a hold is skipped.
 - A timeout (150 ms, on a 50 ms thread timer) or a full ring replays without an edit and expires
-  the id.
+  the id. `WM_TIMER` waits for an idle queue, so the deadline is also checked when an event is
+  held and when `Commit` runs.
 - `Commit(id, edit)` runs on the input thread: one `SendInput(edit + replay)` tagged with the
   Edit level. `SendInput` re-enters our hook before it returns (verified live), so the events are
   counted as they pass and the hold stays up until the last one came back.
@@ -206,8 +207,9 @@ Built in step 14.
   worker. The binding is always blocked: the firing key must not reach the app.
 - When the hotkey fires - on the press, and on the press that completes a multi-press - the
   hotkey stage starts the edit in-proc through `Input::Edit`. A binding still waiting out the
-  multi-press window defers press and edit together, and the hold starts when the worker gets to
-  it.
+  multi-press window defers its press on `Dispatcher` and its edit on the stage's threadpool
+  timer, which hands back to the input thread; a key that ends the window early starts the edit
+  in-proc. The edit never waits for the action worker.
 - The lane gives the handler the hold id (`Input::CurrentHold()`, thread-local), so `ActionFn`
   keeps its signature.
 - A handler that declines commits nothing; the lane's own release and the timeout are the net.
@@ -365,6 +367,11 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
     buffers reserve once instead of allocating in the hook; a desktop switch drains the hold
     instead of waiting out the timeout. A re-check found the `onEdit` duplicate check; the rest
     came back clean.
+  - Follow-up review: `Commit` took an edit past the deadline when no `WM_TIMER` had run, so
+    `Commit` and each held event now check it; a deferred multi-press edit waited on the action
+    worker and now resolves on the input thread. The hotkey stage reads the foreground snapshot
+    only for per-app bindings, precomputes `block` per scope, and drops release claims in one
+    pass. 1,127,424 -> 1,126,912 bytes; 22 harness cases.
 
 ### Step 15 - Engine and manual conversion
 

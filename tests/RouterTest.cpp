@@ -236,7 +236,7 @@ namespace {
         Check(id != 0 && Hold::Active(), "a hold starts");
         Check(Hold::Begin(0) == 0, "one hold at a time");
         for (const char key : std::string{"abc"}) {
-            Hold::Take(Ev(key));
+            Hold::Take(Ev(key), 0);
         }
         std::vector<INPUT> out;
         Check(!Hold::Outgoing(out), "nothing goes out before the edit");
@@ -244,13 +244,13 @@ namespace {
         const INPUT edit[] = {Ev('X'), Ev('Y')};
         Check(Hold::Commit(id, edit, 10), "the pending hold takes its edit");
         Check(Hold::Outgoing(out) && Keys(out) == "XYabc", "the edit goes out ahead of what was held");
-        Hold::Take(Ev('d'));
+        Hold::Take(Ev('d'), 10);
         Check(!Hold::Outgoing(out), "typing while the batch is in flight is held");
         for (int i = 0; i < 4; ++i) {
             Hold::Arrived();
         }
         Check(Hold::Active(), "the hold stays up while one event is still out");
-        Hold::Take(Ev('e'));
+        Hold::Take(Ev('e'), 10);
         Hold::Arrived();
         Check(Drain() == "de", "what arrived meanwhile follows the batch, in order");
         Check(!Hold::Active(), "the hold ends once everything came back");
@@ -259,7 +259,7 @@ namespace {
 
     void TimeoutReplaysWithoutEdit() {
         const HoldId id = Hold::Begin(1000);
-        Hold::Take(Ev('a'));
+        Hold::Take(Ev('a'), 1000);
         Hold::Tick(1000 + Hold::TimeoutMs - 1);
         std::vector<INPUT> out;
         Check(!Hold::Outgoing(out), "a hold within its time waits");
@@ -269,12 +269,29 @@ namespace {
         Check(Drain() == "a" && !Hold::Active(), "it replays what it held and ends");
     }
 
+    void LateCommitWithoutTick() {
+        const HoldId id = Hold::Begin(0);
+        Hold::Take(Ev('a'), 0);
+        const INPUT edit[] = {Ev('X')};
+        Check(!Hold::Commit(id, edit, Hold::TimeoutMs), "a commit past the deadline is refused, no Tick needed");
+        Check(Drain() == "a" && !Hold::Active(), "and what was held goes out without the edit");
+    }
+
+    void LateArrivalEndsTheHold() {
+        const HoldId id = Hold::Begin(0);
+        Hold::Take(Ev('a'), 0);
+        Hold::Take(Ev('b'), Hold::TimeoutMs);
+        const INPUT edit[] = {Ev('X')};
+        Check(!Hold::Commit(id, edit, Hold::TimeoutMs), "an event past the deadline expires the hold");
+        Check(Drain() == "ab" && !Hold::Active(), "and goes out behind what was held, without the edit");
+    }
+
     void FullRingGoesOut() {
         const HoldId id = Hold::Begin(0);
         std::string typed;
         for (size_t i = 0; i < Hold::Capacity; ++i) {
             typed += static_cast<char>('0' + i % 10);
-            Hold::Take(Ev(typed.back()));
+            Hold::Take(Ev(typed.back()), 0);
         }
         Check(!Hold::Commit(id, {}, 0), "a full ring expires the hold");
         Check(Drain() == typed && !Hold::Active(), "and goes out whole");
@@ -286,7 +303,7 @@ namespace {
         std::vector<INPUT> out;
         Hold::Outgoing(out);
         for (size_t i = 0; i < Hold::Capacity; ++i) {
-            Hold::Take(Ev('a'));
+            Hold::Take(Ev('a'), 0);
         }
         Check(Hold::Outgoing(out) && out.size() == Hold::Capacity, "a full ring does not wait for the batch");
         for (size_t i = 0; i <= Hold::Capacity; ++i) {
@@ -297,7 +314,7 @@ namespace {
 
     void UnsentIsNotWaitedFor() {
         const HoldId id = Hold::Begin(0);
-        Hold::Take(Ev('a'));
+        Hold::Take(Ev('a'), 0);
         Hold::Commit(id, {}, 0);
         std::vector<INPUT> out;
         Hold::Outgoing(out);
@@ -310,7 +327,7 @@ namespace {
         Hold::Commit(Hold::Begin(0), edit, 0);
         std::vector<INPUT> out;
         Hold::Outgoing(out);
-        Hold::Take(Ev('b'));
+        Hold::Take(Ev('b'), 0);
         Hold::Tick(Hold::TimeoutMs - 1);
         Check(!Hold::Outgoing(out), "an event still out is waited for");
         Hold::Tick(Hold::TimeoutMs);
@@ -345,6 +362,8 @@ int main() {
 
     TypingThroughAHold();
     TimeoutReplaysWithoutEdit();
+    LateCommitWithoutTick();
+    LateArrivalEndsTheHold();
     FullRingGoesOut();
     FullRingGoesOutWhileInFlight();
     UnsentIsNotWaitedFor();

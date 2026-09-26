@@ -97,7 +97,7 @@ namespace {
     }
 
     void _hold(const INPUT& event) {
-        Hold::Take(event);
+        Hold::Take(event, GetTickCount64());
         _flush();
     }
 
@@ -382,11 +382,10 @@ HoldId CurrentHold() {
 }
 
 bool Commit(const HoldId id, const std::span<const INPUT> edit) {
-    if (!Hold::Commit(id, edit, GetTickCount64())) {
-        return false;
-    }
+    // A refused commit may have just expired the hold, and what it held is due now
+    const bool taken = Hold::Commit(id, edit, GetTickCount64());
     _flush();
-    return true;
+    return taken;
 }
 
 }
