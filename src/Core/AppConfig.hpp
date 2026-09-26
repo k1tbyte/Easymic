@@ -65,6 +65,10 @@ struct MicSettings {
 struct KeyboardSettings {
     /// The layout the user is typing in, as a pill on the overlay.
     bool ShowLayout = false;
+    /// The two layouts a word converts between, as KLIDs ("00000409"). Empty takes the first
+    /// and the second installed layout.
+    std::string PairA;
+    std::string PairB;
 
     bool operator==(const KeyboardSettings&) const = default;
 };

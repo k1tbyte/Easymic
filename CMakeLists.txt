@@ -167,6 +167,17 @@ add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/R
 target_include_directories(RouterTest PRIVATE src/Core)
 target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
 
+# Pack builder and detection console: .\build.ps1 -Tools
+add_executable(langpack EXCLUDE_FROM_ALL
+        tools/langpack/Main.cpp tools/langpack/Console.cpp tools/langpack/PackBuilder.cpp
+        src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/Alphabet.cpp
+        src/Features/Keyboard/Convert/Ngram.cpp src/Features/Keyboard/Convert/Detector.cpp
+        src/Features/Keyboard/Convert/LayoutTable.cpp)
+target_include_directories(langpack PRIVATE src)
+target_compile_definitions(langpack PRIVATE NOMINMAX UNICODE _UNICODE)
+target_compile_options(langpack PRIVATE /utf-8)
+target_link_libraries(langpack PRIVATE shell32)
+
 if(IS_DEBUG)
     # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint
     target_compile_definitions(${PROJECT_NAME} PRIVATE APP_NO_GLOBAL_HOOKS)

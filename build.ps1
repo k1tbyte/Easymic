@@ -9,6 +9,7 @@
     .\build.ps1 -Config Debug -Run
     .\build.ps1 -Clean
     .\build.ps1 -Test                    # also builds and runs the harnesses
+    .\build.ps1 -Tools                   # also builds the langpack tool
 #>
 [CmdletBinding()]
 param(
@@ -16,7 +17,8 @@ param(
     [string]$Config = "MinSizeRel",
     [switch]$Clean,
     [switch]$Run,
-    [switch]$Test
+    [switch]$Test,
+    [switch]$Tools
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +63,12 @@ if ($Test) {
     if ($LASTEXITCODE -ne 0) { throw "test build failed" }
     & (Join-Path $buildDir "RouterTest.exe")
     if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+}
+
+if ($Tools) {
+    cmake --build $buildDir --target langpack
+    if ($LASTEXITCODE -ne 0) { throw "langpack build failed" }
+    Write-Host "`n$(Join-Path $buildDir 'langpack.exe')  ($([math]::Round((Get-Item (Join-Path $buildDir 'langpack.exe')).Length / 1KB)) KB)" -ForegroundColor Green
 }
 
 if ($Run) { & $exe }

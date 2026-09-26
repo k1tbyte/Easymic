@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include "Str.hpp"
+
 /**
  * @brief Keyboard layout switching for the window the user is actually typing in.
  *
@@ -39,43 +41,83 @@ namespace InputLanguage {
         return GetKeyboardLayout(GetWindowThreadProcessId(window, nullptr));
     }
 
-    namespace Detail {
-        /**
-         * @brief Every layout the user has, in the order the language bar cycles them.
-         *
-         * Preload rather than GetKeyboardLayoutList: that one only reports what the session has
-         * already loaded, so a layout nobody has typed in since logon is missing from it and
-         * switching to it would quietly do nothing. Loading one that is already loaded just
-         * hands back its handle, and without KLF_ACTIVATE nothing is switched by asking.
-         */
-        inline std::vector<HKL> Installed() {
-            std::vector<HKL> layouts;
-            HKEY preload = nullptr;
+    struct Layout {
+        HKL Handle;
+        /// KLID, "00000409" - what the config keeps. Empty for one only the session list knew.
+        std::string Id;
+    };
 
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, LR"(Keyboard Layout\Preload)", 0, KEY_READ,
-                              &preload) == ERROR_SUCCESS) {
-                for (int index = 1;; index++) {
-                    wchar_t identifier[KL_NAMELENGTH];
-                    DWORD size = sizeof(identifier);
-                    if (RegQueryValueExW(preload, std::to_wstring(index).c_str(), nullptr, nullptr,
-                                         reinterpret_cast<LPBYTE>(identifier), &size) != ERROR_SUCCESS) {
-                        break;
-                    }
+    /**
+     * @brief Every layout the user has, in the order the language bar cycles them.
+     *
+     * Preload rather than GetKeyboardLayoutList: that one only reports what the session has
+     * already loaded, so a layout nobody has typed in since logon is missing from it and
+     * switching to it would quietly do nothing. Loading one that is already loaded just
+     * hands back its handle, and without KLF_ACTIVATE nothing is switched by asking.
+     */
+    inline std::vector<Layout> Installed() {
+        std::vector<Layout> layouts;
+        HKEY preload = nullptr;
 
-                    if (const HKL layout = LoadKeyboardLayoutW(identifier, KLF_NOTELLSHELL)) {
-                        layouts.push_back(layout);
-                    }
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, LR"(Keyboard Layout\Preload)", 0, KEY_READ,
+                          &preload) == ERROR_SUCCESS) {
+            for (int index = 1;; index++) {
+                wchar_t identifier[KL_NAMELENGTH];
+                DWORD size = sizeof(identifier);
+                if (RegQueryValueExW(preload, std::to_wstring(index).c_str(), nullptr, nullptr,
+                                     reinterpret_cast<LPBYTE>(identifier), &size) != ERROR_SUCCESS) {
+                    break;
                 }
-                RegCloseKey(preload);
-            }
 
-            if (layouts.empty()) {
-                layouts.resize(GetKeyboardLayoutList(0, nullptr));
-                layouts.resize(GetKeyboardLayoutList(static_cast<int>(layouts.size()), layouts.data()));
+                if (const HKL layout = LoadKeyboardLayoutW(identifier, KLF_NOTELLSHELL)) {
+                    layouts.push_back({layout, Str::WideToUtf8(identifier)});
+                }
             }
-
-            return layouts;
+            RegCloseKey(preload);
         }
+
+        if (layouts.empty()) {
+            std::vector<HKL> handles(GetKeyboardLayoutList(0, nullptr));
+            handles.resize(GetKeyboardLayoutList(static_cast<int>(handles.size()), handles.data()));
+            for (const HKL handle : handles) {
+                layouts.push_back({handle, {}});
+            }
+        }
+
+        return layouts;
+    }
+
+    /// The configured KLID's place in the list; an empty one takes the fallback-th layout. -1 when
+    /// neither is there.
+    inline int Find(const std::vector<Layout>& layouts, const std::string_view id, const size_t fallback) {
+        if (id.empty()) {
+            return fallback < layouts.size() ? static_cast<int>(fallback) : -1;
+        }
+        const auto it = std::ranges::find(layouts, id, &Layout::Id);
+        return it == layouts.end() ? -1 : static_cast<int>(it - layouts.begin());
+    }
+
+    /// "Russian - ru-RU": the layout's own name, which tells two layouts of one language apart.
+    inline std::wstring Title(const Layout& layout) {
+        wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
+        LCIDToLocaleName(MAKELCID(LOWORD(reinterpret_cast<UINT_PTR>(layout.Handle)), SORT_DEFAULT), locale,
+                         LOCALE_NAME_MAX_LENGTH, 0);
+        wchar_t name[128]{};
+        DWORD size = sizeof(name);
+        const std::wstring key = LR"(SYSTEM\CurrentControlSet\Control\Keyboard Layouts\)" + Str::Utf8ToWide(layout.Id);
+        if (layout.Id.empty() || RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"Layout Text", RRF_RT_REG_SZ,
+                                              nullptr, name, &size) != ERROR_SUCCESS) {
+            return locale;
+        }
+        return std::wstring{name} + L" - " + locale;
+    }
+
+    /// No INPUTLANGCHANGE_FORWARD: the handle alone names where to go.
+    inline bool SwitchTo(const HWND target, const HKL layout) {
+        return PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(layout));
+    }
+
+    namespace Detail {
 
         /**
          * @brief Whether one token of the locale list names this layout.
@@ -112,7 +154,10 @@ namespace InputLanguage {
         /// The layouts the list names, in its order, skipping what is not installed. An empty
         /// list means every installed layout, which is the plain "next layout" behaviour.
         inline std::vector<HKL> Ring(const std::string_view locales) {
-            const std::vector<HKL> installed = Installed();
+            std::vector<HKL> installed;
+            for (const Layout& layout : Installed()) {
+                installed.push_back(layout.Handle);
+            }
             if (locales.find_first_not_of(" \t,") == std::string_view::npos) {
                 return installed;
             }

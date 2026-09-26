@@ -11,6 +11,7 @@ binary size, simplicity.
 .\build.ps1 -Config Debug -Run
 .\build.ps1 -Clean
 .\build.ps1 -Test                # also builds and runs tests/ (the input router harness)
+.\build.ps1 -Tools               # also builds tools/langpack (pack builder, detection console)
 .\tests\HotkeyProbe.ps1          # live hotkey check on MinSizeRel; stop a running instance first
 ```
 
@@ -66,6 +67,6 @@ with its settings page, overlay layer and tray provider if it has them.
 0-11). Read it before touching settings, the overlay or the tray.
 
 `docs/INPUT.md` holds the input pipeline and layout conversion: the contract and the checklist
-(step 13 done, 14-16 open). Read it before touching hooks, hotkeys or `Features/Keyboard`.
+(steps 13-15 done, 16 open). Read it before touching hooks, hotkeys or `Features/Keyboard`.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

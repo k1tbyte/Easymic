@@ -196,7 +196,9 @@ state (ring, outbox, deadlines) is `Core/Input/Hold.*`, driven by `tests/RouterT
 - The edit lane runs on the threadpool and is pure: a snapshot in, an `INPUT` list out, then
   `Input::Post(apply)`. `apply` checks the id, updates the stage's state and calls `Commit`. When
   the work returns, the lane releases the hold itself - a `Commit` it posted comes first, a work
-  that declined commits nothing.
+  that declined commits nothing. A work with nothing slow to do (manual conversion) only posts
+  `apply`, which renders and builds the edit on the input thread: the stage's copy of the word
+  is input-thread state, and a hold can expire while a slow lane still reads it.
 
 ### Actions that type
 
@@ -232,9 +234,9 @@ Built in step 14.
 | `src/pack.*`, `bloom.*`, `ngram.*`, `alphabet.*` | `Features/Keyboard/Convert/` | Format unchanged: header, alphabet, bloom, trigram, bigram, mapped in place |
 | `src/detector.*` | `Convert/Detector.*` | Takes positions and the pair, not "the first layout of the language" (`keyboard.cpp` `byLanguage`) |
 | `src/keyboard.*` | `Convert/LayoutTable.*` | Built for the two chosen layouts only; position -> char, no reverse map |
-| `src/text.*` | dropped | `CharLowerBuffW`; `trimWord` moves into the detector |
+| `src/text.*` | dropped | `CharLowerBuffW`; `trimWord` moves into `Pack::WordKey`, shared with the builder |
 | `src/win/*` | dropped | Replaced by `Core/Input` and `InputLanguage` |
-| `src/main.cpp`, `termio.*` | `tools/langpack/` | `pack`, `lookup`, `layouts`, `convert`, and the line mode the README benchmark uses |
+| `src/main.cpp`, `termio.*` | `tools/langpack/` | `pack`, `lookup`, `layouts`, `convert`, and the line mode the README benchmark uses; the pack builder (write side) lives here too, `bench.ps1` reruns the benchmark |
 | `data/dict_*.txt` | not in the repo | 66 MB; the source and license of each list go in `tools/langpack/README.md` |
 | `packs/*.pack` | see open questions | |
 
@@ -243,44 +245,58 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
 
 ### Word tracker (stage `kbd.text`)
 
-- A fixed buffer of 64 `{vk, shift, caps}`, plus the layout and the focused window at word start.
-  `OnKey` does no allocation and no table lookup.
+- A fixed buffer of 64 `{vk, shift, caps}`, the spaces typed after it (up to 8), the foreground
+  window at word start, and the side of the pair the word is on screen in (unknown until a
+  conversion sets it; until then `apply` reads the focused window's layout). `OnKey` does no
+  allocation and no table lookup.
 - Shift, Ctrl, Alt, Win and Caps are tracked from the stream the stage sees. Caps is seeded on
   enable (check that `GetKeyState(VK_CAPITAL)` is accurate on the input thread).
-- Backspace pops a key. The word clears on: focus change, mouse button down, Enter, Tab, Esc,
-  arrows, Home/End/PgUp/PgDn, Del, Ins, any Ctrl/Alt/Win chord, and a key with no character in the
-  layout.
+- Backspace pops a space, then a key. Space closes the word but keeps it: the conversion retypes
+  the spaces, and the next typing key starts a new word. The word clears on: focus change, mouse
+  button down, Enter, Tab, Esc, arrows, Home/End/PgUp/PgDn, Del, Ins, any Ctrl/Alt/Win chord
+  (AltGr included), and any key outside a fixed set of typing vks (digits, letters, OEM keys). A
+  position that types nothing in either layout (a dead key) declines at `apply`.
 - For autocorrect, Space ends the word: `Input::Edit`, then the snapshot goes to the edit lane.
-- `OnHold(id)` copies the word into the edit slot and starts a fresh buffer. Keys typed during the
-  hold land after the edit, so they are the next word.
-- After a conversion the tracker remembers which side of the pair the word is rendered in, so the
-  next `kbd.convert_word` with nothing typed in between converts back.
+- `OnHold(id)` copies the word and the held modifiers into the edit slot and starts a fresh
+  buffer. Keys typed during the hold land after the edit, so they are the next word.
+- After a conversion the converted word becomes the current one, on the target side, unless
+  anything was typed during the hold - so the next `kbd.convert_word` with nothing typed in
+  between converts back through the same path.
 - The stage always returns `Next`; it never consumes.
 - Off while an IME (CJK) is active.
 
 ### Detection and the edit
 
-- On the lane: render the positions in both layouts, run the puntish cascade (dictionary, context,
-  trigrams), and build `Backspace x n` plus the other rendering as `KEYEVENTF_UNICODE`.
-- `apply` on the input thread: drop unless the hold id and the focused window are unchanged. Then
-  `Commit`, then switch the window's layout through `InputLanguage` and
-  `LayoutLayer::Requested`.
+- Autocorrect (step 16), on the lane: render the positions in both layouts and run the puntish
+  cascade (dictionary, context, trigrams). Manual conversion needs no detection.
+- `apply` on the input thread: drop unless the hold id and the foreground window are unchanged,
+  and unless every key renders in both layouts. The edit is `Backspace x (keys + spaces)` and the
+  other rendering plus the spaces as `KEYEVENTF_UNICODE`, wrapped in ups and downs of the
+  modifiers the app had down when the hold began, or Ctrl and Alt would turn Backspace into word
+  deletes and undos. A tap of the unassigned vkE8 comes first when Alt or Win is down, so their
+  lone release opens no menu; only Shift and Ctrl go back down after.
+- The layout switch (`InputLanguage::SwitchTo`) is posted before `Commit`: an app reads posted
+  messages before input, so the held keys replay in the new layout. A refused `Commit` switches
+  back. Then `LayoutLayer::Requested`.
 - The context (`LanguageContext`) clears on focus change, as in puntish.
 - The English list (`words_alpha`) contains junk such as `yee`; replace it with a frequency list
   before autocorrect ships.
 
 ### Settings and config
 
-- `KeyboardSettings` gains `PairA` and `PairB` (KLID strings), `AutoCorrect` (false) and `Exclude`
-  (an exe list in `Foreground::CanonicalApp` form). No revision bump: glaze keeps the defaults for
-  missing keys.
+- Step 15: `KeyboardSettings` gains `PairA` and `PairB` (KLID strings; empty takes the first and
+  the second installed layout). No revision bump: glaze keeps the defaults for missing keys.
+- Step 16, with the behaviour that reads them: `AutoCorrect` (false) and `Exclude` (an exe list in
+  `Foreground::CanonicalApp` form).
 - Keyboard page:
-  - Two `Combo` rows over `InputLanguage::Detail::Installed()`. The item text says whether a pack
-    was found ("Russian", "Ukrainian - no pack"). `Get`/`Set` map index <-> KLID through the list
-    `Items` built, so no new row kind is needed.
-  - An `AutoCorrect` check, enabled only when both packs exist.
-  - `Exclude` as a `Text` row.
-- Packs load on `Lifecycle::Restore` when the stage is needed and unload on `Suspend`.
+  - Two `Combo` rows over `InputLanguage::Installed()`, titled by the layout's own name and
+    locale ("Russian - ru-RU"). `Get`/`Set` map index <-> KLID through the list `Items` built, so
+    no new row kind is needed. Step 16 adds whether a pack was found ("... - no pack").
+  - Step 16: an `AutoCorrect` check, enabled only when both packs exist, and `Exclude` as a
+    `Text` row.
+- The pair's layout tables are built on `Lifecycle::Restore` when the stage is needed, on the UI
+  thread, and handed to the input thread whole. Step 16 loads the packs there too and unloads them
+  on `Suspend`.
 - `kbd.convert_word` carries `EditsText`. Its `Make` marks the tracker as needed, so the stage is
   enabled exactly when the action is bound or autocorrect is on (`Bindings::Apply` runs before
   `Lifecycle::Restore`).
@@ -375,21 +391,48 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
 
 ### Step 15 - Engine and manual conversion
 
-- [ ] Engine into `Features/Keyboard/Convert/` per the table above
-- [ ] `tools/langpack` target, built through a `build.ps1` switch
-- [ ] Word tracker stage `kbd.text`
-- [ ] `KeyboardSettings` fields and the Keyboard page rows
-- [ ] `kbd.convert_word`: a repeat press converts back, and the layout follows
-- [ ] The slice check still passes
+- [x] Engine into `Features/Keyboard/Convert/` per the table above
+- [x] `tools/langpack` target, built through a `build.ps1` switch (`-Tools`)
+- [x] Word tracker stage `kbd.text`
+- [x] `KeyboardSettings` fields and the Keyboard page rows: the pair; the rest moved to step 16
+- [x] `kbd.convert_word`: a repeat press converts back, and the layout follows
+- [x] The slice check still passes
 - **Done when:**
   - the puntish README benchmark numbers reproduce through `tools/langpack`;
   - live runs in Notepad, Chromium, an Electron app and Windows Terminal convert and convert back;
   - typing during a conversion lands after it, in the new layout;
   - an elevated window without SkipUac is left alone.
+- **Result:** the benchmark is met; the live criteria are not checked yet.
+  - Binary 1,126,912 -> 1,145,344 bytes (+18 KB): the tracker, `LayoutTable`, the pair rows,
+    the KLID list and titles in `InputLanguage`. The rest of the engine compiles in and the linker
+    drops it until step 16 - the map shows only `LayoutTable` linked.
+  - `tools/langpack`: en and ru packs rebuilt from the word lists are byte-identical to puntish's.
+    `bench.ps1` on the en/ru pair: 0 false switches for correct en and ru (3000 each), mixed
+    (3000) and short tokens (800); 0 missed for ru typed in en and en typed in ru (3000 each).
+  - `.\build.ps1 -Test`: 22 cases pass. Debug builds clean.
+  - Not checked live: `tests\HotkeyProbe.ps1` now types into a text box of its own (the new
+    Notepad restores the user's tabs) and has conversion cases - convert, back, after a space,
+    typing during the conversion - but has not run, since the machine was in use. Notepad,
+    Chromium, Electron and Windows Terminal need a hand. An elevated window: our hook sees
+    nothing typed there and `apply` checks the foreground window - unverified.
+  - Deviations, recorded above: the edit is built in `apply` on the input thread; Space keeps
+    the word; the layout switch is posted before `Commit`; an empty pair takes the first two
+    installed layouts; `AutoCorrect`, `Exclude`, the "no pack" suffix and pack loading moved to
+    step 16.
+  - Reviews. Architecture on the design: no findings. Quality, bug-hunt and architecture on the
+    change: 1 defect, fixed - a pack with zero bloom bits loaded and then divided by zero on the
+    first lookup, and the alphabet was read before the truncation check; the loader now also
+    refuses a bloom larger than the file and a hash count above the builder's limit. A style
+    pass brought the moved code to the repo's braces and `const`. A re-check of the fix and the
+    pass found nothing.
 
 ### Step 16 - Autocorrect
 
 - [ ] Space -> hold -> detection -> edit, off by default
+- [ ] `AutoCorrect` and `Exclude` in `KeyboardSettings` and on the page; the pair combos say
+      whether a pack was found; packs load on `Restore` and unload on `Suspend`
+- [ ] The lane owns the snapshot it detects on (the slot is input-thread state, see "Hold and
+      edits")
 - [ ] The `Exclude` list is honoured; the tracker is off in excluded apps
 - [ ] Decision log through `Logger` (word, verdict, reason, margin, preference) for tuning the
       thresholds
@@ -419,6 +462,8 @@ The code takes the repo style on the way in (naming, comments per `CLAUDE.md`).
   popups, editors that reformat). Hold removes the typing race, not this.
 - Non-elevated hooks see nothing in elevated windows, and `SendInput` into them fails silently
   (UIPI). SkipUac covers it.
+- An app lagging behind its input queue reads the layout switch before keys typed ahead of the
+  conversion, so those come out in the new layout.
 - Same-script pairs (EN/DE, EN/PL) are out of reach for this detector, and AltGr characters are not
   in the tables.
 - Password fields are not detected; the exclusion list is the answer.
