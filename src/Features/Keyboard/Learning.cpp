@@ -1,13 +1,13 @@
 #include "Learning.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <utility>
 #include <vector>
 
 #include "Convert/Pack.hpp"
 #include "Core/AppConfig.hpp"
 #include "Core/Dispatcher.hpp"
-#include "Core/Input/Input.hpp"
 #include "Core/Lifecycle.hpp"
 #include "Platform/Str.hpp"
 #include "definitions.h"
@@ -22,17 +22,15 @@ namespace {
     /// Taught while settings held the config: filed once it hands it back.
     std::vector<std::pair<std::wstring, bool>> _deferred;
 
-    // Input thread
-    std::shared_ptr<const LearnedWords> _current = std::make_shared<const LearnedWords>();
+    // Written on the UI thread, read by the input thread and the judge
+    std::atomic<std::shared_ptr<const LearnedWords>> _current = std::make_shared<const LearnedWords>();
 
     std::string _entry(const std::wstring_view text) {
         return Str::WideToUtf8(Convert::WordKey(text));
     }
 
     void _publish() {
-        Input::Post([words = std::make_shared<const LearnedWords>(_config->Keyboard.Learned)] {
-            _current = words;
-        });
+        _current = std::make_shared<const LearnedWords>(_config->Keyboard.Learned);
     }
 
     void _file(const std::wstring& text, const bool always) {
@@ -64,8 +62,8 @@ namespace {
         };
     }
 
-    const std::shared_ptr<const LearnedWords>& Current() {
-        return _current;
+    std::shared_ptr<const LearnedWords> Current() {
+        return _current.load();
     }
 
     void Teach(std::wstring text, const bool always) {

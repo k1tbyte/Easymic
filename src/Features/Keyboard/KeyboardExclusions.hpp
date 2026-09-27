@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "Autocorrect.hpp"
 #include "Platform/Foreground.hpp"
 
 namespace KeyboardExclusions {
@@ -30,4 +31,30 @@ namespace KeyboardExclusions {
         }
         return csv;
     }
+
+    /// Input thread: typing in `window` is tracked. Decided once per window, not before the snapshot catches up.
+    class Filter {
+    public:
+        bool Allowed(const Autocorrect::Runtime* runtime, const HWND window) {
+            if (!runtime || !window) return false;
+            if (!runtime->Auto && runtime->Excluded.empty() && !runtime->SkipFullscreen) return true;
+            if (window != _window) {
+                _window = window;
+                _status = Status::Unknown;
+            }
+            if (_status == Status::Unknown) {
+                const auto foreground = Foreground::Current();
+                if (foreground && foreground->Window == window && !foreground->Exe.empty()) {
+                    _status = runtime->Excluded.contains(foreground->Exe)
+                              || (runtime->SkipFullscreen && foreground->Fullscreen) ? Status::Excluded : Status::Allowed;
+                }
+            }
+            return _status == Status::Allowed;
+        }
+
+    private:
+        enum class Status : uint8_t { Unknown, Allowed, Excluded };
+        HWND _window = nullptr;
+        Status _status = Status::Unknown;
+    };
 }

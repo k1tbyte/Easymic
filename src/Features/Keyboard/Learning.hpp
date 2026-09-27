@@ -13,8 +13,8 @@ namespace Learning {
 
     void Register(AppConfig& config);
 
-    /// Input thread: the words each Space decides with.
-    const std::shared_ptr<const LearnedWords>& Current();
+    /// Any thread: the words a verdict is decided with.
+    std::shared_ptr<const LearnedWords> Current();
 
     /// Input thread: typed `text` filed on the UI thread, saved, in effect from the next Space.
     void Teach(std::wstring text, bool always);

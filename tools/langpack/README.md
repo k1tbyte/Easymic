@@ -76,11 +76,11 @@ langpack [--packs dir] [--pair en,ru] [--threshold X] [--rules file ...]
 Loads packs from `dir`, binds each language of the pair to its first installed
 layout, and reads lines until an empty one. For each line the typed side is
 picked by alphabet coverage, the text is mapped to key positions through that
-side's reverse map, and `Detect` runs with the context and the rules. Prints:
+side's reverse map, and `Detect` runs with the rules. Prints:
 
 ```
-  FIX -> fixed text   [source to target, reason margin=X.XX pref=X.XX]
-  ok   [source, reason margin=X.XX pref=X.XX, alt: other reading]
+  FIX -> fixed text   [source to target, reason margin=X.XX]
+  ok   [source, reason margin=X.XX, alt: other reading]
 ```
 
 A rule decision names its pattern: `rule B ofc margin=...`.

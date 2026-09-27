@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Convert/Detector.hpp"
+#include "TypedWord.hpp"
 
 class Feedback;
 struct KeyboardSettings;
@@ -32,6 +33,8 @@ namespace Autocorrect {
         /// The pair's table, the language its pack speaks.
         const Convert::LayoutTable& Table(const int side) const { return Layouts[Pair[side]]; }
         const Convert::LayoutTable* Find(HKL layout) const;
+        /// The pair side `layout` types for, itself or by script; -1 when none.
+        int SideOf(HKL layout) const;
     };
 
     /// Once, from Keyboard::Register: what a fix plays and says, and through whom.
@@ -40,10 +43,20 @@ namespace Autocorrect {
     /// UI thread. Null when the pair is not two installed layouts.
     std::shared_ptr<Runtime> Resolve(const KeyboardSettings& settings);
 
-    /// Edit lane: the verdict on a word typed on pair side `from`, the user's words over all, logged when
-    /// asked. A fix in a password field of `focus` becomes an empty verdict.
+    /// Off the input thread: the verdict on a word typed on pair side `from`, the user's words over all.
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
-                            int from, HWND focus);
+                            int from);
+
+    /// Edit lane, for a fix only: `focus` is a password field the fix must leave alone. Asks across processes.
+    bool Guarded(const Runtime& runtime, HWND focus);
+
+    // Any thread: a line in the log when asked, written by the action worker so the hook never waits on the file
+    void Log(const Runtime& runtime, const Convert::Verdict& verdict);
+    void LogSkip(const Runtime& runtime, const char* why, uint64_t detail);
+    /// A fix held the typing from its Space until it landed or was dropped (a hold that timed out drops it).
+    void LogFix(const Runtime& runtime, const Convert::Verdict& verdict, bool landed, uint64_t spaceAt);
+    /// The undecided words a fix carried along.
+    void LogRun(const Runtime& runtime, const TypedWord::Word& run);
 
     /// Input thread: an automatic fix landed; its sound and notification go to the action worker.
     void Announce(std::wstring typed, std::wstring fixed);

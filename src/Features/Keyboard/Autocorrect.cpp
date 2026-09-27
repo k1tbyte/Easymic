@@ -31,6 +31,21 @@ namespace {
         return it == Layouts.end() ? nullptr : &*it;
     }
 
+    int Runtime::SideOf(const HKL layout) const {
+        for (const int side : {0, 1}) {
+            if (Table(side).Layout() == layout) {
+                return side;
+            }
+        }
+        const Convert::LayoutTable* table = Find(layout);
+        if (!table) {
+            return -1;
+        }
+        const bool a = table->Script() == Table(0).Script();
+        const bool b = table->Script() == Table(1).Script();
+        return a == b ? -1 : a ? 0 : 1;
+    }
+
     std::shared_ptr<Runtime> Resolve(const KeyboardSettings& settings) {
         const auto layouts = InputLanguage::Installed();
         const int a = InputLanguage::Find(layouts, settings.PairA, 0);
@@ -67,7 +82,7 @@ namespace {
     }
 
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned,
-                            const std::span<const Convert::Key> word, const int from, const HWND focus) {
+                            const std::span<const Convert::Key> word, const int from) {
         const Convert::Side source{&runtime.Table(from), &(*runtime.Packs)[from]};
         const Convert::Side target{&runtime.Table(1 - from), &(*runtime.Packs)[1 - from]};
         Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.Threshold / 100.0, &runtime.Rules);
@@ -76,22 +91,55 @@ namespace {
             verdict.ByUser = true;
             verdict.Undecided = false;
         }
-        // Asked only for a fix: the app answers across processes. The word stays out of the log
-        if (verdict.WrongLayout && runtime.SkipPasswords && Accessibility::IsPassword(focus)) {
-            if (runtime.LogDecisions) {
-                Logger::Log(Logger::Level::Info, "Keyboard: fix skipped in a password field");
-            }
-            return {};
-        }
-        if (runtime.LogDecisions && !verdict.SourceLocale.empty()) {
-            const std::string typed = Str::WideToUtf8(verdict.Typed);
-            const std::string fixed = Str::WideToUtf8(verdict.Fixed);
-            const std::string rule = verdict.ByRule ? " " + Str::WideToUtf8(verdict.Rule) : "";
-            Logger::Log(Logger::Level::Info, "Keyboard: %s %s -> %s (%s%s, margin=%.2f)",
-                        verdict.WrongLayout ? "FIX" : "ok", typed.c_str(), fixed.c_str(), verdict.Reason(),
-                        rule.c_str(), verdict.Margin());
-        }
         return verdict;
+    }
+
+    bool Guarded(const Runtime& runtime, const HWND focus) {
+        if (!runtime.SkipPasswords || !Accessibility::IsPassword(focus)) {
+            return false;
+        }
+        // The word stays out of the log
+        if (runtime.LogDecisions) {
+            Logger::Log(Logger::Level::Info, "Keyboard: fix skipped in a password field");
+        }
+        return true;
+    }
+
+    void Log(const Runtime& runtime, const Convert::Verdict& verdict) {
+        if (!runtime.LogDecisions || verdict.SourceLocale.empty()) {
+            return;
+        }
+        Dispatcher::Post([typed = Str::WideToUtf8(verdict.Typed), fixed = Str::WideToUtf8(verdict.Fixed),
+                          rule = verdict.ByRule ? " " + Str::WideToUtf8(verdict.Rule) : "",
+                          fix = verdict.WrongLayout, reason = verdict.Reason(), margin = verdict.Margin()] {
+            Logger::Log(Logger::Level::Info, "Keyboard: %s %s -> %s (%s%s, margin=%.2f)", fix ? "FIX" : "ok",
+                        typed.c_str(), fixed.c_str(), reason, rule.c_str(), margin);
+        });
+    }
+
+    void LogSkip(const Runtime& runtime, const char* why, const uint64_t detail) {
+        if (runtime.LogDecisions) {
+            Dispatcher::Post([why, detail] {
+                Logger::Log(Logger::Level::Info, "Keyboard: Space skipped, %s (%llx)", why, detail);
+            });
+        }
+    }
+
+    void LogFix(const Runtime& runtime, const Convert::Verdict& verdict, const bool landed, const uint64_t spaceAt) {
+        if (runtime.LogDecisions && verdict.WrongLayout) {
+            Dispatcher::Post([landed, ms = GetTickCount64() - spaceAt] {
+                Logger::Log(Logger::Level::Info, "Keyboard: fix %s after %llu ms", landed ? "landed" : "dropped", ms);
+            });
+        }
+    }
+
+    void LogRun(const Runtime& runtime, const TypedWord::Word& run) {
+        const Convert::LayoutTable* table = runtime.Find(run.Layout);
+        if (runtime.LogDecisions && table) {
+            Dispatcher::Post([text = Str::WideToUtf8(table->Render({run.Keys.data(), run.Count}))] {
+                Logger::Log(Logger::Level::Info, "Keyboard: FIX %s too, the next word decided", text.c_str());
+            });
+        }
     }
 
     void Announce(std::wstring typed, std::wstring fixed) {

@@ -3,21 +3,21 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "Core/AppConfig.hpp"
 #include "Autocorrect.hpp"
-#include "Core/Dispatcher.hpp"
 #include "Core/Lifecycle.hpp"
 #include "InputLanguage.hpp"
+#include "KeyboardExclusions.hpp"
+#include "Judge.hpp"
 #include "Learning.hpp"
 #include "LayoutLayer.hpp"
 #include "TypedWord.hpp"
 #include "WordEdit.hpp"
-#include "Platform/Foreground.hpp"
-#include "Platform/Str.hpp"
 #include "definitions.h"
 
 namespace WordTracker {
@@ -46,10 +46,10 @@ namespace {
 
     // Input thread
     std::shared_ptr<const Runtime> _runtime;
-    enum class AppStatus : uint8_t { Unknown, Allowed, Excluded };
-    HWND _appWindow = nullptr;
-    AppStatus _appStatus = AppStatus::Unknown;
+    KeyboardExclusions::Filter _apps;
     Word _word;
+    /// The version of the word's keys the judge was told: a verdict on another version is stale.
+    uint32_t _gen = 0;
     /// Undecided words right before `_word`, joined: a sure fix of the next word converts them too.
     Word _run;
     Word _held;
@@ -70,40 +70,13 @@ namespace {
     /// The layout each pair side was last typed in: a conversion goes there, not to the pair's.
     std::array<HKL, 2> _last{};
 
-    bool _allowed(const HWND window) {
-        if (!_runtime || !window) {
-            return false;
-        }
-        if (!_runtime->Auto && _runtime->Excluded.empty() && !_runtime->SkipFullscreen) {
-            return true;
-        }
-        if (window != _appWindow) {
-            _appWindow = window;
-            _appStatus = AppStatus::Unknown;
-        }
-        if (_appStatus == AppStatus::Unknown) {
-            const auto foreground = Foreground::Current();
-            if (foreground && foreground->Window == window && !foreground->Exe.empty()) {
-                _appStatus = _runtime->Excluded.contains(foreground->Exe)
-                             || (_runtime->SkipFullscreen && foreground->Fullscreen)
-                    ? AppStatus::Excluded : AppStatus::Allowed;
-            }
-        }
-        return _appStatus == AppStatus::Allowed;
-    }
-
     HKL _layoutOf(const Word& word, const HWND focus) {
         return word.Layout ? word.Layout : InputLanguage::LayoutOf(focus);
     }
 
-    /// The pair side a layout types for, itself or by script, noted as that side's last. -1: none.
+    /// The pair side a layout types for, noted as that side's last. -1: none.
     int _sideOf(const Runtime& runtime, const HKL layout) {
-        int side = runtime.Table(0).Layout() == layout ? 0 : runtime.Table(1).Layout() == layout ? 1 : -1;
-        if (const Convert::LayoutTable* table = runtime.Find(layout); side < 0 && table) {
-            const bool a = table->Script() == runtime.Table(0).Script();
-            const bool b = table->Script() == runtime.Table(1).Script();
-            side = a == b ? -1 : a ? 0 : 1;
-        }
+        const int side = runtime.SideOf(layout);
         if (side >= 0) {
             _last[side] = layout;
         }
@@ -113,15 +86,6 @@ namespace {
     const Convert::LayoutTable& _target(const Runtime& runtime, const int from) {
         const Convert::LayoutTable* last = runtime.Find(_last[1 - from]);
         return last ? *last : runtime.Table(1 - from);
-    }
-
-    /// LogDecisions only, and off the input thread: the hook must not wait on the log file.
-    void _skip(const char* why, const uint64_t detail) {
-        if (_runtime->LogDecisions) {
-            Dispatcher::Post([why, detail] {
-                Logger::Log(Logger::Level::Info, "Keyboard: Space skipped, %s (%llx)", why, detail);
-            });
-        }
     }
 
     /// The caret left the text the words describe. A layout switch between erase and retype keeps `_erased`.
@@ -146,15 +110,6 @@ namespace {
         Learning::Teach(_runtime->Table(always ? side : 1 - side).Render(keys), always);
     }
 
-    void _logRun(const Word& run) {
-        const Convert::LayoutTable* table = _runtime->Find(run.Layout);
-        if (_runtime->LogDecisions && table) {
-            Dispatcher::Post([text = Str::WideToUtf8(table->Render({run.Keys.data(), run.Count}))] {
-                Logger::Log(Logger::Level::Info, "Keyboard: FIX %s too, the next word decided", text.c_str());
-            });
-        }
-    }
-
     /// The judged word erased whole and its keys typed again from the other side: the user's answer.
     bool _retyped(const int from) {
         if (!_erasedWhole || !std::ranges::equal(std::span(_erased.Keys.data(), _erased.Count),
@@ -173,12 +128,39 @@ namespace {
     void _autoResult(Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
                      const Convert::Verdict& verdict, uint64_t spaceAt);
 
-    /// A fix held the typing from its Space until it landed or was dropped (a hold that timed out drops it).
-    void _logFix(const Runtime& runtime, const Convert::Verdict& verdict, const bool landed, const uint64_t spaceAt) {
-        if (runtime.LogDecisions && verdict.WrongLayout) {
-            Dispatcher::Post([landed, ms = GetTickCount64() - spaceAt] {
-                Logger::Log(Logger::Level::Info, "Keyboard: fix %s after %llu ms", landed ? "landed" : "dropped", ms);
+    Judgement _judgement(const Convert::Verdict& verdict) {
+        return verdict.WrongLayout || verdict.Fixed.empty() ? Judgement::None
+               : verdict.Undecided ? Judgement::Undecided : Judgement::Kept;
+    }
+
+    /// The word's keys changed: a new version for the judge.
+    void _typed() {
+        ++_gen;
+        if (_runtime->Auto && _word.Count && !_word.Spaces) {
+            Judge::Typed(_word, _gen);
+        }
+    }
+
+    /// Holds the typing while the lane settles the word: a fix, or no verdict yet. `ready` needs only the password check.
+    void _decideHeld(const int from, const HWND focus, const Convert::Verdict* ready) {
+        const Input::HoldId before = _heldId;
+        Input::Edit([word = _word, runtime = _runtime, from, focus, spaceAt = GetTickCount64(),
+                     ready = ready ? std::optional(*ready) : std::nullopt] {
+            const Input::HoldId id = Input::CurrentHold();
+            Convert::Verdict verdict = ready ? *ready
+                : Autocorrect::Decide(*runtime, *Learning::Current(), {word.Keys.data(), word.Count}, from);
+            if (verdict.WrongLayout && Autocorrect::Guarded(*runtime, focus)) {
+                verdict = {};
+            }
+            Autocorrect::Log(*runtime, verdict);
+            Input::Post([id, runtime, verdict = std::move(verdict), spaceAt] {
+                _autoResult(id, runtime, verdict, spaceAt);
             });
+        });
+        if (_heldId != before) {
+            _autoSpaces = 1;
+        } else {
+            Autocorrect::LogSkip(*_runtime, "a hold is still up", 0);
         }
     }
 
@@ -198,7 +180,7 @@ namespace {
         }
 
         const HWND window = GetForegroundWindow();
-        const bool allowed = _allowed(window);
+        const bool allowed = _apps.Allowed(_runtime.get(), window);
         if (window != _word.Window || !allowed) {
             _drop();
             _word.Window = window;
@@ -236,6 +218,7 @@ namespace {
                     _word.Clear();
                     _erasedWhole = _erased.Count != 0;
                 }
+                _typed();
             } else {
                 // Into the run's spaces, or text never seen
                 _drop();
@@ -246,22 +229,17 @@ namespace {
                 const HKL layout = focus ? _layoutOf(_word, focus) : nullptr;
                 const int from = layout ? _sideOf(*_runtime, layout) : -1;
                 if (from < 0) {
-                    _skip("layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
+                    Autocorrect::LogSkip(*_runtime, "layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
                 } else if (!_retyped(from)) {
                     // Pinned before the hold snapshots it: the conversion reads the layout typed in
                     _word.Layout = layout;
-                    const Input::HoldId before = _heldId;
-                    Input::Edit([word = _word, runtime = _runtime, learned = Learning::Current(), from, focus,
-                                 spaceAt = GetTickCount64()] {
-                        const Input::HoldId id = Input::CurrentHold();
-                        const Convert::Verdict verdict = Autocorrect::Decide(
-                            *runtime, *learned, {word.Keys.data(), word.Count}, from, focus);
-                        Input::Post([id, runtime, verdict, spaceAt] { _autoResult(id, runtime, verdict, spaceAt); });
-                    });
-                    if (_heldId != before) {
-                        _autoSpaces = 1;
+                    const Convert::Verdict* ready = Judge::Ready(_gen, layout);
+                    if (ready && !ready->WrongLayout) {
+                        // Kept: nothing to edit, so the typing goes on unheld
+                        _word.Judged = _judgement(*ready);
+                        Judge::LogKept();
                     } else {
-                        _skip("a hold is still up", 0);
+                        _decideHeld(from, focus, ready);
                     }
                 }
             }
@@ -271,7 +249,7 @@ namespace {
             }
         } else if (chord || !TypingKeys[event.Vk]) {
             if (event.Vk == VK_SPACE) {
-                _skip("modifiers held", _modifiers);
+                Autocorrect::LogSkip(*_runtime, "modifiers held", _modifiers);
             }
             // Win+Space switches the layout
             _drop(event.Vk == VK_SPACE);
@@ -289,6 +267,7 @@ namespace {
             }
             _word.Judged = Judgement::None;
             _word.Keys[_word.Count++] = {event.Vk, (_modifiers & WordEdit::ShiftBits) != 0, _caps};
+            _typed();
         }
         return Input::Verdict::Next;
     }
@@ -304,8 +283,7 @@ namespace {
         _undo = {};
         _erased = {};
         _erasedWhole = false;
-        _appWindow = nullptr;
-        _appStatus = AppStatus::Unknown;
+        _apps = {};
         _modifiers = 0;
         _caps = GetKeyState(VK_CAPITAL) & 1;
         _last = {};
@@ -327,7 +305,8 @@ namespace {
     /// The caret is still where the hold was taken, in an app still tracked.
     bool _onTarget() {
         const HWND focus = InputLanguage::FocusedWindow();
-        return focus && focus == _heldFocus && GetForegroundWindow() == _held.Window && _allowed(_held.Window);
+        return focus && focus == _heldFocus && GetForegroundWindow() == _held.Window
+               && _apps.Allowed(_runtime.get(), _held.Window);
     }
 
     /// No edit went out: the held words are back in the buffer, unless typing or the caret moved on.
@@ -384,6 +363,7 @@ namespace {
         }
         if (!_typedSince) {
             _word = _held;
+            ++_gen;
             _word.Judged = autoSpace ? Judgement::Fixed : Judgement::None;
             if (autoSpace) {
                 _word.Spaces = _autoSpaces;
@@ -397,12 +377,12 @@ namespace {
     void _autoResult(const Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
                      const Convert::Verdict& verdict, const uint64_t spaceAt) {
         if (!id || id != _heldId || runtime != _runtime || !_held.Count) {
-            _logFix(*runtime, verdict, false, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, false, spaceAt);
             return;
         }
         if (!_onTarget()) {
             _heldId = 0;
-            _logFix(*runtime, verdict, false, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, false, spaceAt);
             return;
         }
         if (verdict.WrongLayout) {
@@ -412,18 +392,17 @@ namespace {
                 _held = TypedWord::Join(_heldRun, _held);
             }
             const bool landed = _apply(id, true);
-            _logFix(*runtime, verdict, landed, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, landed, spaceAt);
             if (landed) {
                 if (_held.Count != word.Count) {
-                    _logRun(_heldRun);
+                    Autocorrect::LogRun(*runtime, _heldRun);
                 }
                 return;
             }
             _held = word;
         }
         _held.Spaces = _autoSpaces;
-        _held.Judged = verdict.WrongLayout || verdict.Fixed.empty() ? Judgement::None
-                       : verdict.Undecided ? Judgement::Undecided : Judgement::Kept;
+        _held.Judged = _judgement(verdict);
         if (!_unhold() && _typedSince && _heldIntact && _held.Judged == Judgement::Undecided
             && _autoSpaces < MaxSpaces) {
             _run = TypedWord::Join(_heldRun, _held);
@@ -443,6 +422,7 @@ namespace {
         const bool enable = _needed || runtime->Auto;
         Input::Post([runtime = std::move(runtime)] {
             _runtime = std::move(runtime);
+            Judge::Use(_runtime);
             _undo = {};
         });
         if (enable) {
@@ -455,6 +435,7 @@ namespace {
         Input::Disable(StageId);
         Input::Post([] {
             _runtime.reset();
+            Judge::Use(nullptr);
             _reset();
         });
     }
@@ -463,6 +444,7 @@ namespace {
 
     void Register(KeyboardSettings& settings) {
         _settings = &settings;
+        Judge::Register();
         Input::Add({.Id = StageId, .Order = 300, .OnKey = &_onKey, .OnReset = &_reset, .OnHold = &_onHold});
         Lifecycle::Restore += &_restore;
         Lifecycle::Suspend += &_suspend;

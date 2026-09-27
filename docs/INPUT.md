@@ -99,6 +99,8 @@ consumer.
 - UI -> input: `Enable`/`Disable`, and the hotkey table, which is built on the UI thread, handed
   over whole through `Post` and freed on the input thread.
 - Input -> out: `Dispatcher::Post` (actions), `PostMessage` (capture preview and done).
+- A stage may wake its own threadpool work from `OnKey`: a pre-created `PTP_WORK`, its input
+  copied under an SRW lock, no allocation; the result comes back through `Post` (`kbd.text`'s judge).
 - `Foreground::Current()` is an atomic `shared_ptr` snapshot, still written on the UI thread only.
 - `HotkeyCapture`'s target, captured mask and pending flag are atomics.
 - `Dispatcher` and the input thread start and stop in `main`, on every exit path. `Dispatcher`

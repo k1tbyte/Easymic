@@ -14,8 +14,11 @@ before 2026-09-27).
 - Modifiers and Caps come from the stage's own stream (Caps seeded on enable). Backspace pops a space,
   then a key. Space ends the word but keeps it. The word clears on focus change, a mouse button, Enter,
   Tab, Esc, navigation keys, a Ctrl/Alt/Win chord and any key outside the typing set.
-- Autocorrect: Space -> `Input::Edit` (holds delivery) -> the lane runs `Autocorrect::Decide` ->
-  `Convert::Detect` -> `Input::Post(apply)`. Keys typed during the hold are the next word.
+- Autocorrect: every key that changes the word wakes the judge (`Judge.*`, threadpool), which runs
+  `Autocorrect::Decide` -> `Convert::Detect` for "the word ends here" and posts the verdict back. Space
+  with a ready keep goes through unheld. A fix, or no verdict yet: `Input::Edit` (holds delivery) -> the
+  lane checks for a password field (and decides) -> `Input::Post(apply)`. Keys typed during the hold are
+  the next word.
 - `Detect`, in order: rules (Punto's, below) > dictionary > ngram. A token with no letters (`1.`, `...`)
   is never converted. A word of 2 letters or less, or one both dictionaries know, is kept (`ambiguous`);
   if both know it and it has 2+ letters it waits in the run. The ngram decides only single words of 5+
@@ -148,18 +151,19 @@ Punto feels smoother, mostly in browsers. Why ours does not (2026-09-27):
 
 ### Step 2 - judge while typing, Space without a hold
 
-Contract change to `docs/INPUT.md`: architecture review before code.
+Detection on the input thread was rejected in review: a page fault in the mapped pack would stall all
+desktop input.
 
-- `OnKey`, after a key changes the word, copies the snapshot (keys, count, layout, generation) into one
-  slot and submits a pre-created threadpool work (`SubmitThreadpoolWork`, no allocation); a pending flag
-  coalesces submissions while the judge runs.
-- The judge (lane) reads the latest snapshot and runs `Decide` for "the word ends here", including the
-  password check, cached per focus window. It posts `{generation, verdict}` back with `Input::Post`.
-- Space with a ready verdict of this generation: keep -> the Space goes through, no hold, `Judged` set
-  from the verdict (the run still works); fix -> `Input::Edit` with a work that only posts apply, so the
-  hold lasts one edit. No verdict yet (a very fast typist) -> today's path.
-- Done when: a kept word's Space is never held; a fix holds for one edit only; the lane's slow password
-  check no longer drops fixes.
+- [x] `OnKey`, after a key changes the word, bumps its generation and copies the word into the judge's
+  slot (`Judge::Typed`, SRW lock, no allocation); a pending flag coalesces a burst of keys into one run
+  of a pre-created `PTP_WORK` on the latest word.
+- [x] The judge runs `Decide` for "the word ends here" and posts `{generation, layout, verdict}`; an older
+  run never replaces a newer one. `Learning::Current()` became an atomic `shared_ptr` for it.
+- [x] Space with a ready keep of this generation and layout: no hold, `Judged` from the verdict (the run
+  still works). A ready fix holds only for the password check and the edit. No verdict yet -> as before.
+- [ ] The password check stays on the fix's hold: a browser has one focus window for every field, so a
+  verdict cached per window could miss a password field. Step 1's log decides whether it must move.
+- **Result:** a kept word's Space is no longer held. Build 1228 KB.
 
 ### Step 3 - switch mid-word
 

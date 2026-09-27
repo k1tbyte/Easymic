@@ -15,16 +15,18 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 | `WordTracker.*` | Stage `kbd.text` on the input thread: the word buffer, Space, convert, undo, learning signals |
 | `TypedWord.hpp` | The word: key positions, spaces after it, what autocorrect judged; joining the run |
 | `WordEdit.*` | The edit itself: Backspaces, the new text as Unicode, held modifiers around it |
-| `Autocorrect.*` | `Runtime` (tables, packs, rules, settings) built on Restore; `Decide` on the lane; fix feedback |
-| `Learning.*` | Learned words: a snapshot for the input thread, filed and saved on the UI thread |
+| `Judge.*` | Judges the word on the threadpool while it is typed, so a kept word's Space is not held |
+| `Autocorrect.*` | `Runtime` (tables, packs, rules, settings) built on Restore; `Decide`; fix feedback and log lines |
+| `Learning.*` | Learned words: an atomic snapshot for any thread, filed and saved on the UI thread |
 | `KeyboardPacks.hpp` | Finds `.pack` and `.rules` files in `packs/` |
-| `KeyboardExclusions.hpp` | The excluded `.exe` list, parse and join |
+| `KeyboardExclusions.hpp` | The excluded `.exe` list, parse and join; the per-window app filter |
 | `Convert/` | The engine, shared with `tools/langpack`: `LayoutTable` (key <-> char per layout), `Pack`, `Bloom`, `Ngram`, `Alphabet`, `Rules`, `Detector` |
 
 ## Threads
 
-- Input thread: `OnKey` stays O(1) and never allocates; it only records key positions.
-- Edit lane (threadpool): detection, rules, the password check.
+- Input thread: `OnKey` stays O(1) and never allocates; it records key positions and wakes the judge.
+- Judge (threadpool): detection and rules on the word so far.
+- Edit lane (threadpool): the password check, and detection when the judge is behind.
 - UI thread: `Restore` builds the `Runtime` from the config, learned words are filed and saved.
 - Action worker: hotkey actions and their sound/notification.
 
@@ -33,7 +35,8 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 1. Tracked only in an allowed app: not excluded, not fullscreen (`SkipFullscreen`: borderless or
    exclusive, never maximized, judged when the window takes the foreground), and only once
    `Foreground` resolved it.
-2. Space -> `Input::Edit` holds key delivery -> the lane runs `Autocorrect::Decide`:
+2. Each key -> the judge runs `Autocorrect::Decide`; Space with its keep goes through unheld. A fix, or
+   no verdict yet -> `Input::Edit` holds key delivery and the lane finishes:
    1. `Convert::Detect`: rules > dictionary > ngram (5+ letters only); no letters
       (`1.`, `...`) - never converted;
    2. a learned word (Always / Never) overrules the detector's answer;
