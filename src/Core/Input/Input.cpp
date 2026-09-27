@@ -4,6 +4,7 @@
 #include <exception>
 #include <memory>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "Hold.hpp"
@@ -48,6 +49,9 @@ namespace {
     /// Lane callbacks still running. Stop waits for them: they read state main destroys next.
     std::atomic<int> _edits{0};
     thread_local HoldId _currentHold = 0;
+    /// Input thread: what runs once the hold's edit is sent. One hold at a time, so one slot.
+    HoldId _landedHold = 0;
+    std::function<void()> _landed;
 
     uint8_t _level(const ULONG_PTR extra) {
         return (extra & ~ULONG_PTR{0xFF}) == Signature ? static_cast<uint8_t>(extra) : 0;
@@ -240,11 +244,13 @@ namespace {
         --_edits;
     }
 
-    void _startEdit(std::function<void()> work) {
+    void _startEdit(std::function<void()> work, std::function<void()> landed) {
         const HoldId id = Hold::Begin(GetTickCount64());
         if (!id) {
             return;
         }
+        _landedHold = id;
+        _landed = std::move(landed);
         Router::NotifyHold(id);
         _flush();
 
@@ -366,14 +372,16 @@ UINT Send(const std::span<INPUT> inputs, const std::string_view from) {
     return _send(inputs, static_cast<uint8_t>(stage + 1));
 }
 
-void Edit(std::function<void()> work) {
+void Edit(std::function<void()> work, std::function<void()> landed) {
     if (!work) {
         return;
     }
     if (GetCurrentThreadId() == _threadId) {
-        _startEdit(std::move(work));
+        _startEdit(std::move(work), std::move(landed));
     } else {
-        Post([work = std::move(work)]() mutable { _startEdit(std::move(work)); });
+        Post([work = std::move(work), landed = std::move(landed)]() mutable {
+            _startEdit(std::move(work), std::move(landed));
+        });
     }
 }
 
@@ -385,6 +393,12 @@ bool Commit(const HoldId id, const std::span<const INPUT> edit) {
     // A refused commit may have just expired the hold, and what it held is due now
     const bool taken = Hold::Commit(id, edit, GetTickCount64());
     _flush();
+    if (id == _landedHold) {
+        _landedHold = 0;
+        if (const auto landed = std::exchange(_landed, {}); landed && taken && !edit.empty()) {
+            landed();
+        }
+    }
     return taken;
 }
 

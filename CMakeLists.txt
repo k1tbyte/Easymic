@@ -167,16 +167,21 @@ add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/R
 target_include_directories(RouterTest PRIVATE src/Core)
 target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
 
+add_executable(KeyboardConfigTest EXCLUDE_FROM_ALL tests/KeyboardConfigTest.cpp)
+target_include_directories(KeyboardConfigTest PRIVATE src src/Core src/Platform)
+target_compile_definitions(KeyboardConfigTest PRIVATE NOMINMAX UNICODE _UNICODE)
+target_link_libraries(KeyboardConfigTest PRIVATE glaze::glaze)
+
+add_executable(AutocorrectTest EXCLUDE_FROM_ALL tests/AutocorrectTest.cpp
+               src/Features/Keyboard/Convert/Rules.cpp src/Features/Keyboard/Convert/Detector.cpp
+               src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/LayoutTable.cpp
+               src/Features/Keyboard/Convert/Alphabet.cpp src/Features/Keyboard/Convert/Ngram.cpp)
+target_include_directories(AutocorrectTest PRIVATE src)
+target_compile_definitions(AutocorrectTest PRIVATE NOMINMAX UNICODE _UNICODE)
+target_compile_options(AutocorrectTest PRIVATE /utf-8)
+
 # Pack builder and detection console: .\build.ps1 -Tools
-add_executable(langpack EXCLUDE_FROM_ALL
-        tools/langpack/Main.cpp tools/langpack/Console.cpp tools/langpack/PackBuilder.cpp
-        src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/Alphabet.cpp
-        src/Features/Keyboard/Convert/Ngram.cpp src/Features/Keyboard/Convert/Detector.cpp
-        src/Features/Keyboard/Convert/LayoutTable.cpp)
-target_include_directories(langpack PRIVATE src)
-target_compile_definitions(langpack PRIVATE NOMINMAX UNICODE _UNICODE)
-target_compile_options(langpack PRIVATE /utf-8)
-target_link_libraries(langpack PRIVATE shell32)
+add_subdirectory(tools/langpack)
 
 if(IS_DEBUG)
     # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint

@@ -20,7 +20,8 @@ enum class ActionFlags : uint32_t {
     /// command row rather than a plain text one.
     RunsCommand = 1u << 1,
     /// The action rewrites typed text: it fires on press only, and its handler runs on the edit
-    /// lane under a hold (Input::Edit), not on the action worker.
+    /// lane under a hold (Input::Edit), not on the action worker. Its sound and notification
+    /// follow only an edit that landed.
     EditsText = 1u << 2,
 };
 

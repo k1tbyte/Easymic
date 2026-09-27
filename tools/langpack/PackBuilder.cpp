@@ -35,12 +35,10 @@ namespace {
     }
 
     void _bloomAdd(uint8_t* data, const BloomParams& p, const std::wstring& word) {
-        const uint64_t h1 = Convert::Fnv1a(word);
-        const uint64_t h2 = Convert::Splitmix(h1) | 1ull;
-        for (uint32_t i = 0; i < p.Hashes; ++i) {
-            const uint64_t bit = (h1 + static_cast<uint64_t>(i) * h2) % p.Bits;
+        Convert::BloomBits(word, p.Bits, p.Hashes, [data](const uint64_t bit) {
             data[bit >> 3] |= static_cast<uint8_t>(1u << (bit & 7));
-        }
+            return true;
+        });
     }
 
     void _forEachWord(const std::wstring& text, const std::function<void(const std::wstring&)>& fn) {

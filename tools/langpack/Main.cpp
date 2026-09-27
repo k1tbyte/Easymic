@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -201,12 +202,61 @@ int _runLookup(const std::vector<std::string>& args) {
     return 0;
 }
 
+// Punto's data as UTF-8 rule lines: ps.dat is XOR 0xAA but CR and LF, triggers.dat plain,
+// both CP1251; a trigger is a word begin
+int _runRules(const std::vector<std::string>& args) {
+    if (args.size() < 3) {
+        _line(L"usage: langpack rules <out.rules> <ps.dat> [triggers.dat]");
+        return 2;
+    }
+    std::string out;
+    for (size_t i = 2; i < args.size(); ++i) {
+        std::ifstream in(args[i], std::ios::binary);
+        if (!in) {
+            _line(L"cannot read " + _wide(args[i]));
+            return 1;
+        }
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const bool triggers = i == 3;
+        for (char& c : bytes) {
+            c = triggers || c == '\r' || c == '\n' ? c : static_cast<char>(c ^ 0xAA);
+        }
+        const int n = MultiByteToWideChar(1251, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+        std::wstring text(static_cast<size_t>(n), L'\0');
+        MultiByteToWideChar(1251, 0, bytes.data(), static_cast<int>(bytes.size()), text.data(), n);
+        std::wistringstream lines(text);
+        std::wstring line;
+        for (bool header = triggers; std::getline(lines, line); header = false) {
+            if (!line.empty() && line.back() == L'\r') {
+                line.pop_back();
+            }
+            if (!header && !line.empty()) {
+                out += Console::ToUtf8((triggers ? L"_B " : L"") + line) + "\n";
+            }
+        }
+    }
+    std::ofstream(args[1], std::ios::binary) << out;
+    Convert::Rules rules;
+    if (!rules.Load(args[1])) {
+        _line(L"cannot write " + _wide(args[1]));
+        return 1;
+    }
+    _line(_wide(args[1]) + L"  " + std::to_wstring(rules.Count()) + L" rules");
+    return 0;
+}
+
 int _runRepl(const std::vector<std::string>& args) {
     std::string packDir = "packs";
     std::string pair;
     double thresholdOverride = 0.0;
+    Convert::Rules rules;
     for (size_t i = 0; i + 1 < args.size(); i += 2) {
-        if (args[i] == "--packs") {
+        if (args[i] == "--rules") {
+            if (!rules.Load(args[i + 1])) {
+                _line(L"cannot read " + _wide(args[i + 1]));
+                return 1;
+            }
+        } else if (args[i] == "--packs") {
             packDir = args[i + 1];
         } else if (args[i] == "--pair") {
             pair = args[i + 1];
@@ -293,11 +343,13 @@ int _runRepl(const std::vector<std::string>& args) {
         const Convert::Side typed{sides[typedIdx].Layout->Table.get(), &sides[typedIdx].Pack};
         const Convert::Side other{sides[otherIdx].Layout->Table.get(), &sides[otherIdx].Pack};
 
-        const Convert::Verdict v = Convert::Detect(keys, typed, other, &context, thresholdOverride);
+        context.Typing(sides[typedIdx].Pack.Locale());
+        const Convert::Verdict v = Convert::Detect(keys, typed, other, &context, thresholdOverride,
+                                                   rules.Count() ? &rules : nullptr);
         if (v.SourceLocale.empty()) {
             _line(L"  no language matched");
         } else {
-            const std::wstring why = _wide(v.Reason()) + L" margin=" + _num(v.Margin()) +
+            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin()) +
                                      L" pref=" + _num(v.Preference);
             if (v.WrongLayout) {
                 _line(L"  FIX -> " + v.Fixed + L"   [" + _wide(std::string(v.SourceLocale)) +
@@ -308,6 +360,10 @@ int _runRepl(const std::vector<std::string>& args) {
             }
         }
         Convert::FeedContext(context, v, input);
+        // As the app does once a fix lands
+        if (v.WrongLayout) {
+            context.Switched(v.FixedLocale);
+        }
     }
     return 0;
 }
@@ -329,6 +385,9 @@ int main() {
     }
     if (!args.empty() && args[0] == "convert") {
         return _runConvert(args);
+    }
+    if (!args.empty() && args[0] == "rules") {
+        return _runRules(args);
     }
     return _runRepl(args);
 }

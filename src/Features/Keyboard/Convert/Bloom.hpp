@@ -24,17 +24,22 @@ namespace Convert {
         return x ^ (x >> 31);
     }
 
-    inline bool BloomContains(const uint8_t* data, uint64_t bits, uint32_t hashes,
-                              const std::wstring& word) {
+    /// The `bits` indices of `word`, one per hash: the builder sets them, a lookup tests them.
+    inline bool BloomBits(const std::wstring& word, uint64_t bits, uint32_t hashes,
+                          const auto& visit) {
         const uint64_t h1 = Fnv1a(word);
         const uint64_t h2 = Splitmix(h1) | 1ull;
         for (uint32_t i = 0; i < hashes; ++i) {
-            const uint64_t bit = (h1 + static_cast<uint64_t>(i) * h2) % bits;
-            if (!((data[bit >> 3] >> (bit & 7)) & 1u)) {
+            if (!visit((h1 + static_cast<uint64_t>(i) * h2) % bits)) {
                 return false;
             }
         }
         return true;
+    }
+
+    inline bool BloomContains(const uint8_t* data, uint64_t bits, uint32_t hashes,
+                              const std::wstring& word) {
+        return BloomBits(word, bits, hashes, [data](const uint64_t bit) { return (data[bit >> 3] >> (bit & 7)) & 1u; });
     }
 
 }

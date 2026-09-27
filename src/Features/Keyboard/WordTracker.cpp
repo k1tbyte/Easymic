@@ -1,101 +1,181 @@
 #include "WordTracker.hpp"
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "AppConfig.hpp"
-#include "Convert/LayoutTable.hpp"
+#include "Core/AppConfig.hpp"
+#include "Autocorrect.hpp"
+#include "Core/Dispatcher.hpp"
 #include "Core/Lifecycle.hpp"
 #include "InputLanguage.hpp"
+#include "Learning.hpp"
 #include "LayoutLayer.hpp"
+#include "TypedWord.hpp"
+#include "WordEdit.hpp"
+#include "Platform/Foreground.hpp"
+#include "Platform/Str.hpp"
 #include "definitions.h"
 
 namespace WordTracker {
 
 namespace {
 
+    using Autocorrect::Runtime;
+    using TypedWord::Judgement;
+    using TypedWord::MaxKeys;
+    using TypedWord::MaxSpaces;
+    using TypedWord::TypingKeys;
+    using TypedWord::Word;
+
     constexpr std::string_view StageId = "kbd.text";
-    constexpr size_t MaxKeys = 64;
-    constexpr uint8_t MaxSpaces = 8;
-    /// Unassigned. Tapped before an Alt or Win up, or the app takes the lone release for its menu
-    constexpr WORD MaskVk = 0xE8;
 
-    constexpr std::array<uint8_t, 8> ModifierVks = {VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
-                                                    VK_LMENU,  VK_RMENU,  VK_LWIN,     VK_RWIN};
-    constexpr uint8_t ShiftBits = 0x03;
-    constexpr uint8_t ChordBits = 0xFC;
-    constexpr uint8_t AltWinBits = 0xF0;
-    /// Shift and Ctrl go back down after the edit. A restored Alt or Win would open a menu when the
-    /// user lets go of it.
-    constexpr uint8_t RestoreBits = 0x0F;
-
-    /// Keys that type a character in some layout. Anything else ends the word, with no table
-    /// looked up in the hook.
-    constexpr std::array<bool, 256> TypingKeys = [] {
-        std::array<bool, 256> keys{};
-        for (int vk = '0'; vk <= '9'; ++vk) {
-            keys[vk] = true;
-        }
-        for (int vk = 'A'; vk <= 'Z'; ++vk) {
-            keys[vk] = true;
-        }
-        for (int vk = VK_OEM_1; vk <= VK_OEM_3; ++vk) {
-            keys[vk] = true;
-        }
-        for (int vk = VK_OEM_4; vk <= VK_OEM_8; ++vk) {
-            keys[vk] = true;
-        }
-        keys[VK_OEM_102] = true;
-        return keys;
-    }();
-
-    using Pair = std::array<Convert::LayoutTable, 2>;
-
-    struct Word {
-        std::array<Convert::Key, MaxKeys> Keys{};
-        uint8_t Count = 0;
-        uint8_t Spaces = 0;
-        /// The side of the pair it is on screen in. -1 until a conversion says so; until then the
-        /// focused window's layout does.
-        int8_t Side = -1;
+    struct Undo {
+        HKL Original = nullptr;
+        HKL Corrected = nullptr;
+        HWND Focus = nullptr;
         HWND Window = nullptr;
-
-        void Clear() {
-            Count = 0;
-            Spaces = 0;
-            Side = -1;
-        }
     };
 
     // UI thread
     KeyboardSettings* _settings = nullptr;
     bool _needed = false;
 
-    // Input thread, from here down
-    std::unique_ptr<Pair> _pair;
+    // Input thread
+    std::shared_ptr<const Runtime> _runtime;
+    Convert::LanguageContext _context;
+    enum class AppStatus : uint8_t { Unknown, Allowed, Excluded };
+    HWND _appWindow = nullptr;
+    AppStatus _appStatus = AppStatus::Unknown;
     Word _word;
-    /// The word as the hold began, and the modifiers the app had down then.
+    /// Undecided words right before `_word`, joined: a sure fix of the next word converts them too.
+    Word _run;
     Word _held;
+    Word _heldRun;
+    /// Only the next word was typed since the hold: the held word still sits right before `_word`.
+    bool _heldIntact = false;
+    HWND _heldFocus = nullptr;
     uint8_t _heldModifiers = 0;
     Input::HoldId _heldId = 0;
-    /// Any key since the hold began: the screen is no longer just the word being converted.
+    uint8_t _autoSpaces = 0;
     bool _typedSince = false;
+    Undo _undo;
+    /// A judged word being erased: its keys typed again from the other side teach.
+    Word _erased;
+    bool _erasedWhole = false;
     uint8_t _modifiers = 0;
     bool _caps = false;
+    /// The layout each pair side was last typed in: a conversion goes there, not to the pair's.
+    std::array<HKL, 2> _last{};
 
-    uint8_t _modifierBit(const uint8_t vk) {
-        for (size_t i = 0; i < ModifierVks.size(); ++i) {
-            if (ModifierVks[i] == vk) {
-                return static_cast<uint8_t>(1u << i);
+    bool _allowed(const HWND window) {
+        if (!_runtime || !window) {
+            return false;
+        }
+        if (!_runtime->Auto && _runtime->Excluded.empty() && !_runtime->SkipFullscreen) {
+            return true;
+        }
+        if (window != _appWindow) {
+            _appWindow = window;
+            _appStatus = AppStatus::Unknown;
+        }
+        if (_appStatus == AppStatus::Unknown) {
+            const auto foreground = Foreground::Current();
+            if (foreground && foreground->Window == window && !foreground->Exe.empty()) {
+                _appStatus = _runtime->Excluded.contains(foreground->Exe)
+                             || (_runtime->SkipFullscreen && foreground->Fullscreen)
+                    ? AppStatus::Excluded : AppStatus::Allowed;
             }
         }
-        return 0;
+        return _appStatus == AppStatus::Allowed;
     }
 
+    HKL _layoutOf(const Word& word, const HWND focus) {
+        return word.Layout ? word.Layout : InputLanguage::LayoutOf(focus);
+    }
+
+    /// The pair side a layout types for, itself or by script, noted as that side's last. -1: none.
+    int _sideOf(const Runtime& runtime, const HKL layout) {
+        int side = runtime.Table(0).Layout() == layout ? 0 : runtime.Table(1).Layout() == layout ? 1 : -1;
+        if (const Convert::LayoutTable* table = runtime.Find(layout); side < 0 && table) {
+            const bool a = table->Script() == runtime.Table(0).Script();
+            const bool b = table->Script() == runtime.Table(1).Script();
+            side = a == b ? -1 : a ? 0 : 1;
+        }
+        if (side >= 0) {
+            _last[side] = layout;
+        }
+        return side;
+    }
+
+    const Convert::LayoutTable& _target(const Runtime& runtime, const int from) {
+        const Convert::LayoutTable* last = runtime.Find(_last[1 - from]);
+        return last ? *last : runtime.Table(1 - from);
+    }
+
+    /// LogDecisions only, and off the input thread: the hook must not wait on the log file.
+    void _skip(const char* why, const uint64_t detail) {
+        if (_runtime->LogDecisions) {
+            Dispatcher::Post([why, detail] {
+                Logger::Log(Logger::Level::Info, "Keyboard: Space skipped, %s (%llx)", why, detail);
+            });
+        }
+    }
+
+    /// The caret left the text the words describe. A layout switch between erase and retype keeps `_erased`.
+    void _drop(const bool switching = false) {
+        _word.Clear();
+        _run.Clear();
+        _heldIntact = false;
+        if (!switching) {
+            _erased.Count = 0;
+        }
+    }
+
+    /// The user overruled autocorrect on `word`, on screen on pair side `side`: a fix teaches never, a keep always.
+    void _overruled(const Word& word, const int side) {
+        const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
+        // A phrase: which of its words erred is unknown
+        if (!_runtime || std::ranges::contains(keys, VK_SPACE, &Convert::Key::Vk)) {
+            return;
+        }
+        const bool always = word.Judged != Judgement::Fixed;
+        // Taught as typed, and a fix is on screen on the other side
+        Learning::Teach(_runtime->Table(always ? side : 1 - side).Render(keys), always);
+    }
+
+    void _logRun(const Word& run) {
+        const Convert::LayoutTable* table = _runtime->Find(run.Layout);
+        if (_runtime->LogDecisions && table) {
+            Dispatcher::Post([text = Str::WideToUtf8(table->Render({run.Keys.data(), run.Count}))] {
+                Logger::Log(Logger::Level::Info, "Keyboard: FIX %s too, the next word decided", text.c_str());
+            });
+        }
+    }
+
+    /// The judged word erased whole and its keys typed again from the other side: the user's answer.
+    bool _retyped(const int from) {
+        if (!_erasedWhole || !std::ranges::equal(std::span(_erased.Keys.data(), _erased.Count),
+                                                 std::span(_word.Keys.data(), _word.Count), {},
+                                                 &Convert::Key::Vk, &Convert::Key::Vk)) {
+            return false;
+        }
+        const int side = _sideOf(*_runtime, _erased.Layout);
+        if (side < 0 || side == from) {
+            return false;
+        }
+        Input::Post([erased = _erased, side] { _overruled(erased, side); });
+        return true;
+    }
+
+    void _autoResult(Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
+                     const Convert::Verdict& verdict);
+
     Input::Verdict _onKey(const Input::KeyEvent& event) {
-        if (const uint8_t bit = _modifierBit(event.Vk)) {
+        if (const uint8_t bit = WordEdit::ModifierBit(event.Vk)) {
             _modifiers = event.Down ? _modifiers | bit : _modifiers & ~bit;
             return Input::Verdict::Next;
         }
@@ -109,165 +189,271 @@ namespace {
             return Input::Verdict::Next;
         }
 
-        _typedSince = true;
-        if (const HWND window = GetForegroundWindow(); window != _word.Window) {
-            _word.Clear();
+        const HWND window = GetForegroundWindow();
+        const bool allowed = _allowed(window);
+        if (window != _word.Window || !allowed) {
+            _drop();
             _word.Window = window;
+            _context.Clear();
+            _undo = {};
         }
-        const bool chord = _modifiers & ChordBits;
+        if (!allowed) {
+            return Input::Verdict::Next;
+        }
+        const bool chord = _modifiers & WordEdit::ChordBits;
+        if (event.Vk == VK_SPACE && !chord && _heldId && _autoSpaces
+            && _held.Window == window && !_word.Count) {
+            if (_autoSpaces < MaxSpaces) {
+                ++_autoSpaces;
+            } else {
+                _typedSince = true;
+            }
+            return Input::Verdict::Next;
+        }
+        if (_undo.Original && (event.Vk != VK_SPACE || chord || !_word.Count
+                             || !_word.Spaces || _word.Spaces == MaxSpaces)) {
+            _undo = {};
+        }
+        _typedSince = true;
         if (event.Vk == VK_BACK && !chord) {
             if (_word.Spaces) {
                 --_word.Spaces;
             } else if (_word.Count) {
-                --_word.Count;
+                if (_word.Judged != Judgement::None) {
+                    _erased = _word;
+                    _erasedWhole = false;
+                }
+                _word.Judged = Judgement::None;
+                if (!--_word.Count) {
+                    // Gone from the screen: the next word is read in the layout it is typed in
+                    _word.Clear();
+                    _erasedWhole = _erased.Count != 0;
+                }
+            } else {
+                // Into the run's spaces, or text never seen
+                _drop();
             }
-        } else if (event.Vk == VK_SPACE && !chord && _word.Spaces < MaxSpaces) {
-            _word.Spaces += _word.Count ? 1 : 0;
+        } else if (event.Vk == VK_SPACE && !chord) {
+            if (_word.Count && !_word.Spaces && _runtime->Auto && !event.Repeat) {
+                const HWND focus = InputLanguage::FocusedWindow();
+                const HKL layout = focus ? _layoutOf(_word, focus) : nullptr;
+                const int from = layout ? _sideOf(*_runtime, layout) : -1;
+                if (from < 0) {
+                    _skip("layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
+                } else if (!_retyped(from)) {
+                    _context.Typing((*_runtime->Packs)[from].Locale());
+                    // Pinned before the hold snapshots it: the conversion reads the layout typed in
+                    _word.Layout = layout;
+                    const Input::HoldId before = _heldId;
+                    Input::Edit([word = _word, context = _context, runtime = _runtime,
+                                 learned = Learning::Current(), from, focus] {
+                        const Input::HoldId id = Input::CurrentHold();
+                        const Convert::Verdict verdict = Autocorrect::Decide(
+                            *runtime, *learned, {word.Keys.data(), word.Count}, from, context, focus);
+                        Input::Post([id, runtime, verdict] { _autoResult(id, runtime, verdict); });
+                    });
+                    if (_heldId != before) {
+                        _autoSpaces = 1;
+                    } else {
+                        _skip("a hold is still up", 0);
+                    }
+                }
+            }
+            _erased.Count = 0;
+            if (_word.Count && _word.Spaces < MaxSpaces) {
+                ++_word.Spaces;
+            }
         } else if (chord || !TypingKeys[event.Vk]) {
-            _word.Clear();
-        } else {
-            // A key after the spaces starts the next word
-            if (_word.Spaces || _word.Count == MaxKeys) {
-                _word.Clear();
+            if (event.Vk == VK_SPACE) {
+                _skip("modifiers held", _modifiers);
             }
-            _word.Keys[_word.Count++] = {event.Vk, (_modifiers & ShiftBits) != 0, _caps};
+            // Win+Space switches the layout
+            _drop(event.Vk == VK_SPACE);
+        } else {
+            if (_word.Spaces || _word.Count == MaxKeys) {
+                // More spaces than counted may sit on screen: the run would erase the wrong text
+                const bool joins = _word.Judged == Judgement::Undecided && _word.Spaces && _word.Spaces < MaxSpaces;
+                _run = joins ? TypedWord::Join(_run, _word) : Word{};
+                _word.Clear();
+                _heldIntact = false;
+            }
+            if (!_erasedWhole) {
+                // Typed into a half-erased word: an edit, no retype
+                _erased.Count = 0;
+            }
+            _word.Judged = Judgement::None;
+            _word.Keys[_word.Count++] = {event.Vk, (_modifiers & WordEdit::ShiftBits) != 0, _caps};
         }
         return Input::Verdict::Next;
     }
 
     void _reset() {
         _word = {};
+        _run = {};
+        _heldRun = {};
+        _heldIntact = false;
         _heldId = 0;
+        _autoSpaces = 0;
+        _heldFocus = nullptr;
+        _undo = {};
+        _erased = {};
+        _erasedWhole = false;
+        _context.Clear();
+        _appWindow = nullptr;
+        _appStatus = AppStatus::Unknown;
         _modifiers = 0;
-        // Toggle state of this thread's queue - it has no focus, so this is only a seed
         _caps = GetKeyState(VK_CAPITAL) & 1;
+        _last = {};
     }
 
     void _onHold(const Input::HoldId id) {
         _held = _word;
+        _heldRun = _run;
         _heldId = id;
+        _autoSpaces = 0;
+        _heldFocus = InputLanguage::FocusedWindow();
         _heldModifiers = _modifiers;
         _typedSince = false;
         _word.Clear();
+        _run.Clear();
+        _heldIntact = true;
     }
 
-    void _key(std::vector<INPUT>& edit, const WORD vk, const bool up) {
-        const bool extended = vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
-        INPUT input{.type = INPUT_KEYBOARD};
-        input.ki = {.wVk = vk,
-                    .wScan = static_cast<WORD>(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)),
-                    .dwFlags = (up ? KEYEVENTF_KEYUP : 0u) | (extended ? KEYEVENTF_EXTENDEDKEY : 0u)};
-        edit.push_back(input);
+    /// The caret is still where the hold was taken, in an app still tracked.
+    bool _onTarget() {
+        const HWND focus = InputLanguage::FocusedWindow();
+        return focus && focus == _heldFocus && GetForegroundWindow() == _held.Window && _allowed(_held.Window);
     }
 
-    void _tap(std::vector<INPUT>& edit, const WORD vk) {
-        _key(edit, vk, false);
-        _key(edit, vk, true);
-    }
-
-    void _type(std::vector<INPUT>& edit, const wchar_t c) {
-        for (const DWORD up : {0ul, static_cast<DWORD>(KEYEVENTF_KEYUP)}) {
-            INPUT input{.type = INPUT_KEYBOARD};
-            input.ki = {.wScan = c, .dwFlags = KEYEVENTF_UNICODE | up};
-            edit.push_back(input);
+    /// No edit went out: the held words are back in the buffer, unless typing or the caret moved on.
+    bool _unhold() {
+        _heldId = 0;
+        if (_typedSince || !_onTarget()) {
+            return false;
         }
+        _word = _held;
+        _run = _heldRun;
+        return true;
     }
 
-    void _press(std::vector<INPUT>& edit, const uint8_t modifiers, const bool up) {
-        for (size_t i = 0; i < ModifierVks.size(); ++i) {
-            if (modifiers & (1u << i)) {
-                _key(edit, ModifierVks[i], up);
-            }
-        }
-    }
-
-    /// Input thread: the lane posts here, so the word and the tables are never read off it.
-    void _apply(const Input::HoldId id) {
-        if (!_pair || !id || id != _heldId || !_held.Count) {
-            return;
+    bool _apply(const Input::HoldId id, const bool autoSpace = false, const HKL requested = nullptr) {
+        if (!_runtime || !id || id != _heldId || !_held.Count) {
+            return false;
         }
         _heldId = 0;
-        const HWND focus = InputLanguage::FocusedWindow();
-        if (!focus || GetForegroundWindow() != _held.Window) {
-            return;
+        if (!_onTarget()) {
+            return false;
         }
-
-        int from = _held.Side;
+        const HKL layout = _layoutOf(_held, _heldFocus);
+        const int from = _sideOf(*_runtime, layout);
         if (from < 0) {
-            const HKL current = InputLanguage::LayoutOf(focus);
-            from = current == (*_pair)[0].Layout() ? 0 : current == (*_pair)[1].Layout() ? 1 : -1;
-            if (from < 0) {
-                return;
-            }
+            return false;
         }
-        const Convert::LayoutTable& target = (*_pair)[1 - from];
+        // A resolved side means the layout is installed, so Find cannot miss
+        const Convert::LayoutTable& source = *_runtime->Find(layout);
+        const Convert::LayoutTable* target = requested ? _runtime->Find(requested) : &_target(*_runtime, from);
+        if (!target) {
+            return false;
+        }
         const std::span<const Convert::Key> keys{_held.Keys.data(), _held.Count};
-        // One char per key on screen, or the Backspaces miss: a dead key types nothing by itself
-        const std::wstring text = target.Render(keys);
-        if (text.empty() || (*_pair)[from].Render(keys).empty()) {
-            return;
+        const std::wstring text = target->Render(keys);
+        std::wstring typed = source.Render(keys);
+        if (text.empty() || typed.empty()) {
+            return false;
         }
 
-        // Held Ctrl or Alt would turn the Backspaces into word deletes and undos
-        std::vector<INPUT> edit;
-        edit.reserve(4 * (_held.Count + _held.Spaces) + 2 * ModifierVks.size() + 2);
-        if (_heldModifiers & AltWinBits) {
-            _tap(edit, MaskVk);
-        }
-        _press(edit, _heldModifiers, true);
-        for (size_t i = 0; i < _held.Count + _held.Spaces; ++i) {
-            _tap(edit, VK_BACK);
-        }
-        for (const wchar_t c : text) {
-            _type(edit, c);
-        }
-        for (size_t i = 0; i < _held.Spaces; ++i) {
-            _type(edit, L' ');
-        }
-        _press(edit, _heldModifiers & RestoreBits, false);
+        const std::vector<INPUT> edit = WordEdit::Replace(_held.Count, _held.Spaces, text, _heldModifiers);
 
-        // Posted ahead of the batch, and an app reads posted messages before input: the held keys
-        // replay in the new layout
-        InputLanguage::SwitchTo(focus, target.Layout());
+        InputLanguage::SwitchTo(_heldFocus, target->Layout());
         if (!Input::Commit(id, edit)) {
-            InputLanguage::SwitchTo(focus, (*_pair)[from].Layout());
-            return;
+            InputLanguage::SwitchTo(_heldFocus, layout);
+            return false;
         }
-        LayoutLayer::Requested(target.Layout());
+        LayoutLayer::Requested(target->Layout());
+        if (autoSpace) {
+            Autocorrect::Announce(std::move(typed), text);
+        }
+        _undo = {};
+        if (!autoSpace && _held.Judged != Judgement::None) {
+            _overruled(_held, from);
+        }
         if (!_typedSince) {
             _word = _held;
+            _word.Judged = autoSpace ? Judgement::Fixed : Judgement::None;
+            if (autoSpace) {
+                _word.Spaces = _autoSpaces;
+                _undo = {layout, target->Layout(), _heldFocus, _held.Window};
+            }
+            _word.Layout = target->Layout();
         }
-        _word.Side = static_cast<int8_t>(1 - from);
+        if (_runtime->Auto) {
+            _context.Switched((*_runtime->Packs)[1 - from].Locale());
+        }
+        return true;
     }
 
-    std::unique_ptr<Pair> _resolve() {
-        const std::vector<InputLanguage::Layout> layouts = InputLanguage::Installed();
-        const int a = InputLanguage::Find(layouts, _settings->PairA, 0);
-        const int b = InputLanguage::Find(layouts, _settings->PairB, 1);
-        if (a < 0 || b < 0 || layouts[a].Handle == layouts[b].Handle) {
-            return nullptr;
+    void _autoResult(const Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
+                     const Convert::Verdict& verdict) {
+        if (!id || id != _heldId || runtime != _runtime || !_held.Count) {
+            return;
         }
-        return std::make_unique<Pair>(Pair{Convert::LayoutTable(layouts[a].Handle),
-                                           Convert::LayoutTable(layouts[b].Handle)});
+        if (!_onTarget()) {
+            _heldId = 0;
+            return;
+        }
+        if (!verdict.SourceLocale.empty()) {
+            Convert::FeedContext(_context, verdict, verdict.Typed);
+        }
+        if (verdict.WrongLayout) {
+            const Word word = _held;
+            // Only a sure fix carries the undecided words before it, context and ngram are guesses
+            if (verdict.ByDictionary || verdict.ByRule || verdict.ByUser) {
+                _held = TypedWord::Join(_heldRun, _held);
+            }
+            if (_apply(id, true)) {
+                if (_held.Count != word.Count) {
+                    _logRun(_heldRun);
+                }
+                return;
+            }
+            _held = word;
+        }
+        _held.Spaces = _autoSpaces;
+        _held.Judged = verdict.WrongLayout || verdict.Fixed.empty() ? Judgement::None
+                       : verdict.Undecided ? Judgement::Undecided : Judgement::Kept;
+        if (!_unhold() && _typedSince && _heldIntact && _held.Judged == Judgement::Undecided
+            && _autoSpaces < MaxSpaces) {
+            _run = TypedWord::Join(_heldRun, _held);
+        }
+        Input::Commit(id, {});
     }
 
     void _restore() {
-        if (!_needed) {
+        if (!_needed && !_settings->AutoCorrect) {
             return;
         }
-        auto pair = _resolve();
-        if (!pair) {
+        auto runtime = Autocorrect::Resolve(*_settings);
+        if (!runtime) {
             LOG_WARNING("Keyboard: the conversion pair is not two installed layouts");
             return;
         }
-        // Freed on the input thread too, where the last reader of the old one runs
-        Input::Post([pair = std::move(pair)]() mutable { _pair = std::move(pair); });
-        Input::Enable(StageId, Input::WantKeys | Input::WantButtons);
+        const bool enable = _needed || runtime->Auto;
+        Input::Post([runtime = std::move(runtime)] {
+            _runtime = std::move(runtime);
+            _undo = {};
+        });
+        if (enable) {
+            Input::Enable(StageId, Input::WantKeys | Input::WantButtons);
+        }
     }
 
     void _suspend() {
         _needed = false;
         Input::Disable(StageId);
+        Input::Post([] {
+            _runtime.reset();
+            _reset();
+        });
     }
 
 } // anonymous namespace
@@ -284,6 +470,31 @@ namespace {
     }
 
     void ConvertWord(const Input::HoldId id) {
-        Input::Post([id] { _apply(id); });
+        Input::Post([id] {
+            _undo = {};
+            if (id && id == _heldId && !_apply(id)) {
+                _unhold();
+            }
+        });
+    }
+
+    void UndoAutoConvert(const Input::HoldId id) {
+        Input::Post([id] {
+            if (!id || id != _heldId) {
+                return;
+            }
+            const Undo pending = _undo;
+            const bool valid = pending.Original && pending.Corrected == _held.Layout
+                && pending.Focus == _heldFocus && pending.Window == _held.Window
+                && _held.Count && _held.Spaces && !_typedSince;
+            _undo = {};
+            if (valid && _apply(id, false, pending.Original)) {
+                return;
+            }
+            if (_unhold() && valid) {
+                _undo = pending;
+            }
+            Input::Commit(id, {});
+        });
     }
 }

@@ -1248,8 +1248,8 @@ Not a migration step: the first feature written on the finished architecture, an
 
 ### Steps 13-16 - Input pipeline and layout conversion
 
-Steps 13 and 14 are done, 15-16 are open. The design, the decisions and the checklist live in
-`docs/INPUT.md` and move here once all four land.
+Steps 13-15 are done. The input pipeline contract lives in `docs/INPUT.md`; layout conversion
+and autocorrect, with its plan and the Punto Switcher findings, in `docs/LAYOUT.md`.
 
 ---
 

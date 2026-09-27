@@ -66,7 +66,10 @@ with its settings page, overlay layer and tray provider if it has them.
 `docs/ARCHITECTURE.md` holds the architecture and the migration checklist, all of it done (steps
 0-11). Read it before touching settings, the overlay or the tray.
 
-`docs/INPUT.md` holds the input pipeline and layout conversion: the contract and the checklist
-(steps 13-15 done, 16 open). Read it before touching hooks, hotkeys or `Features/Keyboard`.
+`docs/INPUT.md` holds the input pipeline contract. Read it before touching hooks or hotkeys.
+
+`docs/LAYOUT.md` holds layout conversion and autocorrect: how it works, the Punto Switcher
+findings and the living plan. Read it before touching `Features/Keyboard` or `tools/langpack`;
+`src/Features/Keyboard/README.md` is the short map: files, data, building packs, a new language.
 
 `docs/known-bugs.md` holds the defects that are understood and deliberately not fixed yet.

@@ -32,6 +32,8 @@ namespace Convert {
         wchar_t Char(Key key) const;
         /// Empty when any of the keys types nothing here.
         std::wstring Render(std::span<const Key> keys) const;
+        /// Unicode block of the letter keys, Latin variants as one: 0 Latin, 4 Cyrillic.
+        uint8_t Script() const;
 
     private:
         HKL _layout;

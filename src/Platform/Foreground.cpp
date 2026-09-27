@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cwchar>
 #include <mutex>
 
 #include "Dispatcher.hpp"
@@ -20,8 +21,21 @@ namespace {
     std::atomic<bool> _running{false};
     std::mutex _lifetimeMutex;
 
-    void _publish(HWND window, std::string exe) {
-        _snapshot.store(std::make_shared<const Snapshot>(Snapshot{window, std::move(exe)}));
+    void _publish(HWND window, std::string exe, const bool fullscreen = false) {
+        _snapshot.store(std::make_shared<const Snapshot>(Snapshot{window, std::move(exe), fullscreen}));
+    }
+
+    /// Borderless or exclusive. A maximized window fills the monitor too once the taskbar
+    /// auto-hides, and the desktop always does - both are typed in.
+    bool _fullscreen(const HWND window) {
+        wchar_t name[16]{};
+        GetClassNameW(window, name, 16);
+        RECT rect{};
+        MONITORINFO monitor{.cbSize = sizeof monitor};
+        return !IsZoomed(window) && std::wcscmp(name, L"Progman") && std::wcscmp(name, L"WorkerW")
+               && GetWindowRect(window, &rect)
+               && GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONULL), &monitor)
+               && EqualRect(&rect, &monitor.rcMonitor);
     }
 
     void CALLBACK _resolve(PTP_CALLBACK_INSTANCE, void*, PTP_WORK) {
@@ -31,24 +45,27 @@ namespace {
             return;
         }
         std::string exe = Str::WideToUtf8(ExeName(window));
+        const bool fullscreen = _fullscreen(window);
         std::lock_guard lock(_lifetimeMutex);
         if (!_running.load(std::memory_order_relaxed)
             || _generation.load(std::memory_order_relaxed) != generation) {
             return;
         }
-        Dispatcher::ToUi([window, generation, exe = std::move(exe)]() mutable {
+        Dispatcher::ToUi([window, generation, fullscreen, exe = std::move(exe)]() mutable {
             if (!_running.load(std::memory_order_relaxed)
                 || _generation.load(std::memory_order_relaxed) != generation
                 || _latestHwnd.load(std::memory_order_relaxed) != window
                 || GetForegroundWindow() != window) {
                 return;
             }
-            _publish(window, std::move(exe));
+            _publish(window, std::move(exe), fullscreen);
         });
     }
 
     void _focus(HWND window) {
         _latestHwnd.store(window, std::memory_order_relaxed);
+        // Refocusing the same window: a resolve still in flight from before must not land last
+        _generation.fetch_add(1, std::memory_order_relaxed);
         _publish(window, {});
         if (window) {
             SubmitThreadpoolWork(_work);

@@ -7,6 +7,8 @@
     Path to the dictionary directory. Default: D:\Repositories\Clion\puntish\data
 .PARAMETER PackDir
     Path to the pack directory. Default: D:\Repositories\Clion\puntish\packs
+.PARAMETER EnglishList
+    Word list for the English sample; use the filtered frequency list with new packs.
 .PARAMETER WordCount
     Words per set. Default: 3000
 .PARAMETER ShortCount
@@ -19,6 +21,9 @@ param(
     [string]$LangpackExe = (Join-Path $PSScriptRoot "..\..\cmake-build-minsizerel\langpack.exe"),
     [string]$DictDir = "D:\Repositories\Clion\puntish\data",
     [string]$PackDir = "D:\Repositories\Clion\puntish\packs",
+    [string]$EnglishList = (Join-Path $DictDir "dict_en.txt"),
+    [string]$RussianList = (Join-Path $DictDir "dict_ru.txt"),
+    [string]$OutputDir = (Join-Path $env:TEMP ("el-langpack-bench-" + [guid]::NewGuid().ToString("N"))),
     [int]$WordCount = 3000,
     [int]$ShortCount = 800,
     [int]$Seed = 42
@@ -30,7 +35,7 @@ if (-not (Test-Path $LangpackExe)) { throw "langpack.exe not found: $LangpackExe
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
-$tmp = $env:TEMP
+$tmp = (New-Item -ItemType Directory -Path $OutputDir -ErrorAction Stop).FullName
 
 function Clean-Word([string]$line) {
     $w = $line.Trim() -replace '/.*', ''
@@ -71,9 +76,9 @@ function Run-Set([string]$label, [string]$inputFile, [string]$expectFix) {
 }
 
 # Load and clean all words
-$allEn = @(Get-Content (Join-Path $DictDir "dict_en.txt") -Encoding UTF8 |
+$allEn = @(Get-Content $EnglishList -Encoding UTF8 |
     ForEach-Object { Clean-Word $_ } | Where-Object { $_ })
-$allRu = @(Get-Content (Join-Path $DictDir "dict_ru.txt") -Encoding UTF8 |
+$allRu = @(Get-Content $RussianList -Encoding UTF8 |
     ForEach-Object { Clean-Word $_ } | Where-Object { $_ })
 
 Write-Host "Loaded $($allEn.Count) en words, $($allRu.Count) ru words" -ForegroundColor Gray

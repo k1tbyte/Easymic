@@ -44,7 +44,8 @@ namespace Bindings {
 
             // An action that runs a command announces itself once the command answers, which can
             // be minutes later, so the wrapper must not announce it as well. One that types runs
-            // on the edit lane instead: the sound and the text wrap an empty handler.
+            // on the edit lane instead: the sound and the text wrap an empty handler, played once
+            // the edit lands.
             const bool edits = HasFlag(desc->Flags, ActionFlags::EditsText);
             auto run = feedback.Wrap(edits ? ActionFn{} : std::move(handler), entry.Sound,
                                      entry.SoundVolume,

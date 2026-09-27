@@ -40,7 +40,9 @@ namespace {
     int ContentHeight(std::span<const SettingsRow> rows) {
         int height = 0;
         for (const SettingsRow& row : rows) {
-            height += row.Kind == RowKind::Group ? GroupTitle + GroupBottom : HeightOf(row) + Gap;
+            if (!row.Beside) {
+                height += row.Kind == RowKind::Group ? GroupTitle + GroupBottom : HeightOf(row) + Gap;
+            }
         }
         return height;
     }
@@ -87,6 +89,24 @@ namespace {
                || DialogControls::ResolveSound(combo, cfg.RecentSounds) != row.Field.Text(cfg);
     }
 
+    bool ComboListStale(HWND combo, std::span<const wchar_t* const> items) {
+        if (SendMessageW(combo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(items.size())) {
+            return true;
+        }
+        for (size_t i = 0; i < items.size(); ++i) {
+            const auto len = SendMessageW(combo, CB_GETLBTEXTLEN, i, 0);
+            if (len < 0) {
+                return true;
+            }
+            std::wstring text(static_cast<size_t>(len) + 1, L'\0');
+            if (SendMessageW(combo, CB_GETLBTEXT, i, reinterpret_cast<LPARAM>(text.data())) != len
+                || std::wstring_view(text.data(), static_cast<size_t>(len)) != items[i]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Writes the field into its control only when the control shows something else - a slider
     /// mid-drag is never written back, and a control fresh from Build differs unless blank is
     /// already right, so the same pass fills a new page in.
@@ -101,6 +121,16 @@ namespace {
             for (int part = 0; part < IdsPerRow; part++) {
                 if (HWND piece = GetDlgItem(page, id + part)) {
                     EnableWindow(piece, enabled);
+                }
+            }
+        }
+
+        if (row.Kind == RowKind::Combo && row.Items) {
+            const auto items = row.Items();
+            if (ComboListStale(control, items)) {
+                SendMessageW(control, CB_RESETCONTENT, 0, 0);
+                for (const wchar_t* item : items) {
+                    SendMessageW(control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
                 }
             }
         }
@@ -193,8 +223,12 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
         const int right = width - left;
         const int height = HeightOf(row);
         const int labelTop = row.Kind == RowKind::Radio ? y + 1 : y + (height - TextHeight) / 2;
+        const bool besideNext = i + 1 < rows.size() && rows[i + 1].Beside;
+        const int middle = (ControlLeft + right) / 2;
+        const int from = row.Beside ? middle + Gap / 2 : ControlLeft;
+        const int to = besideNext ? middle - Gap / 2 : right;
 
-        if (row.Kind != RowKind::Check && row.Kind != RowKind::Text && row.Kind != RowKind::Custom) {
+        if (row.Kind != RowKind::Check && row.Kind != RowKind::Text && row.Kind != RowKind::Custom && !row.Beside) {
             Control(page, WC_STATICW, row.Label, SS_LEFT, {left, labelTop, LabelWidth, labelTop + TextHeight}, -1);
         }
 
@@ -207,19 +241,15 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
                 Control(page, WC_STATICW, row.Label, SS_LEFT, {left, y, right, y + height}, id);
                 break;
 
-            case RowKind::Combo: {
-                HWND combo = Control(page, WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-                                     {ControlLeft, y, right, y + DropHeight}, id);
-                for (const wchar_t* item : row.Items()) {
-                    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
-                }
+            case RowKind::Combo:
+                Control(page, WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+                        {from, y, to, y + DropHeight}, id);
                 break;
-            }
 
             case RowKind::Slider: {
                 HWND slider = Control(page, TRACKBAR_CLASSW, L"",
                                       TBS_AUTOTICKS | TBS_ENABLESELRANGE | TBS_TOOLTIPS | WS_TABSTOP,
-                                      {ControlLeft, y, right, y + height}, id);
+                                      {from, y, to, y + height}, id);
                 SendMessageW(slider, TBM_SETRANGE, FALSE, MAKELPARAM(row.Min, row.Max));
                 SendMessageW(slider, TBM_SETPAGESIZE, 0, row.Step);
                 break;
@@ -227,9 +257,9 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
 
             case RowKind::SoundPicker:
                 Control(page, WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-                        {ControlLeft, y, right - BrowseWidth - 4, y + DropHeight}, id);
+                        {from, y, to - BrowseWidth - 4, y + DropHeight}, id);
                 Control(page, WC_BUTTONW, L"...", BS_PUSHBUTTON | WS_TABSTOP,
-                        {right - BrowseWidth, y, right, y + height}, id + 1);
+                        {to - BrowseWidth, y, to, y + height}, id + 1);
                 break;
 
             case RowKind::Radio: {
@@ -250,7 +280,9 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
                 break;
         }
 
-        y += height + Gap;
+        if (!besideNext) {
+            y += height + Gap;
+        }
     }
 
     closeGroup();

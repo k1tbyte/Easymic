@@ -10,6 +10,8 @@ namespace Foreground {
     struct Snapshot {
         HWND Window = nullptr;
         std::string Exe;
+        /// Covered its whole monitor when it came to the foreground; resolved with Exe
+        bool Fullscreen = false;
     };
 
     bool Start();

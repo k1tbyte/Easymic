@@ -44,19 +44,9 @@ namespace {
     void PopulateAppCombo(HWND dialog) {
         const HWND combo = GetDlgItem(dialog, IDC_ACTION_APP);
         const std::wstring text = GetDlgItemWideString(dialog, IDC_ACTION_APP);
-        std::set<std::wstring> names;
-        for (const HWND window : WindowCatalog::AppWindows()) {
-            DWORD process = 0;
-            GetWindowThreadProcessId(window, &process);
-            if (process != GetCurrentProcessId()) {
-                if (auto name = Foreground::ExeName(window); !name.empty()) {
-                    names.insert(std::move(name));
-                }
-            }
-        }
 
         SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-        for (const auto& name : names) {
+        for (const auto& name : WindowCatalog::AppNames()) {
             SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
         }
         SetWindowTextW(combo, text.c_str());

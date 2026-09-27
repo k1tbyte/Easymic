@@ -1,6 +1,10 @@
 #include "WindowCatalog.hpp"
 
+#include <set>
+
 #include <dwmapi.h>
+
+#include "Foreground.hpp"
 
 namespace WindowCatalog {
     bool IsAppWindow(const HWND window) {
@@ -28,5 +32,20 @@ namespace WindowCatalog {
             return TRUE;
         }, reinterpret_cast<LPARAM>(&windows));
         return windows;
+    }
+
+    std::vector<std::wstring> AppNames() {
+        const DWORD self = GetCurrentProcessId();
+        std::set<std::wstring> unique;
+        for (const HWND window : AppWindows()) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            if (pid != self) {
+                if (auto name = Foreground::ExeName(window); !name.empty()) {
+                    unique.insert(std::move(name));
+                }
+            }
+        }
+        return {unique.begin(), unique.end()};
     }
 }

@@ -17,7 +17,7 @@ namespace HotkeyService {
         std::function<void()> onPress;
         std::function<void()> onRelease;
         /// Fires with the press, on the edit lane under a hold (Input::Edit) instead of the
-        /// action worker. The sound and notification still ride onPress.
+        /// action worker. onPress, the sound and notification, then runs only once the edit lands.
         std::function<void()> onEdit;
         /// Swallows the key instead of passing it down the hook chain. It applies to the whole
         /// combination, not to this count alone - a first press leaking through while the second

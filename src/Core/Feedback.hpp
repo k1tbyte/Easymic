@@ -82,15 +82,18 @@ public:
 
         return [this, handler = std::move(handler), sound = std::move(sound), soundVolume,
                 notification = std::move(notification)] {
-            if (!sound.empty()) {
-                SoundCatalog::Play(_instance, sound, soundVolume);
-            }
+            Play(sound, soundVolume);
             // Empty for an action whose handler runs somewhere else - sound and text still apply
             if (handler) {
                 handler();
             }
             Notify(notification);
         };
+    }
+
+    /// A SoundCatalog key or file at 0-100; empty is silence.
+    void Play(const std::string& sound, const uint8_t volume) const {
+        SoundCatalog::Play(_instance, sound, volume);
     }
 
     /**

@@ -62,13 +62,34 @@ struct MicSettings {
     bool operator==(const MicSettings&) const = default;
 };
 
+/// Words the user taught autocorrect, lowercase as typed: convert them always, or never.
+struct LearnedWords {
+    std::vector<std::string> Always;
+    std::vector<std::string> Never;
+
+    bool operator==(const LearnedWords&) const = default;
+};
+
 struct KeyboardSettings {
-    /// The layout the user is typing in, as a pill on the overlay.
     bool ShowLayout = false;
-    /// The two layouts a word converts between, as KLIDs ("00000409"). Empty takes the first
-    /// and the second installed layout.
     std::string PairA;
     std::string PairB;
+    std::string PackA;
+    std::string PackB;
+    bool AutoCorrect = false;
+    /// An automatic fix asks the focused field first and leaves a password alone.
+    bool SkipPasswords = true;
+    /// A window covering its monitor (a game) counts as excluded.
+    bool SkipFullscreen = true;
+    std::string Exclude;
+    uint16_t Threshold = 0;
+    bool UseContext = true;
+    bool LogDecisions = false;
+    LearnedWords Learned;
+    /// What an automatic fix plays and says once it landed: a SoundCatalog key or file, empty for none.
+    std::string FixSound;
+    uint8_t FixSoundVolume = 50;
+    bool FixNotification = false;
 
     bool operator==(const KeyboardSettings&) const = default;
 };

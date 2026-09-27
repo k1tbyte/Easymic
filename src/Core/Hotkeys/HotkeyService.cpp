@@ -113,11 +113,17 @@ namespace {
         _pendingEdit = nullptr;
     }
 
+    /// The edit under a hold; its sound and notification wait for it to land.
+    void _edit(const HotkeyBinding& binding) {
+        Input::Edit(binding.onEdit, binding.onPress ? [press = binding.onPress] { Dispatcher::Post(press); }
+                                                    : std::function<void()>{});
+    }
+
     /// In-proc: the key that ended the window is held behind the edit.
     void _flushDeferred() {
         Dispatcher::FlushDeferred();
         if (_pendingEdit) {
-            Input::Edit(std::exchange(_pendingEdit, nullptr)->onEdit);
+            _edit(*std::exchange(_pendingEdit, nullptr));
         }
     }
 
@@ -136,7 +142,7 @@ namespace {
         if (const auto left = _pendingDeadline - std::chrono::steady_clock::now(); left > left.zero()) {
             _armEdit(left);
         } else {
-            Input::Edit(std::exchange(_pendingEdit, nullptr)->onEdit);
+            _edit(*std::exchange(_pendingEdit, nullptr));
         }
     }
 
@@ -198,9 +204,10 @@ namespace {
     /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
     /// that fired it can be delivered.
     void _press(const HotkeyBinding& binding) {
-        Dispatcher::Post(binding.onPress);
         if (binding.onEdit) {
-            Input::Edit(binding.onEdit);
+            _edit(binding);
+        } else {
+            Dispatcher::Post(binding.onPress);
         }
     }
 
@@ -230,7 +237,8 @@ namespace {
                 _cancelDeferred();
                 Dispatcher::Post(binding->onPress);
             } else {
-                Dispatcher::Defer(_pendingDeadline, binding ? binding->onPress : std::function<void()>{});
+                Dispatcher::Defer(_pendingDeadline, binding && !binding->onEdit ? binding->onPress
+                                                                                : std::function<void()>{});
                 _pendingEdit = binding && binding->onEdit ? binding : nullptr;
                 if (_pendingEdit) {
                     _armEdit(_active->MultiPressWindow);

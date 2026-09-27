@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <cwctype>
 #include <string>
 #include <string_view>
@@ -43,17 +44,18 @@ namespace InputLanguage {
 
     struct Layout {
         HKL Handle;
-        /// KLID, "00000409" - what the config keeps. Empty for one only the session list knew.
+        /// KLID, "00000409" - what the config keeps. The handle in hex for one only the session list knew.
         std::string Id;
     };
 
     /**
      * @brief Every layout the user has, in the order the language bar cycles them.
      *
-     * Preload rather than GetKeyboardLayoutList: that one only reports what the session has
-     * already loaded, so a layout nobody has typed in since logon is missing from it and
-     * switching to it would quietly do nothing. Loading one that is already loaded just
-     * hands back its handle, and without KLF_ACTIVATE nothing is switched by asking.
+     * Preload first: GetKeyboardLayoutList only reports what the session has already loaded, so
+     * a layout nobody has typed in since logon is missing from it and switching to it would
+     * quietly do nothing. Loading one that is already loaded just hands back its handle, and
+     * without KLF_ACTIVATE nothing is switched by asking. The session list follows, for what
+     * the Settings app added without touching Preload.
      */
     inline std::vector<Layout> Installed() {
         std::vector<Layout> layouts;
@@ -76,11 +78,14 @@ namespace InputLanguage {
             RegCloseKey(preload);
         }
 
-        if (layouts.empty()) {
-            std::vector<HKL> handles(GetKeyboardLayoutList(0, nullptr));
-            handles.resize(GetKeyboardLayoutList(static_cast<int>(handles.size()), handles.data()));
-            for (const HKL handle : handles) {
-                layouts.push_back({handle, {}});
+        std::vector<HKL> handles(GetKeyboardLayoutList(0, nullptr));
+        handles.resize(GetKeyboardLayoutList(static_cast<int>(handles.size()), handles.data()));
+        for (const HKL handle : handles) {
+            if (std::ranges::find(layouts, handle, &Layout::Handle) == layouts.end()) {
+                // No KLID names it (a French HKL with a US keyboard shares 00000409): the handle does
+                char id[9]{};
+                std::snprintf(id, sizeof id, "%08X", static_cast<unsigned>(reinterpret_cast<UINT_PTR>(handle)));
+                layouts.push_back({handle, id});
             }
         }
 

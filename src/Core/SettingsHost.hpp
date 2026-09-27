@@ -15,7 +15,7 @@ enum class RowKind : uint8_t {
     Check,
     Combo,
     Slider,
-    /// A bundled sound or a file, with a browse button - the one string-valued kind.
+    /// A bundled sound or a file, with a browse button.
     SoundPicker,
     /// One choice out of a list, a button per item.
     Radio,
@@ -26,7 +26,7 @@ enum class RowKind : uint8_t {
     Custom,
 };
 
-/// How a row reaches its value: Get/Set for the int-valued kinds, Text for SoundPicker.
+/// Get/Set for integers, Text for string-valued controls.
 struct RowField {
     int (*Get)(const AppConfig&) = nullptr;
     void (*Set)(AppConfig&, int) = nullptr;
@@ -67,6 +67,9 @@ struct SettingsRow {
     /// stop meaning Cancel.
     void (*Commit)(HWND owner, AppConfig& cfg, const AppConfig& before) = nullptr;
     bool (*Enabled)(const AppConfig& cfg) = nullptr;
+    /// Combo, Slider or SoundPicker: shares the previous row's line, each taking half its control
+    /// area, and has no label of its own.
+    bool Beside = false;
     /// Custom only: the cell height in dialog units and what fills it. A control given id routes
     /// its click to Changed.
     uint8_t Height = 0;

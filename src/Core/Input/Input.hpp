@@ -84,9 +84,10 @@ namespace Input {
      * hold. The work Posts its Commit before it returns; the lane then releases the hold itself,
      * so a work that declines commits nothing. From the input thread the hold starts at once, the
      * event being handled included; from anywhere else once that thread gets to it. Skipped while
-     * another hold is active.
+     * another hold is active. `landed` runs on the input thread only once Commit sends an edit, so
+     * whatever it starts has to be handed off.
      */
-    void Edit(std::function<void()> work);
+    void Edit(std::function<void()> work, std::function<void()> landed = {});
     /// On the edit lane, the hold the running work edits under; 0 anywhere else.
     HoldId CurrentHold();
     /// Input thread. Sends the edit, then everything held, where no stage sees them, and releases
