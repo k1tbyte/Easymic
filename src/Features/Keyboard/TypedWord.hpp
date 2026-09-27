@@ -30,7 +30,7 @@ namespace TypedWord {
         return keys;
     }();
 
-    /// What autocorrect made of the word on its Space: the user's next move on it teaches.
+    /// What autocorrect made of the word on its Space, or mid-word: the user's next move on it teaches.
     enum class Judgement : uint8_t { None, Kept, Undecided, Fixed };
 
     /// A word as the hook saw it: key positions and the spaces typed after it.
@@ -43,12 +43,15 @@ namespace TypedWord {
         HWND Window = nullptr;
         /// Undecided joins the run when the next word starts.
         Judgement Judged = Judgement::None;
+        /// The keys a mid-word fix was tried on (0: none): once per word, and overruling it refuses that start.
+        uint8_t EarlyAt = 0;
 
         void Clear() {
             Count = 0;
             Spaces = 0;
             Layout = nullptr;
             Judged = Judgement::None;
+            EarlyAt = 0;
         }
     };
 

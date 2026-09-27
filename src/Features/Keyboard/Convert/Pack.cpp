@@ -39,6 +39,11 @@ std::wstring WordKey(std::wstring_view word) {
     return _lower(TrimWord(word));
 }
 
+std::wstring StartKey(const std::wstring_view text) {
+    // The marker keeps a start apart from the word it spells
+    return _lower(text.substr(0, StartLetters)) + L'\x1';
+}
+
 Pack::~Pack() {
     _close();
 }
@@ -130,8 +135,12 @@ bool Pack::Contains(std::wstring_view word) const {
     return !key.empty() && BloomContains(_bloomData, _bloomBits, _bloomHashes, key);
 }
 
-double Pack::Score(const std::wstring& text) const {
-    return NgramScore(_symbols, _tri, _bi, text);
+bool Pack::Begins(const std::wstring_view text) const {
+    return BloomContains(_bloomData, _bloomBits, _bloomHashes, StartKey(text));
+}
+
+double Pack::Score(const std::wstring& text, const bool open) const {
+    return NgramScore(_symbols, _tri, _bi, text, open);
 }
 
 }

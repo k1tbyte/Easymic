@@ -29,13 +29,14 @@ namespace Convert {
         /// Appends one UTF-8 file.
         bool Load(const std::filesystem::path& file);
         size_t Count() const { return _keys.size(); }
-        /// The pattern that switches the word, unless an exception covers it.
-        RuleHit Find(std::wstring_view word, bool cyrillic) const;
+        /// The pattern that switches the word, unless an exception covers it. `open`: the word goes on, so
+        /// whole-word and end-anchored patterns wait for its end (a whole-word exception still holds).
+        RuleHit Find(std::wstring_view word, bool cyrillic, bool open = false) const;
 
     private:
         void _add(std::wstring_view line);
         bool _has(uint8_t kind, std::wstring_view text) const;
-        bool _match(uint8_t kind, std::wstring_view word, RuleHit& hit) const;
+        bool _match(uint8_t kind, std::wstring_view word, RuleHit& hit, bool open) const;
 
         std::vector<uint64_t> _keys;
         size_t _longest = 0;

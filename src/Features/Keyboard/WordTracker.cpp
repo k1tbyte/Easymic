@@ -8,9 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include "Core/AppConfig.hpp"
 #include "Autocorrect.hpp"
-#include "Core/Lifecycle.hpp"
 #include "InputLanguage.hpp"
 #include "KeyboardExclusions.hpp"
 #include "Judge.hpp"
@@ -18,7 +16,6 @@
 #include "LayoutLayer.hpp"
 #include "TypedWord.hpp"
 #include "WordEdit.hpp"
-#include "definitions.h"
 
 namespace WordTracker {
 
@@ -40,10 +37,6 @@ namespace {
         HWND Window = nullptr;
     };
 
-    // UI thread
-    KeyboardSettings* _settings = nullptr;
-    bool _needed = false;
-
     // Input thread
     std::shared_ptr<const Runtime> _runtime;
     KeyboardExclusions::Filter _apps;
@@ -61,6 +54,8 @@ namespace {
     Input::HoldId _heldId = 0;
     uint8_t _autoSpaces = 0;
     bool _typedSince = false;
+    /// The hold converts the word mid-word: keys typed during it are its rest, or its spaces.
+    bool _heldEarly = false;
     Undo _undo;
     /// A judged word being erased: its keys typed again from the other side teach.
     Word _erased;
@@ -98,18 +93,6 @@ namespace {
         }
     }
 
-    /// The user overruled autocorrect on `word`, on screen on pair side `side`: a fix teaches never, a keep always.
-    void _overruled(const Word& word, const int side) {
-        const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
-        // A phrase: which of its words erred is unknown
-        if (!_runtime || std::ranges::contains(keys, VK_SPACE, &Convert::Key::Vk)) {
-            return;
-        }
-        const bool always = word.Judged != Judgement::Fixed;
-        // Taught as typed, and a fix is on screen on the other side
-        Learning::Teach(_runtime->Table(always ? side : 1 - side).Render(keys), always);
-    }
-
     /// The judged word erased whole and its keys typed again from the other side: the user's answer.
     bool _retyped(const int from) {
         if (!_erasedWhole || !std::ranges::equal(std::span(_erased.Keys.data(), _erased.Count),
@@ -121,30 +104,37 @@ namespace {
         if (side < 0 || side == from) {
             return false;
         }
-        Input::Post([erased = _erased, side] { _overruled(erased, side); });
+        Input::Post([runtime = _runtime, erased = _erased, side] { Autocorrect::Overruled(*runtime, erased, side); });
         return true;
     }
 
     void _autoResult(Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
-                     const Convert::Verdict& verdict, uint64_t spaceAt);
+                     const Convert::Verdict& verdict, uint64_t at, HKL layout);
 
     Judgement _judgement(const Convert::Verdict& verdict) {
         return verdict.WrongLayout || verdict.Fixed.empty() ? Judgement::None
                : verdict.Undecided ? Judgement::Undecided : Judgement::Kept;
     }
 
+    /// Autocorrect's to judge: not converted already, and not the rest of a word a mid-word hold converts.
+    bool _judging() {
+        return _runtime->Auto && _word.Count && !_word.Spaces && !_word.Layout && !(_heldId && _heldEarly);
+    }
+
     /// The word's keys changed: a new version for the judge.
     void _typed() {
         ++_gen;
-        if (_runtime->Auto && _word.Count && !_word.Spaces) {
+        if (_judging()) {
             Judge::Typed(_word, _gen);
         }
     }
 
-    /// Holds the typing while the lane settles the word: a fix, or no verdict yet. `ready` needs only the password check.
-    void _decideHeld(const int from, const HWND focus, const Convert::Verdict* ready) {
+    /// Holds the typing while the lane settles the word: a fix, or no verdict yet. `ready` needs only the password
+    /// check; `early`: the word goes on.
+    void _decideHeld(const int from, const HKL layout, const HWND focus, const Convert::Verdict* ready,
+                     const bool early = false) {
         const Input::HoldId before = _heldId;
-        Input::Edit([word = _word, runtime = _runtime, from, focus, spaceAt = GetTickCount64(),
+        Input::Edit([word = _word, runtime = _runtime, from, layout, focus, at = GetTickCount64(),
                      ready = ready ? std::optional(*ready) : std::nullopt] {
             const Input::HoldId id = Input::CurrentHold();
             Convert::Verdict verdict = ready ? *ready
@@ -153,14 +143,30 @@ namespace {
                 verdict = {};
             }
             Autocorrect::Log(*runtime, verdict);
-            Input::Post([id, runtime, verdict = std::move(verdict), spaceAt] {
-                _autoResult(id, runtime, verdict, spaceAt);
+            Input::Post([id, runtime, verdict = std::move(verdict), at, layout] {
+                _autoResult(id, runtime, verdict, at, layout);
             });
         });
-        if (_heldId != before) {
-            _autoSpaces = 1;
-        } else {
+        if (_heldId == before) {
             Autocorrect::LogSkip(*_runtime, "a hold is still up", 0);
+            return;
+        }
+        _autoSpaces = !early;
+        _heldEarly = early;
+        _held.EarlyAt = early ? _held.Count : 0;
+    }
+
+    /// The judge is sure mid-word: the word so far converts now, and the rest is typed in the new layout.
+    void _onEarly(const uint32_t gen, const HKL layout, const Convert::Verdict& verdict) {
+        // Typed on since, tried once, or erased and retyped: its Space hears the user out
+        if (!_runtime || gen != _gen || _heldId || !_judging() || _word.EarlyAt || _erasedWhole
+            || _word.Window != GetForegroundWindow()) {
+            return;
+        }
+        const HWND focus = InputLanguage::FocusedWindow();
+        const int from = focus && InputLanguage::LayoutOf(focus) == layout ? _sideOf(*_runtime, layout) : -1;
+        if (from >= 0) {
+            _decideHeld(from, layout, focus, &verdict, true);
         }
     }
 
@@ -190,7 +196,7 @@ namespace {
             return Input::Verdict::Next;
         }
         const bool chord = _modifiers & WordEdit::ChordBits;
-        if (event.Vk == VK_SPACE && !chord && _heldId && _autoSpaces
+        if (event.Vk == VK_SPACE && !chord && _heldId && (_autoSpaces || _heldEarly)
             && _held.Window == window && !_word.Count) {
             if (_autoSpaces < MaxSpaces) {
                 ++_autoSpaces;
@@ -199,8 +205,10 @@ namespace {
             }
             return Input::Verdict::Next;
         }
-        if (_undo.Original && (event.Vk != VK_SPACE || chord || !_word.Count
-                             || !_word.Spaces || _word.Spaces == MaxSpaces)) {
+        // An undo lasts through the fixed word's spaces, and the rest of a word fixed mid-word
+        const bool onFixed = !chord && _word.Count
+            && (event.Vk == VK_SPACE ? _word.Spaces < MaxSpaces : TypingKeys[event.Vk] && !_word.Spaces);
+        if (_undo.Original && !onFixed) {
             _undo = {};
         }
         _typedSince = true;
@@ -224,7 +232,7 @@ namespace {
                 _drop();
             }
         } else if (event.Vk == VK_SPACE && !chord) {
-            if (_word.Count && !_word.Spaces && _runtime->Auto && !event.Repeat) {
+            if (_judging() && !event.Repeat) {
                 const HWND focus = InputLanguage::FocusedWindow();
                 const HKL layout = focus ? _layoutOf(_word, focus) : nullptr;
                 const int from = layout ? _sideOf(*_runtime, layout) : -1;
@@ -239,13 +247,16 @@ namespace {
                         _word.Judged = _judgement(*ready);
                         Judge::LogKept();
                     } else {
-                        _decideHeld(from, focus, ready);
+                        _decideHeld(from, layout, focus, ready);
                     }
                 }
             }
             _erased.Count = 0;
             if (_word.Count && _word.Spaces < MaxSpaces) {
                 ++_word.Spaces;
+            } else if (!_word.Count && !_heldId) {
+                // Uncounted, it would put the run's erase one short
+                _drop();
             }
         } else if (chord || !TypingKeys[event.Vk]) {
             if (event.Vk == VK_SPACE) {
@@ -265,7 +276,10 @@ namespace {
                 // Typed into a half-erased word: an edit, no retype
                 _erased.Count = 0;
             }
-            _word.Judged = Judgement::None;
+            // A mid-word fix stands for the rest of its word
+            if (!_word.EarlyAt || _word.Judged != Judgement::Fixed) {
+                _word.Judged = Judgement::None;
+            }
             _word.Keys[_word.Count++] = {event.Vk, (_modifiers & WordEdit::ShiftBits) != 0, _caps};
             _typed();
         }
@@ -279,6 +293,7 @@ namespace {
         _heldIntact = false;
         _heldId = 0;
         _autoSpaces = 0;
+        _heldEarly = false;
         _heldFocus = nullptr;
         _undo = {};
         _erased = {};
@@ -294,6 +309,7 @@ namespace {
         _heldRun = _run;
         _heldId = id;
         _autoSpaces = 0;
+        _heldEarly = false;
         _heldFocus = InputLanguage::FocusedWindow();
         _heldModifiers = _modifiers;
         _typedSince = false;
@@ -309,14 +325,32 @@ namespace {
                && _apps.Allowed(_runtime.get(), _held.Window);
     }
 
+    /// The held word is `_word` again, unless typing moved on; after a mid-word hold, with what was typed during it.
+    bool _rejoin() {
+        if (!_typedSince) {
+            _word = _held;
+            return true;
+        }
+        if (!_heldEarly || !_heldIntact || _autoSpaces || _held.Count + _word.Count > MaxKeys) {
+            return false;
+        }
+        _word.Layout = _held.Layout;
+        _word = TypedWord::Join(_held, _word);
+        return true;
+    }
+
     /// No edit went out: the held words are back in the buffer, unless typing or the caret moved on.
     bool _unhold() {
         _heldId = 0;
-        if (_typedSince || !_onTarget()) {
+        const bool rest = _typedSince;
+        if (!_onTarget() || !_rejoin()) {
             return false;
         }
-        _word = _held;
         _run = _heldRun;
+        if (rest) {
+            // The judge has not seen the word with its rest
+            _typed();
+        }
         return true;
     }
 
@@ -359,14 +393,16 @@ namespace {
         }
         _undo = {};
         if (!autoSpace && _held.Judged != Judgement::None) {
-            _overruled(_held, from);
+            Autocorrect::Overruled(*_runtime, _held, from);
         }
-        if (!_typedSince) {
-            _word = _held;
+        if (autoSpace) {
+            // Typed during the hold, so they follow the fixed word
+            _held.Spaces = _autoSpaces;
+        }
+        if (_rejoin()) {
             ++_gen;
             _word.Judged = autoSpace ? Judgement::Fixed : Judgement::None;
             if (autoSpace) {
-                _word.Spaces = _autoSpaces;
                 _undo = {layout, target->Layout(), _heldFocus, _held.Window};
             }
             _word.Layout = target->Layout();
@@ -375,24 +411,26 @@ namespace {
     }
 
     void _autoResult(const Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
-                     const Convert::Verdict& verdict, const uint64_t spaceAt) {
+                     const Convert::Verdict& verdict, const uint64_t at, const HKL layout) {
         if (!id || id != _heldId || runtime != _runtime || !_held.Count) {
-            Autocorrect::LogFix(*runtime, verdict, false, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, false, at);
             return;
         }
         if (!_onTarget()) {
             _heldId = 0;
-            Autocorrect::LogFix(*runtime, verdict, false, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, false, at);
             return;
         }
         if (verdict.WrongLayout) {
             const Word word = _held;
+            // Pinned only now: a mid-word fix that does not land leaves the word to its Space
+            _held.Layout = layout;
             // Only a sure fix carries the undecided words before it, the ngram is a guess
             if (verdict.ByDictionary || verdict.ByRule || verdict.ByUser) {
                 _held = TypedWord::Join(_heldRun, _held);
             }
             const bool landed = _apply(id, true);
-            Autocorrect::LogFix(*runtime, verdict, landed, spaceAt);
+            Autocorrect::LogFix(*runtime, verdict, landed, at);
             if (landed) {
                 if (_held.Count != word.Count) {
                     Autocorrect::LogRun(*runtime, _heldRun);
@@ -410,48 +448,24 @@ namespace {
         Input::Commit(id, {});
     }
 
-    void _restore() {
-        if (!_needed && !_settings->AutoCorrect) {
-            return;
-        }
-        auto runtime = Autocorrect::Resolve(*_settings);
-        if (!runtime) {
-            LOG_WARNING("Keyboard: the conversion pair is not two installed layouts");
-            return;
-        }
-        const bool enable = _needed || runtime->Auto;
+} // anonymous namespace
+
+    void Register() {
+        Judge::Register(&_onEarly);
+        Input::Add({.Id = StageId, .Order = 300, .OnKey = &_onKey, .OnReset = &_reset, .OnHold = &_onHold});
+    }
+
+    void Use(std::shared_ptr<const Runtime> runtime, const bool on) {
         Input::Post([runtime = std::move(runtime)] {
             _runtime = std::move(runtime);
             Judge::Use(_runtime);
-            _undo = {};
-        });
-        if (enable) {
-            Input::Enable(StageId, Input::WantKeys | Input::WantButtons);
-        }
-    }
-
-    void _suspend() {
-        _needed = false;
-        Input::Disable(StageId);
-        Input::Post([] {
-            _runtime.reset();
-            Judge::Use(nullptr);
             _reset();
         });
-    }
-
-} // anonymous namespace
-
-    void Register(KeyboardSettings& settings) {
-        _settings = &settings;
-        Judge::Register();
-        Input::Add({.Id = StageId, .Order = 300, .OnKey = &_onKey, .OnReset = &_reset, .OnHold = &_onHold});
-        Lifecycle::Restore += &_restore;
-        Lifecycle::Suspend += &_suspend;
-    }
-
-    void Needed() {
-        _needed = true;
+        if (on) {
+            Input::Enable(StageId, Input::WantKeys | Input::WantButtons);
+        } else {
+            Input::Disable(StageId);
+        }
     }
 
     void ConvertWord(const Input::HoldId id) {
@@ -471,7 +485,7 @@ namespace {
             const Undo pending = _undo;
             const bool valid = pending.Original && pending.Corrected == _held.Layout
                 && pending.Focus == _heldFocus && pending.Window == _held.Window
-                && _held.Count && _held.Spaces && !_typedSince;
+                && _held.Count && !_typedSince;
             _undo = {};
             if (valid && _apply(id, false, pending.Original)) {
                 return;

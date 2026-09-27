@@ -1,22 +1,23 @@
 # Keyboard
 
 Layout indicator, `kbd.switch_layout`, `kbd.convert_word` (convert the last word, again to go back),
-`kbd.undo_auto_convert`, and autocorrect on Space. The plan, the Punto findings and the measurements
+`kbd.undo_auto_convert`, and autocorrect (`AutoCorrect`: `Off`, `Space`, or `MidWord` - also mid-word once
+the word's start is sure). The plan, the Punto findings and the measurements
 are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 
 ## Files
 
 | File | Does |
 |---|---|
-| `Keyboard.cpp` | Module entry: the three actions, registers everything below |
+| `Keyboard.cpp` | Module entry: the three actions, registers everything below; the tracker's runtime on Restore |
 | `KeyboardPage.*` | Settings rows, the exclusions and learned words panel |
 | `LayoutLayer.*` | The current layout on the overlay |
 | `InputLanguage.hpp` | Installed layouts, the focused window's layout, switching |
-| `WordTracker.*` | Stage `kbd.text` on the input thread: the word buffer, Space, convert, undo, learning signals |
+| `WordTracker.*` | Stage `kbd.text` on the input thread: the word buffer, Space, mid-word fixes, convert, undo, learning signals |
 | `TypedWord.hpp` | The word: key positions, spaces after it, what autocorrect judged; joining the run |
 | `WordEdit.*` | The edit itself: Backspaces, the new text as Unicode, held modifiers around it |
-| `Judge.*` | Judges the word on the threadpool while it is typed, so a kept word's Space is not held |
-| `Autocorrect.*` | `Runtime` (tables, packs, rules, settings) built on Restore; `Decide`; fix feedback and log lines |
+| `Judge.*` | Judges the word on the threadpool while it is typed: a kept word's Space is not held, a sure start switches |
+| `Autocorrect.*` | `Runtime` (tables, packs, rules, settings) built on Restore; `Decide`, `Early`; what an overrule teaches; fix feedback and log lines |
 | `Learning.*` | Learned words: an atomic snapshot for any thread, filed and saved on the UI thread |
 | `KeyboardPacks.hpp` | Finds `.pack` and `.rules` files in `packs/` |
 | `KeyboardExclusions.hpp` | The excluded `.exe` list, parse and join; the per-window app filter |
@@ -25,7 +26,7 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 ## Threads
 
 - Input thread: `OnKey` stays O(1) and never allocates; it records key positions and wakes the judge.
-- Judge (threadpool): detection and rules on the word so far.
+- Judge (threadpool): detection and rules on the word so far, as if it ended here and mid-word.
 - Edit lane (threadpool): the password check, and detection when the judge is behind.
 - UI thread: `Restore` builds the `Runtime` from the config, learned words are filed and saved.
 - Action worker: hotkey actions and their sound/notification.
@@ -45,6 +46,19 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
    the other rendering as Unicode) and releases the held keys.
 4. A short word valid in both languages waits in the run; a sure fix of the next word converts both.
 
+## A word mid-word (`MidWord`)
+
+1. The judge also runs `Autocorrect::Early` on the word so far. `Convert::Early` switches when the typed
+   text's first 4 letters start no word of its language (a later departure is a typo) and, with
+   frequency analysis, the converted start begins a word of the other language, its ngram wins by 1+
+   and 4 keys are typed or a Punto `B`/`A` rule hits from the 2nd; without it a rule alone decides.
+   A learned Never word the text may still become, or a refused start (`kube*`), stops it.
+2. `WordTracker::_onEarly` takes it only for the word version it judged: the same hold and password
+   check as a Space fix, then the word so far is erased and retyped in the other layout. Keys typed
+   during the hold are the word's rest and replay in the new layout; spaces count as its spaces.
+3. The word is pinned: no second switch, and its Space leaves it alone. Undo or convert refuses the
+   start the fix fired on (`kube*` in Never); a fix that did not land leaves the word to its Space.
+
 Rule guards: an `E` rule only cancels a rule; a rule never flips a word the dictionary knows; a
 mid-word rule also needs the ngram to agree, a word with a sign the dictionary unless the sign is a
 letter of the other side (`bv,f` = имба). `FrequencyAnalysis` off drops the guards and the ngram.
@@ -60,8 +74,8 @@ packs/
 ```
 
 - **Pack** (per language): locale (ISO 639-1, `en`), alphabet (up to 64 frequent symbols), a bloom
-  dictionary (is this a word?), bigram and trigram counts (does it look like the language?), a
-  default threshold. "Auto" on the page means `<layout's ISO 639-1>.pack`; a picked pack must carry
+  dictionary (is this a word? the same bloom keeps every word start of 2-4 letters, format 2), bigram
+  and trigram counts (does it look like the language?), a default threshold. "Auto" on the page means `<layout's ISO 639-1>.pack`; a picked pack must carry
   the layout's locale.
 - **Rules** (per pair, not per pack): UTF-8 lines `[_FLAGS ]pattern`. The pattern is written in the
   characters of the layout it was typed in: `_B ghb` is typed on US and means Russian (`при`),
@@ -69,7 +83,8 @@ packs/
   `E` never switch, `C` case-sensitive, `D` ignored. A space at the edge anchors to the word edge.
   Rules assume US/RU key positions and are skipped when both sides share a script. Stored as
   64-bit hashes, the text is dropped.
-- **Learned words**: `config.json` -> `Keyboard.Learned`, lowercase, typed form (`ofc`, not `щас`).
+- **Learned words**: `config.json` -> `Keyboard.Learned`, lowercase, typed form (`ofc`, not `щас`); a
+  trailing `*` in Never is a refused start, it only stops mid-word switches.
 
 ## Build the tool and the packs
 

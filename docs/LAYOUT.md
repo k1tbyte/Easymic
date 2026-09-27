@@ -18,7 +18,18 @@ before 2026-09-27).
   `Autocorrect::Decide` -> `Convert::Detect` for "the word ends here" and posts the verdict back. Space
   with a ready keep goes through unheld. A fix, or no verdict yet: `Input::Edit` (holds delivery) -> the
   lane checks for a password field (and decides) -> `Input::Post(apply)`. Keys typed during the hold are
-  the next word.
+  the next word. A word already converted (pinned mid-word, or re-entered after its Space) is left alone.
+- Mid-word (`AutoCorrect = MidWord`): the judge also runs `Autocorrect::Early` -> `Convert::Early` on the
+  word so far and calls `WordTracker::_onEarly` when it switches; that version of the word takes the same
+  hold and password check, then the word so far is erased and retyped in the other layout. Keys typed
+  during the hold are its rest (spaces its spaces) and replay in the new layout. Once per word.
+- `Early`: 2+ keys, letters on both sides (signs only as letters, a trailing sign waits a key), and the
+  typed text's first 4 letters start no word of its language (`Pack::Begins`: the bloom also keeps every
+  word start of 2-4 letters) - a word that leaves its language later is a typo. Then with frequency
+  analysis: the converted start begins a word of the other language, its open-ended ngram wins by 1+,
+  and 4+ keys or a Punto `B`/`A` rule (open: `P` and end-anchored patterns wait, a whole-word exception
+  holds). Without it a rule alone decides. A learned Never word the text may still become, or a refused
+  start, stops it.
 - `Detect`, in order: rules (Punto's, below) > dictionary > ngram. A token with no letters (`1.`, `...`)
   is never converted. A word of 2 letters or less, or one both dictionaries know, is kept (`ambiguous`);
   if both know it and it has 2+ letters it waits in the run. The ngram decides only single words of 5+
@@ -47,8 +58,9 @@ before 2026-09-27).
   trimmed, as typed on the side typed on. The user's words overrule `Detect` (reason `user`). Signals:
   convert or undo right after an auto-fix teaches never; converting a kept word teaches always; a judged
   word erased whole and retyped from the other side teaches the matching one. A phrase teaches nothing.
+  Overruling a mid-word fix refuses the start it fired on: `kube*` in Never stops only mid-word switches.
 - `kbd.convert_word` converts the last word (again to convert back); `kbd.undo_auto_convert` undoes only
-  the last auto-fix before the word changes and returns to the original layout. Exclusions suppress
+  the last auto-fix, through its word's rest and spaces, and returns to the original layout. Exclusions suppress
   both. Enter and Tab clear the word (the line is usually sent by then).
 - Guards: excluded apps, fullscreen windows (`SkipFullscreen`: rect equals its monitor's and not
   maximized, judged when the window takes the foreground) and unresolved foreground apps are not
@@ -57,8 +69,10 @@ before 2026-09-27).
 - Feedback: an auto-fix plays `FixSound` and, with `FixNotification`, posts `typed → fixed`. A hotkey edit
   announces only when `Commit` took a non-empty edit.
 - `LogDecisions`: every verdict (word, reason, rule, margin), what was learned, why a Space was skipped,
-  and how long each fix took from its Space until it landed or was dropped - off the input thread.
-- Config `KeyboardSettings`: `PairA`/`PairB`, `PackA`/`PackB` (empty = `<locale>.pack`), `AutoCorrect`,
+  and how long each fix took from its Space (or mid-word verdict, `FIX early`) until it landed or was
+  dropped - off the input thread.
+- Config `KeyboardSettings`: `PairA`/`PairB`, `PackA`/`PackB` (empty = `<locale>.pack`), `AutoCorrect`
+  (`Off` / `Space` / `MidWord`),
   `Exclude`, `Threshold` (hundredths, 0 = pack), `FrequencyAnalysis`, `LogDecisions`, `Learned`, `SkipPasswords`,
   `SkipFullscreen`, `FixSound`, `FixSoundVolume`, `FixNotification`.
 
@@ -185,21 +199,32 @@ desktop input.
 
 ### Step 3 - switch mid-word
 
-- The judge also answers "switch now?" for the prefix typed so far:
-  - Punto's `B` and anywhere rules with their `E` exceptions (the rule guards still apply);
-  - our own, working without Punto's data: no word of the source language starts with the prefix, while
-    words of the target language do. The packs gain a prefix bloom (`langpack pack` inserts every prefix
-    under its own key; the pack format version goes up). A typo (`тьак`) does not switch: `nmf` starts no
-    English word.
-  - at least 2 keys for a rule, 3 for the prefix test.
-- On "switch now" for a word whose keys still start with the judged prefix, the input thread starts an
-  edit: erase every key of the word on screen (more may have come since), type the target rendering as
-  Unicode, switch the layout; keys held meanwhile replay in the new layout. The word is `Fixed`, pinned
-  to the target layout; the rest is typed natively and judged again on Space.
-- Undo: `kbd.undo_auto_convert` after a mid-word fix returns the whole word to the original layout.
-- Measure: share of wrong-layout words fixed before their end and at which key, false mid-word switches
-  on the corpus and on top 25k English / Russian forms, pack size growth.
+- [x] `Convert::Early` on the word so far (above); `Autocorrect::Early` adds the user's refusals.
+- [x] Packs keep every word start of 2-4 letters in the bloom (format 2, old packs are rejected).
+- [x] The judge calls `WordTracker::_onEarly` for a switch; the version it judged takes the Space fix's
+  hold, password check and edit; keys typed during the hold are the word's rest; the word is pinned.
+- [x] Undo and convert after a mid-word fix refuse its start (`kube*`); undo lasts through the word's rest.
+- [x] `AutoCorrect` became `Off` / `Space` / `MidWord`, one combo on the page.
+- [ ] Live: Chromium, an Electron app, Windows Terminal; typing fast through the hold.
 - Known cost: a browser's inline autocomplete (address bar) takes the first Backspace for its selection.
+- **Result** (langpack on the simulation's sets; mid-word fixed of wrong-layout words, at share of the word
+  / false switches of words typed right). Build 1239 KB; en.pack +28 KB, ru.pack +51 KB.
+
+  | Set | ours | ours + rules | Punto + dictionary |
+  |---|---|---|---|
+  | ru real text, 268 | 54% at 65% / 0 | 74% at 62% / 0 | 80% at 63% / 0 |
+  | ru forms, 2000 | 93% at 41% / 0 | 93% at 33% / 0 | 95% at 32% / 0 |
+  | ru slang, 80 | 51% / 0 | 68% / 0 | 88% / 0 |
+  | ru forms with a typo, 2000 | 70% / 1 | 79% / 26 | 94% / 214 |
+  | en top 25k, 2000 | 93% at 58% / 0 | 97% at 42% / 0 | 97% at 43% / 0 |
+  | en rare words, 2000 | 73% / 1 | 90% / 2 | 97% / 29 |
+  | en brands and terms, 108 | 53% / 0 | 70% / 2 | 94% / 6 |
+  | en words with a typo, 2000 | 55% / 3 | 77% / 22 | 92% / 321 |
+
+  Tried in a simulation first: the start test from key 3 switched `kubernetes`, `jira`, `vscode` and 5%
+  of typo'd English words; the ngram margin and the 4-letter window took that to 0 and 0.2%. Punto's
+  rules with only the dictionary guard flip 11-16% of typo'd words mid-word, which is what Punto does.
+  Word starts beyond 4 letters changed nothing.
 
 ### Step 4 - real-text bench
 

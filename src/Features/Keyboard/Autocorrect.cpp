@@ -19,6 +19,10 @@ namespace {
 
     const KeyboardSettings* _settings = nullptr;
     const Feedback* _feedback = nullptr;
+
+    Convert::Side _side(const Runtime& runtime, const int side) {
+        return {&runtime.Table(side), &(*runtime.Packs)[side]};
+    }
 }
 
     void Register(const KeyboardSettings& settings, const Feedback& feedback) {
@@ -67,7 +71,8 @@ namespace {
         for (const auto& exe : KeyboardExclusions::Parse(settings.Exclude)) {
             runtime->Excluded.insert(exe);
         }
-        if (settings.AutoCorrect) {
+        runtime->MidWord = settings.AutoCorrect == AutoCorrectMode::MidWord;
+        if (settings.AutoCorrect != AutoCorrectMode::Off) {
             runtime->Packs = std::make_unique<std::array<Convert::Pack, 2>>();
             runtime->Auto = KeyboardPacks::Load((*runtime->Packs)[0], layouts[a].Handle, settings.PackA)
                             && KeyboardPacks::Load((*runtime->Packs)[1], layouts[b].Handle, settings.PackB);
@@ -84,16 +89,37 @@ namespace {
 
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned,
                             const std::span<const Convert::Key> word, const int from) {
-        const Convert::Side source{&runtime.Table(from), &(*runtime.Packs)[from]};
-        const Convert::Side target{&runtime.Table(1 - from), &(*runtime.Packs)[1 - from]};
-        Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.Threshold / 100.0, &runtime.Rules,
-                                                     runtime.Frequency);
+        Convert::Verdict verdict = Convert::Detect(word, _side(runtime, from), _side(runtime, 1 - from),
+                                                     runtime.Threshold / 100.0, &runtime.Rules, runtime.Frequency);
         if (const auto always = Learning::Answer(learned, verdict.Typed); always && !verdict.Fixed.empty()) {
             verdict.WrongLayout = *always;
             verdict.ByUser = true;
             verdict.Undecided = false;
         }
         return verdict;
+    }
+
+    Convert::Verdict Early(const Runtime& runtime, const LearnedWords& learned,
+                           const std::span<const Convert::Key> word, const int from) {
+        Convert::Verdict verdict = Convert::Early(word, _side(runtime, from), _side(runtime, 1 - from), &runtime.Rules,
+                                                  runtime.Frequency);
+        verdict.WrongLayout = verdict.WrongLayout && !Learning::Refused(learned, verdict.Typed);
+        return verdict;
+    }
+
+    void Overruled(const Runtime& runtime, const TypedWord::Word& word, const int side) {
+        const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
+        if (std::ranges::contains(keys, VK_SPACE, &Convert::Key::Vk)) {
+            return;
+        }
+        const bool always = word.Judged != TypedWord::Judgement::Fixed;
+        // Taught as typed, and a fix is on screen on the other side
+        const Convert::LayoutTable& typed = runtime.Table(always ? side : 1 - side);
+        if (!always && word.EarlyAt) {
+            Learning::Teach(typed.Render(keys.first(word.EarlyAt)) + L'*', false);
+        } else {
+            Learning::Teach(typed.Render(keys), always);
+        }
     }
 
     bool Guarded(const Runtime& runtime, const HWND focus) {
@@ -113,8 +139,9 @@ namespace {
         }
         Dispatcher::Post([typed = Str::WideToUtf8(verdict.Typed), fixed = Str::WideToUtf8(verdict.Fixed),
                           rule = verdict.ByRule ? " " + Str::WideToUtf8(verdict.Rule) : "",
-                          fix = verdict.WrongLayout, reason = verdict.Reason(), margin = verdict.Margin()] {
-            Logger::Log(Logger::Level::Info, "Keyboard: %s %s -> %s (%s%s, margin=%.2f)", fix ? "FIX" : "ok",
+                          fix = verdict.WrongLayout, early = verdict.Early ? " early" : "", reason = verdict.Reason(),
+                          margin = verdict.Margin()] {
+            Logger::Log(Logger::Level::Info, "Keyboard: %s%s %s -> %s (%s%s, margin=%.2f)", fix ? "FIX" : "ok", early,
                         typed.c_str(), fixed.c_str(), reason, rule.c_str(), margin);
         });
     }

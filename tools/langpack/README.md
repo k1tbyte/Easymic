@@ -28,7 +28,8 @@ langpack pack <wordlist.txt> <locale> <out.pack> [--threshold 0.35] [--fp 0.001]
 ```
 
 Builds a language pack from a UTF-8 word list (one word per line). Hunspell flags
-after `/` are stripped, so `.dic` files from LibreOffice work directly.
+after `/` are stripped, so `.dic` files from LibreOffice work directly. The bloom
+also keeps every word start of 2-4 letters, for mid-word switching (format 2).
 
 ### lookup
 
@@ -84,7 +85,8 @@ side's reverse map, and `Detect` runs with the rules (`--frequency off`: as with
   ok   [source, reason margin=X.XX, alt: other reading]
 ```
 
-A rule decision names its pattern: `rule B ofc margin=...`.
+A rule decision names its pattern: `rule B ofc margin=...`. A word that would switch
+mid-word adds the key it switches on: `early at 4: ghbd -> прив [dict margin=...]`.
 
 ## Benchmark
 

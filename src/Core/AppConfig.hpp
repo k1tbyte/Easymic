@@ -31,6 +31,22 @@ struct glz::meta<MicPillMode> {
 };
 #endif // CONFIG_ENABLED
 
+/// When autocorrect converts a word typed in the wrong layout: never (the hotkey still does), on its Space, or
+/// mid-word as soon as its start is sure.
+enum class AutoCorrectMode {
+    Off,
+    Space,
+    MidWord,
+};
+
+#ifdef CONFIG_ENABLED
+template <>
+struct glz::meta<AutoCorrectMode> {
+    using enum AutoCorrectMode;
+    static constexpr auto value = enumerate(Off, Space, MidWord);
+};
+#endif // CONFIG_ENABLED
+
 /// Everything that is nobody's feature in particular.
 struct CoreSettings {
     bool Updates = true;
@@ -76,7 +92,7 @@ struct KeyboardSettings {
     std::string PairB;
     std::string PackA;
     std::string PackB;
-    bool AutoCorrect = false;
+    AutoCorrectMode AutoCorrect = AutoCorrectMode::Off;
     /// An automatic fix asks the focused field first and leaves a password alone.
     bool SkipPasswords = true;
     /// A window covering its monitor (a game) counts as excluded.

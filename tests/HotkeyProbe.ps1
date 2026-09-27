@@ -204,7 +204,7 @@ try {
         $hasRules = @(Get-ChildItem (Join-Path $dir 'packs') -Filter '*.rules').Count -gt 0
         $autoChecks = @()
         $autoStep = { param($name) [Probe]::Pump(500); $script:autoChecks += "$name=$($box.Text)@$([Probe]::Layout())" }
-        $autoConfig = @{ Core = @{ Updates = $false }; Keyboard = @{ AutoCorrect = $true; LogDecisions = $true }; Bindings = @($bindings[-2], $bindings[-1]); Version = 4 }
+        $autoConfig = @{ Core = @{ Updates = $false }; Keyboard = @{ AutoCorrect = 'Space'; LogDecisions = $true }; Bindings = @($bindings[-2], $bindings[-1]); Version = 4 }
         [IO.File]::WriteAllText($cfg, ($autoConfig | ConvertTo-Json -Depth 6))
         $p = Start-Process $exe -PassThru
         [Probe]::Pump(2500)

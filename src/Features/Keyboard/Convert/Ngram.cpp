@@ -11,10 +11,10 @@ namespace {
 } // anonymous namespace
 
 double NgramScore(const std::wstring& symbols, const uint32_t* tri,
-                  const uint32_t* bi, const std::wstring& text) {
+                  const uint32_t* bi, const std::wstring& text, const bool open) {
     const Alphabet alphabet(symbols);
     const uint64_t v = alphabet.Size();
-    const std::vector<uint32_t> seq = alphabet.Encode(text);
+    const std::vector<uint32_t> seq = alphabet.Encode(text, open);
     if (seq.size() < 3) {
         return -20.0;
     }

@@ -234,8 +234,13 @@ namespace {
             : _findPack(_packsA, cfg.Keyboard.PackA) <= static_cast<int>(_packsA.size());
         const bool readyB = cfg.Keyboard.PackB.empty() ? _defaultB
             : _findPack(_packsB, cfg.Keyboard.PackB) <= static_cast<int>(_packsB.size());
-        return cfg.Keyboard.AutoCorrect || (a >= 0 && b >= 0 && a != b
+        return cfg.Keyboard.AutoCorrect != AutoCorrectMode::Off || (a >= 0 && b >= 0 && a != b
                && _layouts[a].Handle != _layouts[b].Handle && readyA && readyB);
+    }
+
+    std::span<const wchar_t* const> _autoCorrectItems() {
+        static constexpr const wchar_t* items[] = {L"Off (hotkey only)", L"At the end of a word", L"While typing"};
+        return items;
     }
 
     template <std::string KeyboardSettings::*Field, size_t Fallback>
@@ -331,8 +336,9 @@ namespace {
          .Field = PairField<&KeyboardSettings::PairB, 1>(), .Items = &_layoutItems},
         {.Kind = RowKind::Combo, .Field = PackField<&KeyboardSettings::PackB, &_packsB>(), .Items = &_packItemsBFn,
          .Beside = true},
-        {.Kind = RowKind::Check, .Label = L"Automatically correct on Space",
-         .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::AutoCorrect>(), .Enabled = &_canToggleAutoCorrect},
+        {.Kind = RowKind::Combo, .Label = L"Autocorrect",
+         .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::AutoCorrect>(), .Items = &_autoCorrectItems,
+         .Enabled = &_canToggleAutoCorrect},
         {.Kind = RowKind::Check, .Label = L"Don't convert in password fields",
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::SkipPasswords>()},
         {.Kind = RowKind::Check, .Label = L"Don't convert in fullscreen apps (games)",

@@ -78,14 +78,14 @@ bool Rules::_has(const uint8_t kind, const std::wstring_view text) const {
     return std::ranges::binary_search(_keys, _hash(kind, text));
 }
 
-bool Rules::_match(const uint8_t kind, const std::wstring_view word, RuleHit& hit) const {
-    const std::wstring edged = L" " + std::wstring(word) + L" ";
+bool Rules::_match(const uint8_t kind, const std::wstring_view word, RuleHit& hit, const bool open) const {
+    const std::wstring edged = L" " + std::wstring(word) + (open ? L"" : L" ");
     const std::wstring_view view = edged;
-    if (_has(kind | Whole, word)) {
+    if ((!open || kind & Exception) && _has(kind | Whole, word)) {
         hit.Pattern = L"P " + std::wstring(word);
         return true;
     }
-    for (size_t n = 1; n <= std::min(_longest, word.size() + 1); ++n) {
+    for (size_t n = 1; n <= std::min(_longest, view.size() - 1); ++n) {
         if (_has(kind | Begin, view.substr(1, n))) {
             hit.Pattern = L"B " + edged.substr(1, n);
             return true;
@@ -103,14 +103,14 @@ bool Rules::_match(const uint8_t kind, const std::wstring_view word, RuleHit& hi
     return false;
 }
 
-RuleHit Rules::Find(const std::wstring_view word, const bool cyrillic) const {
+RuleHit Rules::Find(const std::wstring_view word, const bool cyrillic, const bool open) const {
     if (_keys.empty() || word.empty()) {
         return {};
     }
     const std::wstring lower = _lower(word);
     const uint8_t script = cyrillic ? Cyrillic : 0;
     const auto match = [&](const uint8_t kind, RuleHit& hit) {
-        return _match(script | kind, lower, hit) || _match(script | kind | CaseSensitive, word, hit);
+        return _match(script | kind, lower, hit, open) || _match(script | kind | CaseSensitive, word, hit, open);
     };
     RuleHit hit, exception;
     return match(0, hit) && !match(Exception, exception) ? hit : RuleHit{};

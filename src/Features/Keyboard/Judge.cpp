@@ -25,7 +25,11 @@ namespace {
         uint32_t Gen = 0;
         HKL Layout = nullptr;
         Convert::Verdict Verdict;
+        /// On the word so far: whether it switches before its end.
+        Convert::Verdict Early;
     };
+
+    EarlyFix _onEarly = nullptr;
 
     // Written by the input thread, read by the runs
     SRWLOCK _lock = SRWLOCK_INIT;
@@ -65,19 +69,28 @@ namespace {
         if (from < 0) {
             return;
         }
-        Result result{word.Gen, layout,
-                      Autocorrect::Decide(*runtime, *Learning::Current(), {word.Keys.data(), word.Count}, from)};
+        const auto learned = Learning::Current();
+        const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
+        Result result{word.Gen, layout, Autocorrect::Decide(*runtime, *learned, keys, from)};
+        // A pinned word was converted already
+        if (runtime->MidWord && !word.Layout) {
+            result.Early = Autocorrect::Early(*runtime, *learned, keys, from);
+        }
         Input::Post([result = std::move(result)]() mutable {
             // Two runs may finish out of order: an older word never replaces a newer one
             if (static_cast<int32_t>(result.Gen - _ready.Gen) > 0) {
                 _ready = std::move(result);
+                if (_ready.Early.WrongLayout) {
+                    _onEarly(_ready.Gen, _ready.Layout, _ready.Early);
+                }
             }
         });
     }
 
 } // anonymous namespace
 
-    void Register() {
+    void Register(const EarlyFix early) {
+        _onEarly = early;
         _work = CreateThreadpoolWork(&_run, nullptr, nullptr);
         _logWork = CreateThreadpoolWork(&_log, nullptr, nullptr);
         // Registered after the statics a run reads were built, so it runs before they are destroyed

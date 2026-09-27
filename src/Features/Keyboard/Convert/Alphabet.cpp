@@ -25,7 +25,7 @@ namespace {
 
 Alphabet::Alphabet(const std::wstring& symbols) : _symbols(symbols) {}
 
-std::vector<uint32_t> Alphabet::Encode(const std::wstring& text) const {
+std::vector<uint32_t> Alphabet::Encode(const std::wstring& text, const bool open) const {
     std::vector<uint32_t> out;
     out.reserve(text.size() + 3);
     out.push_back(0);
@@ -37,7 +37,7 @@ std::vector<uint32_t> Alphabet::Encode(const std::wstring& text) const {
         }
         out.push_back(idx);
     }
-    if (out.back() != 0) {
+    if (!open && out.back() != 0) {
         out.push_back(0);
     }
     return out;

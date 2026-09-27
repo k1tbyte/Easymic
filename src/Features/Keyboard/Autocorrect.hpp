@@ -27,6 +27,7 @@ namespace Autocorrect {
         uint16_t Threshold = 0;
         bool Frequency = true;
         bool Auto = false;
+        bool MidWord = false;
         bool SkipPasswords = true;
         bool SkipFullscreen = true;
         bool LogDecisions = false;
@@ -47,6 +48,14 @@ namespace Autocorrect {
     /// Off the input thread: the verdict on a word typed on pair side `from`, the user's words over all.
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
                             int from);
+
+    /// Off the input thread: whether the word so far switches now, unless the user refused its start.
+    Convert::Verdict Early(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
+                           int from);
+
+    /// Input thread: the user overruled autocorrect on `word`, on screen on pair side `side` - a fix teaches never
+    /// (a mid-word one its start), a keep always. A phrase teaches nothing: which of its words erred is unknown.
+    void Overruled(const Runtime& runtime, const TypedWord::Word& word, int side);
 
     /// Edit lane, for a fix only: `focus` is a password field the fix must leave alone. Asks across processes.
     bool Guarded(const Runtime& runtime, HWND focus);

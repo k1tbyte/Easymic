@@ -29,6 +29,8 @@ namespace Convert {
         bool ByUser = false;
         /// A word of both languages: the next word decides.
         bool Undecided = false;
+        /// On the word so far, mid-word.
+        bool Early = false;
         std::wstring Rule;
         std::string_view SourceLocale;
         std::string_view FixedLocale;
@@ -42,5 +44,10 @@ namespace Convert {
     /// `frequency` off: Punto and a dictionary - rules unguarded but for known words, then the dictionary, no ngram.
     Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
                    double thresholdOverride = 0, const Rules* rules = nullptr, bool frequency = true);
+
+    /// Mid-word: `word` so far is in the wrong layout whatever follows, as it left the typed language within
+    /// `StartLetters` letters. `frequency` off: a rule alone decides.
+    Verdict Early(std::span<const Key> word, const Side& typed, const Side& other, const Rules* rules,
+                  bool frequency = true);
 
 }

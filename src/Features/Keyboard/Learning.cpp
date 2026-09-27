@@ -26,6 +26,10 @@ namespace {
     std::atomic<std::shared_ptr<const LearnedWords>> _current = std::make_shared<const LearnedWords>();
 
     std::string _entry(const std::wstring_view text) {
+        if (text.ends_with(L'*')) {
+            const std::string start = _entry(text.substr(0, text.size() - 1));
+            return start.empty() ? start : start + '*';
+        }
         return Str::WideToUtf8(Convert::WordKey(text));
     }
 
@@ -90,5 +94,12 @@ namespace {
             return false;
         }
         return std::nullopt;
+    }
+
+    bool Refused(const LearnedWords& words, const std::wstring_view text) {
+        const std::string typed = _entry(text);
+        return std::ranges::any_of(words.Never, [&](const std::string_view entry) {
+            return entry.ends_with('*') ? typed.starts_with(entry.substr(0, entry.size() - 1)) : entry.starts_with(typed);
+        });
     }
 }

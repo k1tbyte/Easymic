@@ -6,13 +6,37 @@
 #include "Autocorrect.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Input/Input.hpp"
+#include "Core/Lifecycle.hpp"
 #include "InputLanguage.hpp"
 #include "KeyboardPage.hpp"
 #include "LayoutLayer.hpp"
 #include "Learning.hpp"
 #include "WordTracker.hpp"
+#include "definitions.h"
 
 namespace {
+
+    const KeyboardSettings* _settings = nullptr;
+    /// The convert hotkey is bound: words are tracked without autocorrect too.
+    bool _needed = false;
+
+    void _restore() {
+        if (!_needed && _settings->AutoCorrect == AutoCorrectMode::Off) {
+            return;
+        }
+        auto runtime = Autocorrect::Resolve(*_settings);
+        if (!runtime) {
+            LOG_WARNING("Keyboard: the conversion pair is not two installed layouts");
+            return;
+        }
+        const bool on = _needed || runtime->Auto;
+        WordTracker::Use(std::move(runtime), on);
+    }
+
+    void _suspend() {
+        _needed = false;
+        WordTracker::Use(nullptr, false);
+    }
 
     constexpr ActionDesc Actions[] = {
         {.Id = "kbd.switch_layout",
@@ -32,7 +56,7 @@ namespace {
          .Group = "Keyboard",
          .Flags = ActionFlags::EditsText,
          .Make = [](const ActionContext&) -> ActionFn {
-             WordTracker::Needed();
+             _needed = true;
              return [] { WordTracker::ConvertWord(Input::CurrentHold()); };
          }},
         {.Id = "kbd.undo_auto_convert",
@@ -57,6 +81,9 @@ namespace Keyboard {
         LayoutLayer::Register(host.Config.Keyboard);
         Learning::Register(host.Config);
         Autocorrect::Register(host.Config.Keyboard, host.Fb);
-        WordTracker::Register(host.Config.Keyboard);
+        _settings = &host.Config.Keyboard;
+        WordTracker::Register();
+        Lifecycle::Restore += &_restore;
+        Lifecycle::Suspend += &_suspend;
     }
 }

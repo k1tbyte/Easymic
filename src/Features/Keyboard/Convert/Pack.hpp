@@ -7,9 +7,11 @@
 
 namespace Convert {
 
-    constexpr uint32_t PackVersion = 1;
+    constexpr uint32_t PackVersion = 2;
     inline constexpr char PackMagic[4] = {'P', 'S', 'P', '1'};
     constexpr size_t MaxAlphabet = 64;
+    /// Word starts of 2 up to this many letters are in the bloom too: a word leaves its language within them.
+    constexpr size_t StartLetters = 4;
 
 #pragma pack(push, 8)
     struct PackHeader {
@@ -46,6 +48,8 @@ namespace Convert {
 
     std::wstring TrimWord(std::wstring_view s);
     std::wstring WordKey(std::wstring_view word);
+    /// The bloom key of `text`'s first `StartLetters` letters as a word start.
+    std::wstring StartKey(std::wstring_view text);
 
     class Pack {
     public:
@@ -63,7 +67,10 @@ namespace Convert {
         const std::wstring& Symbols() const { return _symbols; }
 
         bool Contains(std::wstring_view word) const;
-        double Score(const std::wstring& text) const;
+        /// Some word starts with `text`'s first `StartLetters` letters.
+        bool Begins(std::wstring_view text) const;
+        /// `open`: the text goes on, so no word end is scored.
+        double Score(const std::wstring& text, bool open = false) const;
 
     private:
         void _close();

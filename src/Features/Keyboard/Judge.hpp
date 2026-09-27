@@ -14,8 +14,11 @@ namespace Autocorrect {
 /// never holds the typing.
 namespace Judge {
 
+    /// Input thread, outside OnKey: the word so far of version `gen`, read in `layout`, switches now.
+    using EarlyFix = void (*)(uint32_t gen, HKL layout, const Convert::Verdict& verdict);
+
     /// Once, before the input thread runs.
-    void Register();
+    void Register(EarlyFix early);
 
     /// Input thread, outside OnKey: what the judge decides with; null stops it.
     void Use(std::shared_ptr<const Autocorrect::Runtime> runtime);

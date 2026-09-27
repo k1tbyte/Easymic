@@ -359,6 +359,16 @@ int _runRepl(const std::vector<std::string>& args) {
                       L", alt: " + v.Fixed + L"]");
             }
         }
+        // The first key the word would switch on while typed
+        for (size_t n = 2; n <= keys.size(); ++n) {
+            const Convert::Verdict e = Convert::Early(std::span(keys).first(n), typed, other,
+                                                      rules.Count() ? &rules : nullptr, frequency);
+            if (e.WrongLayout) {
+                _line(L"  early at " + std::to_wstring(n) + L": " + e.Typed + L" -> " + e.Fixed + L"   ["
+                      + _wide(e.Reason()) + (e.ByRule ? L" " + e.Rule : L"") + L" margin=" + _num(e.Margin()) + L"]");
+                break;
+            }
+        }
     }
     return 0;
 }

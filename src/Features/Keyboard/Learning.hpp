@@ -16,7 +16,8 @@ namespace Learning {
     /// Any thread: the words a verdict is decided with.
     std::shared_ptr<const LearnedWords> Current();
 
-    /// Input thread: typed `text` filed on the UI thread, saved, in effect from the next Space.
+    /// Input thread: typed `text` filed on the UI thread, saved, in effect from the next Space. A trailing `*`
+    /// files a word start, which only stops mid-word switches.
     void Teach(std::wstring text, bool always);
 
     /// Files typed `text` under always or never, out of the other list. @return the entry, empty when nothing changed.
@@ -24,4 +25,7 @@ namespace Learning {
 
     /// The user's answer on typed `text`: convert always (true), never (false), or none.
     std::optional<bool> Answer(const LearnedWords& words, std::wstring_view text);
+
+    /// Typed `text` may still become a word the user refused, or starts as a refused start: no mid-word switch.
+    bool Refused(const LearnedWords& words, std::wstring_view text);
 }

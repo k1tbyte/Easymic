@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <set>
 #include <vector>
 
 namespace {
@@ -114,10 +115,14 @@ bool BuildPack(const std::string& wordListPath, const PackOptions& options,
 
     std::map<wchar_t, uint64_t> freq;
     uint64_t words = 0;
+    std::set<std::wstring> starts;
     _forEachWord(text, [&](const std::wstring& w) {
         ++words;
         for (wchar_t c : w) {
             ++freq[c];
+        }
+        for (size_t n = 2; n <= std::min(w.size(), Convert::StartLetters); ++n) {
+            starts.insert(Convert::StartKey(std::wstring_view(w).substr(0, n)));
         }
     });
     if (words == 0) {
@@ -142,13 +147,16 @@ bool BuildPack(const std::string& wordListPath, const PackOptions& options,
 
     const Convert::Alphabet alphabet(symbols);
     NgramBuilder ngram(alphabet);
-    const BloomParams params = _paramsFor(words, options.FalsePositiveRate);
+    const BloomParams params = _paramsFor(words + starts.size(), options.FalsePositiveRate);
     std::vector<uint8_t> bits(static_cast<size_t>(Convert::BloomByteSize(params.Bits)), 0);
 
     _forEachWord(text, [&](const std::wstring& w) {
         ngram.Train(w);
         _bloomAdd(bits.data(), params, w);
     });
+    for (const std::wstring& start : starts) {
+        _bloomAdd(bits.data(), params, start);
+    }
 
     Convert::PackHeader header{};
     std::copy_n(Convert::PackMagic, 4, header.Magic);

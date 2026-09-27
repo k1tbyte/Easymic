@@ -91,7 +91,7 @@ if (-not $box.Focused) { $form.Close(); 'PROBE FAILED: the text box never took f
 $userLayout = [Probe]::CurrentLayout()
 
 $json = @{ Core = @{ Updates = $false }
-           Keyboard = @{ AutoCorrect = $true; LogDecisions = $true }
+           Keyboard = @{ AutoCorrect = 'Space'; LogDecisions = $true }
            Bindings = @(@{ Name = 'convert'; ActionId = 'kbd.convert_word'; Trigger = @{ Keys = 'F20' } })
            Version = 4 } | ConvertTo-Json -Depth 6
 [IO.File]::WriteAllText($cfg, $json)

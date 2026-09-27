@@ -49,6 +49,14 @@ namespace {
         _check(find(L"юую", true).empty(), "an end-anchored pattern mid-word");
         _check(find(L"ф", true) == L"P ф" && find(L"ф").empty(), "scripts stay apart");
         _check(find(L"a").empty(), "D rules are skipped");
+
+        const auto open = [&](const std::wstring& word, const bool cyrillic = false) {
+            return rules.Find(word, cyrillic, true).Pattern;
+        };
+        _check(open(L"ofcr") == L"B ofc" && open(L"yfdt") == L"A yfd", "begin and anywhere mid-word");
+        _check(open(L"ye").empty() && open(L"by'n").empty() && open(L"ююу", true).empty(),
+               "whole-word and end-anchored patterns wait for the end");
+        _check(open(L"yfdf").empty(), "a whole-word exception holds mid-word");
     }
 
     void _join() {

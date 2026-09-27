@@ -11,6 +11,9 @@ namespace {
     // Under three trigrams one sample decides: "щас" reads as the likelier "ofc"
     constexpr size_t kNgramMinLetters = 5;
     constexpr uint8_t kCyrillic = 4;
+    // Measured on typos and brands: fewer keys or a thinner margin switch words typed right
+    constexpr size_t kEarlyKeys = 4;
+    constexpr double kEarlyMargin = 1.0;
 
     /// Dictionary hits among the words of `text` (a joined run holds several), and the word count.
     std::pair<int, size_t> _hits(const Pack& pack, const std::wstring_view text) {
@@ -114,6 +117,37 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     const double threshold =
         thresholdOverride > 0.0 ? thresholdOverride : other.Pack->Threshold();
     v.WrongLayout = v.Margin() > threshold;
+    return v;
+}
+
+Verdict Early(const std::span<const Key> word, const Side& typed, const Side& other, const Rules* rules,
+              const bool frequency) {
+    Verdict v;
+    if (word.size() < 2 || typed.Table->Script() == other.Table->Script()) {
+        return v;
+    }
+    const std::wstring text = typed.Table->Render(word);
+    const std::wstring converted = other.Table->Render(word);
+    // A start ending in a sign waits a key: "ok," or "об"
+    if (text.empty() || converted.empty() || typed.Pack->Begins(text)
+        || !(std::ranges::all_of(text, _alpha) && std::ranges::all_of(converted, _alpha)
+             || _signsAreLetters(text, converted))) {
+        return v;
+    }
+    v.Typed = text;
+    v.Fixed = converted;
+    v.Early = true;
+    v.SourceLocale = typed.Pack->Locale();
+    v.FixedLocale = other.Pack->Locale();
+    v.ScoreOriginal = typed.Pack->Score(text, true);
+    v.ScoreFixed = other.Pack->Score(converted, true);
+    const RuleHit hit = rules ? rules->Find(text, typed.Table->Script() == kCyrillic, true) : RuleHit{};
+    // Frequency analysis guards a rule as at the word end; alone it waits for more keys
+    const bool agreed = other.Pack->Begins(converted) && v.Margin() > kEarlyMargin;
+    v.WrongLayout = frequency ? agreed && (hit || word.size() >= kEarlyKeys) : static_cast<bool>(hit);
+    v.ByRule = v.WrongLayout && hit;
+    v.ByDictionary = v.WrongLayout && !hit;
+    v.Rule = hit.Pattern;
     return v;
 }
 
