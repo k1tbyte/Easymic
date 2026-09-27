@@ -44,17 +44,10 @@ int main() {
         return 1;
     }
     AppConfig old;
-    if (glz::read_json(old, std::string{R"({"Keyboard":{"ShowLayout":true},"Version":4})"})
+    if (glz::read_json(old, std::string{R"({"Keyboard":{"ShowLayout":true}})"})
         || !old.Keyboard.ShowLayout || old.Keyboard.AutoCorrect != AutoCorrectMode::Off
         || !old.Keyboard.PackA.empty() || !old.Keyboard.PackB.empty() || old.Keyboard.Learned != LearnedWords{}) {
         std::puts("keyboard missing-fields fallback failed");
-        return 1;
-    }
-    AppConfig v4;
-    if (glz::read_json(v4, std::string{R"({"Keyboard":{"PackA":"custom.pack","Exclude":"a.exe, b.exe"},"Version":4})"})
-        || v4.Keyboard.PackA != "custom.pack" || v4.Keyboard.Exclude != "a.exe, b.exe"
-        || !v4.Keyboard.PackB.empty()) {
-        std::puts("keyboard v4 new-fields parse failed");
         return 1;
     }
     std::puts("keyboard config checks passed");

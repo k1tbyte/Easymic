@@ -78,7 +78,7 @@ if ($hadConfig) { Copy-Item $cfg $backup }
 $p = $null
 $form = $null
 try {
-    $seed = @{ Core = @{ Updates = $false }; Keyboard = @{ Learned = @{ Always = @('ye'); Never = @() } }; Version = 4 }
+    $seed = @{ Core = @{ Updates = $false }; Keyboard = @{ Learned = @{ Always = @('ye'); Never = @() } } }
     [IO.File]::WriteAllText($cfg, ($seed | ConvertTo-Json -Depth 6))
     $p = Start-Process $exe -PassThru
     $main = Wait-Window $p.Id 'MainWindowClass'

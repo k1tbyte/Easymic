@@ -217,7 +217,7 @@ struct Binding {
     /// SoundCatalog key or a file path, empty means silent.
     std::string Sound;
     /// Overlay text shown when the action fires, {token} aware. Empty falls back to the action's
-    /// own default, so a config written before that default existed still gets one.
+    /// own default.
     std::string Notification;
     /// How loud this binding plays its sound, 0-100. Independent of MicSettings::BellVolume,
     /// which belongs to the mic state chime alone.
@@ -230,7 +230,6 @@ struct Binding {
 
 struct AppConfig {
 
-    static constexpr int32_t CurrentVersion = 4;
     static inline std::string DefaultPath{};
 
     CoreSettings Core;
@@ -243,16 +242,10 @@ struct AppConfig {
     std::vector<Binding> Bindings;
     /// One list behind every sound picker, whatever the picker is for.
     std::set<std::string> RecentSounds;
-    /// Which build's shape the file was written in. 0 is a file that predates the field, and
-    /// anything but the current revision is ignored whole - see Load.
-    int32_t Version = 0;
 
     bool operator==(const AppConfig&) const = default;
 
-    /// Stamped on the way out rather than on the way in, so a file this build never wrote cannot
-    /// come back claiming it did.
     void Save() {
-        Version = CurrentVersion;
 #ifdef CONFIG_ENABLED
         for (auto& binding : Bindings) {
             binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
@@ -264,36 +257,19 @@ struct AppConfig {
 #endif // CONFIG_ENABLED
     }
 
-    /**
-     * @brief Reads the file, or hands back defaults.
-     *
-     * A file from another revision is ignored whole rather than half-loaded. Unknown keys are
-     * already dropped silently, so a stale shape would come up as a list of bindings pointing at
-     * actions the registry has never heard of - which looks like a working config and is not one.
-     * Nothing migrates: the user reconfigures once.
-     */
+    /// Reads the file, or hands back defaults. Nothing migrates: a file that does not parse is
+    /// ignored whole, and a key no field has is dropped.
     static AppConfig Load()
     {
         AppConfig config{};
 #ifdef CONFIG_ENABLED
-        AppConfig loaded{};
         // A missing file is the normal first-run case, anything else means a broken config
         if (const auto ec = glz::read_file_json<glz::opts{.error_on_unknown_keys = false}>(
-                loaded, GetConfigPath(), std::string{});
+                config, GetConfigPath(), std::string{});
             ec && ec.ec != glz::error_code::file_open_failure) {
             LOG_ERROR("Config load failed: %s", glz::format_error(ec).c_str());
-            return config;
+            return {};
         }
-
-        if (loaded.Version != CurrentVersion) {
-            if (loaded.Version) {
-                LOG_WARNING("Config revision %d is not %d - starting from defaults",
-                            loaded.Version, CurrentVersion);
-            }
-            return config;
-        }
-
-        config = std::move(loaded);
 
         // Whatever the file says becomes the canonical spelling, so two bindings that mean the
         // same combination compare equal - KeyNames::Parse accepts LCTRL, which Format never

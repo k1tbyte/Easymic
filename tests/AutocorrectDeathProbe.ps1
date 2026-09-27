@@ -92,8 +92,7 @@ $userLayout = [Probe]::CurrentLayout()
 
 $json = @{ Core = @{ Updates = $false }
            Keyboard = @{ AutoCorrect = 'Space'; LogDecisions = $true }
-           Bindings = @(@{ Name = 'convert'; ActionId = 'kbd.convert_word'; Trigger = @{ Keys = 'F20' } })
-           Version = 4 } | ConvertTo-Json -Depth 6
+           Bindings = @(@{ Name = 'convert'; ActionId = 'kbd.convert_word'; Trigger = @{ Keys = 'F20' } }) } | ConvertTo-Json -Depth 6
 [IO.File]::WriteAllText($cfg, $json)
 
 $timeline = New-Object System.Collections.Generic.List[string]

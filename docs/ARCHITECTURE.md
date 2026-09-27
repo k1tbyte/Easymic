@@ -751,7 +751,8 @@ their bindings once.
 - [x] Bump `CurrentVersion` 2 -> 3
 - [x] On load, a `Version` that is not the current one means the whole file is ignored and
       defaults are used. One `if`, no mapping tables. It is checked *before* the fields are used:
-      the file is read into a scratch config and only moved across once the revision matches
+      the file is read into a scratch config and only moved across once the revision matches.
+      Later dropped with `Version` itself: a file that parses is used, one that does not is ignored
 - [x] `IndicatorState` gets a `glz::meta` so it is written by name - "2" in a file whose point is
       being hand-editable is not much better than BEVE
 - [x] Each module takes its own settings struct by reference, never the whole `AppConfig`. The

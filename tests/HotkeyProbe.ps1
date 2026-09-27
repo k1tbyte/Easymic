@@ -136,7 +136,7 @@ $bindings = @(
     @{ Name = 'undo-auto'; ActionId = 'kbd.undo_auto_convert'; Trigger = @{ Keys = 'F21' } },
     @{ Name = 'convert'; ActionId = 'kbd.convert_word'; Trigger = @{ Keys = 'F20' } }
 )
-$json = @{ Core = @{ Updates = $false }; Bindings = $bindings; Version = 4 } | ConvertTo-Json -Depth 6
+$json = @{ Core = @{ Updates = $false }; Bindings = $bindings } | ConvertTo-Json -Depth 6
 $p = $null
 if (Test-Path $cfg) { Copy-Item $cfg $backup }
 try {
@@ -204,7 +204,7 @@ try {
         $hasRules = @(Get-ChildItem (Join-Path $dir 'packs') -Filter '*.rules').Count -gt 0
         $autoChecks = @()
         $autoStep = { param($name) [Probe]::Pump(500); $script:autoChecks += "$name=$($box.Text)@$([Probe]::Layout())" }
-        $autoConfig = @{ Core = @{ Updates = $false }; Keyboard = @{ AutoCorrect = 'Space'; LogDecisions = $true }; Bindings = @($bindings[-2], $bindings[-1]); Version = 4 }
+        $autoConfig = @{ Core = @{ Updates = $false }; Keyboard = @{ AutoCorrect = 'Space'; LogDecisions = $true }; Bindings = @($bindings[-2], $bindings[-1]) }
         [IO.File]::WriteAllText($cfg, ($autoConfig | ConvertTo-Json -Depth 6))
         $p = Start-Process $exe -PassThru
         [Probe]::Pump(2500)
