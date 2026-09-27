@@ -46,7 +46,6 @@ namespace {
 
     // Input thread
     std::shared_ptr<const Runtime> _runtime;
-    Convert::LanguageContext _context;
     enum class AppStatus : uint8_t { Unknown, Allowed, Excluded };
     HWND _appWindow = nullptr;
     AppStatus _appStatus = AppStatus::Unknown;
@@ -172,7 +171,16 @@ namespace {
     }
 
     void _autoResult(Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
-                     const Convert::Verdict& verdict);
+                     const Convert::Verdict& verdict, uint64_t spaceAt);
+
+    /// A fix held the typing from its Space until it landed or was dropped (a hold that timed out drops it).
+    void _logFix(const Runtime& runtime, const Convert::Verdict& verdict, const bool landed, const uint64_t spaceAt) {
+        if (runtime.LogDecisions && verdict.WrongLayout) {
+            Dispatcher::Post([landed, ms = GetTickCount64() - spaceAt] {
+                Logger::Log(Logger::Level::Info, "Keyboard: fix %s after %llu ms", landed ? "landed" : "dropped", ms);
+            });
+        }
+    }
 
     Input::Verdict _onKey(const Input::KeyEvent& event) {
         if (const uint8_t bit = WordEdit::ModifierBit(event.Vk)) {
@@ -194,7 +202,6 @@ namespace {
         if (window != _word.Window || !allowed) {
             _drop();
             _word.Window = window;
-            _context.Clear();
             _undo = {};
         }
         if (!allowed) {
@@ -241,16 +248,15 @@ namespace {
                 if (from < 0) {
                     _skip("layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
                 } else if (!_retyped(from)) {
-                    _context.Typing((*_runtime->Packs)[from].Locale());
                     // Pinned before the hold snapshots it: the conversion reads the layout typed in
                     _word.Layout = layout;
                     const Input::HoldId before = _heldId;
-                    Input::Edit([word = _word, context = _context, runtime = _runtime,
-                                 learned = Learning::Current(), from, focus] {
+                    Input::Edit([word = _word, runtime = _runtime, learned = Learning::Current(), from, focus,
+                                 spaceAt = GetTickCount64()] {
                         const Input::HoldId id = Input::CurrentHold();
                         const Convert::Verdict verdict = Autocorrect::Decide(
-                            *runtime, *learned, {word.Keys.data(), word.Count}, from, context, focus);
-                        Input::Post([id, runtime, verdict] { _autoResult(id, runtime, verdict); });
+                            *runtime, *learned, {word.Keys.data(), word.Count}, from, focus);
+                        Input::Post([id, runtime, verdict, spaceAt] { _autoResult(id, runtime, verdict, spaceAt); });
                     });
                     if (_heldId != before) {
                         _autoSpaces = 1;
@@ -298,7 +304,6 @@ namespace {
         _undo = {};
         _erased = {};
         _erasedWhole = false;
-        _context.Clear();
         _appWindow = nullptr;
         _appStatus = AppStatus::Unknown;
         _modifiers = 0;
@@ -386,31 +391,29 @@ namespace {
             }
             _word.Layout = target->Layout();
         }
-        if (_runtime->Auto) {
-            _context.Switched((*_runtime->Packs)[1 - from].Locale());
-        }
         return true;
     }
 
     void _autoResult(const Input::HoldId id, const std::shared_ptr<const Runtime>& runtime,
-                     const Convert::Verdict& verdict) {
+                     const Convert::Verdict& verdict, const uint64_t spaceAt) {
         if (!id || id != _heldId || runtime != _runtime || !_held.Count) {
+            _logFix(*runtime, verdict, false, spaceAt);
             return;
         }
         if (!_onTarget()) {
             _heldId = 0;
+            _logFix(*runtime, verdict, false, spaceAt);
             return;
-        }
-        if (!verdict.SourceLocale.empty()) {
-            Convert::FeedContext(_context, verdict, verdict.Typed);
         }
         if (verdict.WrongLayout) {
             const Word word = _held;
-            // Only a sure fix carries the undecided words before it, context and ngram are guesses
+            // Only a sure fix carries the undecided words before it, the ngram is a guess
             if (verdict.ByDictionary || verdict.ByRule || verdict.ByUser) {
                 _held = TypedWord::Join(_heldRun, _held);
             }
-            if (_apply(id, true)) {
+            const bool landed = _apply(id, true);
+            _logFix(*runtime, verdict, landed, spaceAt);
+            if (landed) {
                 if (_held.Count != word.Count) {
                     _logRun(_heldRun);
                 }

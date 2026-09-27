@@ -34,17 +34,13 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
    exclusive, never maximized, judged when the window takes the foreground), and only once
    `Foreground` resolved it.
 2. Space -> `Input::Edit` holds key delivery -> the lane runs `Autocorrect::Decide`:
-   1. `Convert::Detect`: rules > dictionary > context > ngram (5+ letters only); no letters
+   1. `Convert::Detect`: rules > dictionary > ngram (5+ letters only); no letters
       (`1.`, `...`) - never converted;
    2. a learned word (Always / Never) overrules the detector's answer;
    3. a fix in a password field is dropped, learned or not (`SkipPasswords`, asked only for a fix).
 3. A fix -> the input thread switches the layout, then `Input::Commit` sends the edit (Backspaces,
    the other rendering as Unicode) and releases the held keys.
 4. A short word valid in both languages waits in the run; a sure fix of the next word converts both.
-
-The context holds the languages of up to 6 recent sure decisions and fixes. It restarts on a focus
-change, when a word is typed in another language's layout than the last one, and at a fix or a
-conversion, which it then holds.
 
 Rule guards: an `E` rule only cancels a rule; a rule never flips a word the dictionary knows; a
 word with punctuation or a mid-word rule also needs the dictionary or ngram to agree.

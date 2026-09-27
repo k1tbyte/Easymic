@@ -337,8 +337,6 @@ namespace {
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::SkipPasswords>()},
         {.Kind = RowKind::Check, .Label = L"Don't convert in fullscreen apps (games)",
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::SkipFullscreen>()},
-        {.Kind = RowKind::Check, .Label = L"Use language context",
-         .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::UseContext>()},
         {.Kind = RowKind::Slider, .Label = L"Threshold (0 = pack)",
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::Threshold>(), .Min = 0, .Max = 200},
         {.Kind = RowKind::SoundPicker, .Label = L"Sound on a fix",

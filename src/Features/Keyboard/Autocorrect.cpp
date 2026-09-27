@@ -47,7 +47,6 @@ namespace {
         runtime->Threshold = settings.Threshold;
         runtime->SkipPasswords = settings.SkipPasswords;
         runtime->SkipFullscreen = settings.SkipFullscreen;
-        runtime->UseContext = settings.UseContext;
         runtime->LogDecisions = settings.LogDecisions;
         for (const auto& exe : KeyboardExclusions::Parse(settings.Exclude)) {
             runtime->Excluded.insert(exe);
@@ -68,12 +67,10 @@ namespace {
     }
 
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned,
-                            const std::span<const Convert::Key> word, const int from,
-                            const Convert::LanguageContext& context, const HWND focus) {
+                            const std::span<const Convert::Key> word, const int from, const HWND focus) {
         const Convert::Side source{&runtime.Table(from), &(*runtime.Packs)[from]};
         const Convert::Side target{&runtime.Table(1 - from), &(*runtime.Packs)[1 - from]};
-        Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.UseContext ? &context : nullptr,
-                                                   runtime.Threshold / 100.0, &runtime.Rules);
+        Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.Threshold / 100.0, &runtime.Rules);
         if (const auto always = Learning::Answer(learned, verdict.Typed); always && !verdict.Fixed.empty()) {
             verdict.WrongLayout = *always;
             verdict.ByUser = true;
@@ -90,9 +87,9 @@ namespace {
             const std::string typed = Str::WideToUtf8(verdict.Typed);
             const std::string fixed = Str::WideToUtf8(verdict.Fixed);
             const std::string rule = verdict.ByRule ? " " + Str::WideToUtf8(verdict.Rule) : "";
-            Logger::Log(Logger::Level::Info, "Keyboard: %s %s -> %s (%s%s, margin=%.2f, pref=%.2f)",
+            Logger::Log(Logger::Level::Info, "Keyboard: %s %s -> %s (%s%s, margin=%.2f)",
                         verdict.WrongLayout ? "FIX" : "ok", typed.c_str(), fixed.c_str(), verdict.Reason(),
-                        rule.c_str(), verdict.Margin(), verdict.Preference);
+                        rule.c_str(), verdict.Margin());
         }
         return verdict;
     }

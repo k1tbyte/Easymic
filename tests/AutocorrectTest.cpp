@@ -3,7 +3,6 @@
 #include <fstream>
 #include <string>
 
-#include "Features/Keyboard/Convert/Detector.hpp"
 #include "Features/Keyboard/Convert/Rules.hpp"
 #include "Features/Keyboard/TypedWord.hpp"
 #include "Platform/Str.hpp"
@@ -63,35 +62,11 @@ namespace {
         full.Count = 60;
         _check(TypedWord::Join(full, _word("UKZYE", 1, us)).Count == 5, "overflow keeps the word");
     }
-
-    // The 2026-09-27 log: after a clear, "не" read a stale "en" slot and became "yt"
-    void _context() {
-        Convert::LanguageContext context;
-        for (int i = 0; i < 4; ++i) {
-            context.Note("en");
-        }
-        context.Clear();
-        context.Note("ru");
-        _check(context.Preference("ru", "en") == -1.0, "a cleared context forgets its old slots");
-
-        context.Typing("en");
-        context.Note("en");
-        context.Typing("en");
-        _check(!context.Empty(), "the same language keeps the context");
-        context.Typing("ru");
-        _check(context.Empty(), "a switch to another language's layout restarts it");
-
-        context.Note("ru");
-        context.Switched("en");
-        context.Typing("en");
-        _check(context.Preference("en", "ru") == -1.0, "a fix restarts the context with its language");
-    }
 }
 
 int main() {
     _rules();
     _join();
-    _context();
     if (_failures) {
         return 1;
     }

@@ -315,7 +315,6 @@ int _runRepl(const std::vector<std::string>& args) {
               _wide(sides[s].Layout->Id));
     }
 
-    Convert::LanguageContext context;
     std::wstring input;
     while (Console::ReadLine(input)) {
         if (input.empty()) {
@@ -343,14 +342,11 @@ int _runRepl(const std::vector<std::string>& args) {
         const Convert::Side typed{sides[typedIdx].Layout->Table.get(), &sides[typedIdx].Pack};
         const Convert::Side other{sides[otherIdx].Layout->Table.get(), &sides[otherIdx].Pack};
 
-        context.Typing(sides[typedIdx].Pack.Locale());
-        const Convert::Verdict v = Convert::Detect(keys, typed, other, &context, thresholdOverride,
-                                                   rules.Count() ? &rules : nullptr);
+        const Convert::Verdict v = Convert::Detect(keys, typed, other, thresholdOverride, rules.Count() ? &rules : nullptr);
         if (v.SourceLocale.empty()) {
             _line(L"  no language matched");
         } else {
-            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin()) +
-                                     L" pref=" + _num(v.Preference);
+            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin());
             if (v.WrongLayout) {
                 _line(L"  FIX -> " + v.Fixed + L"   [" + _wide(std::string(v.SourceLocale)) +
                       L" to " + _wide(std::string(v.FixedLocale)) + L", " + why + L"]");
@@ -358,11 +354,6 @@ int _runRepl(const std::vector<std::string>& args) {
                 _line(L"  ok   [" + _wide(std::string(v.SourceLocale)) + L", " + why +
                       L", alt: " + v.Fixed + L"]");
             }
-        }
-        Convert::FeedContext(context, v, input);
-        // As the app does once a fix lands
-        if (v.WrongLayout) {
-            context.Switched(v.FixedLocale);
         }
     }
     return 0;

@@ -1,7 +1,6 @@
 #include "Detector.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <ranges>
 #include <utility>
 
@@ -9,9 +8,6 @@ namespace Convert {
 
 namespace {
 
-    constexpr double kShortContextMin = 0.25;
-    constexpr double kTieContextMin = 0.5;
-    constexpr double kContextWeight = 1.0;
     // Under three trigrams one sample decides: "щас" reads as the likelier "ofc"
     constexpr size_t kNgramMinLetters = 5;
     constexpr uint8_t kCyrillic = 4;
@@ -31,35 +27,8 @@ namespace {
 
 } // anonymous namespace
 
-void LanguageContext::Note(std::string_view locale) {
-    if (locale.empty()) {
-        return;
-    }
-    _ring[_head] = std::string(locale);
-    _head = (_head + 1) % Depth;
-    if (_count < Depth) {
-        ++_count;
-    }
-}
-
-double LanguageContext::Preference(std::string_view source, std::string_view candidate) const {
-    if (_count == 0) {
-        return 0.0;
-    }
-    double forSource = 0.0, forCandidate = 0.0;
-    for (size_t i = 0; i < _count; ++i) {
-        const std::string& loc = _ring[i];
-        if (loc == source) {
-            forSource += 1.0;
-        } else if (loc == candidate) {
-            forCandidate += 1.0;
-        }
-    }
-    return (forCandidate - forSource) / static_cast<double>(_count);
-}
-
 Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
-               const LanguageContext* context, double thresholdOverride, const Rules* rules) {
+               double thresholdOverride, const Rules* rules) {
     Verdict v;
     const std::wstring text = typed.Table->Render(word);
     if (text.empty()) {
@@ -86,13 +55,7 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     }
     const int hitsCandidate = _hits(*other.Pack, converted).first;
 
-    const double scoreCandidate = other.Pack->Score(converted);
-    v.ScoreFixed = scoreCandidate;
-
-    const double preference =
-        context ? context->Preference(v.SourceLocale, v.FixedLocale) : 0.0;
-
-    v.Preference = preference;
+    v.ScoreFixed = other.Pack->Score(converted);
 
     if (rules && typed.Table->Script() != other.Table->Script()) {
         // A pattern never flips a known word; punctuation or a mid-word pattern needs the
@@ -113,14 +76,13 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
         return v;
     }
 
-    const auto decideByContext = [&](double minimum) {
-        v.ByContext = true;
-        v.WrongLayout = preference >= minimum;
-        v.Undecided = !v.WrongLayout && preference >= 0 && hitsSource && hitsCandidate
-                      && letters >= 2 && letters != std::wstring::npos;
+    // Too short to tell, or a word of both languages: kept, and the next word decides (the run)
+    const auto ambiguous = [&] {
+        v.Ambiguous = true;
+        v.Undecided = hitsSource && hitsCandidate && letters >= 2 && letters != std::wstring::npos;
     };
     if (letters <= 2) {
-        decideByContext(kShortContextMin);
+        ambiguous();
         return v;
     }
 
@@ -130,7 +92,7 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     }
 
     if (hitsSource > 0) {
-        decideByContext(kTieContextMin);
+        ambiguous();
         return v;
     }
 
@@ -140,16 +102,8 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
 
     const double threshold =
         thresholdOverride > 0.0 ? thresholdOverride : other.Pack->Threshold();
-    v.WrongLayout = v.Margin() > threshold - kContextWeight * preference;
+    v.WrongLayout = v.Margin() > threshold;
     return v;
-}
-
-void FeedContext(LanguageContext& ctx, const Verdict& v, std::wstring_view typedText) {
-    // A fix counts once it lands (`Switched`): a declined one must not tilt the context
-    const bool confident = v.ByContext && std::abs(v.Preference) >= 0.6;
-    if (!v.WrongLayout && ((v.ByDictionary && TrimWord(typedText).size() >= 3) || confident)) {
-        ctx.Note(v.SourceLocale);
-    }
 }
 
 }

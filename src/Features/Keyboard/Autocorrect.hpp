@@ -27,7 +27,6 @@ namespace Autocorrect {
         bool Auto = false;
         bool SkipPasswords = true;
         bool SkipFullscreen = true;
-        bool UseContext = true;
         bool LogDecisions = false;
 
         /// The pair's table, the language its pack speaks.
@@ -44,7 +43,7 @@ namespace Autocorrect {
     /// Edit lane: the verdict on a word typed on pair side `from`, the user's words over all, logged when
     /// asked. A fix in a password field of `focus` becomes an empty verdict.
     Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
-                            int from, const Convert::LanguageContext& context, HWND focus);
+                            int from, HWND focus);
 
     /// Input thread: an automatic fix landed; its sound and notification go to the action worker.
     void Announce(std::wstring typed, std::wstring fixed);

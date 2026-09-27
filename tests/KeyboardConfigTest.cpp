@@ -8,7 +8,7 @@ int main() {
     AppConfig cfg;
     const auto defaults = cfg.Keyboard;
     if (defaults.AutoCorrect || !defaults.Exclude.empty() || defaults.Threshold
-        || !defaults.UseContext || defaults.LogDecisions
+        || defaults.LogDecisions
         || !defaults.PackA.empty() || !defaults.PackB.empty() || defaults.Learned != LearnedWords{}
         || !defaults.FixSound.empty() || defaults.FixNotification || !defaults.SkipPasswords
         || !defaults.SkipFullscreen) {
@@ -19,7 +19,6 @@ int main() {
     Bind<&AppConfig::Keyboard, &KeyboardSettings::AutoCorrect>().Set(cfg, true);
     Bind<&AppConfig::Keyboard, &KeyboardSettings::Exclude>().Text(cfg) = "notepad.exe, chrome.exe";
     Bind<&AppConfig::Keyboard, &KeyboardSettings::Threshold>().Set(cfg, 42);
-    Bind<&AppConfig::Keyboard, &KeyboardSettings::UseContext>().Set(cfg, false);
     Bind<&AppConfig::Keyboard, &KeyboardSettings::LogDecisions>().Set(cfg, true);
     cfg.Keyboard.PackA = "en.pack";
     cfg.Keyboard.PackB = "ru.pack";
@@ -45,7 +44,7 @@ int main() {
     }
     AppConfig old;
     if (glz::read_json(old, std::string{R"({"Keyboard":{"ShowLayout":true},"Version":4})"})
-        || !old.Keyboard.ShowLayout || old.Keyboard.AutoCorrect || !old.Keyboard.UseContext
+        || !old.Keyboard.ShowLayout || old.Keyboard.AutoCorrect
         || !old.Keyboard.PackA.empty() || !old.Keyboard.PackB.empty() || old.Keyboard.Learned != LearnedWords{}) {
         std::puts("keyboard missing-fields fallback failed");
         return 1;
