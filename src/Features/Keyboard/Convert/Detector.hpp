@@ -39,7 +39,8 @@ namespace Convert {
         }
     };
 
+    /// `frequency` off: Punto and a dictionary - rules unguarded but for known words, then the dictionary, no ngram.
     Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
-                   double thresholdOverride = 0, const Rules* rules = nullptr);
+                   double thresholdOverride = 0, const Rules* rules = nullptr, bool frequency = true);
 
 }

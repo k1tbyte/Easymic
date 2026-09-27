@@ -46,7 +46,8 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 4. A short word valid in both languages waits in the run; a sure fix of the next word converts both.
 
 Rule guards: an `E` rule only cancels a rule; a rule never flips a word the dictionary knows; a
-word with punctuation or a mid-word rule also needs the dictionary or ngram to agree.
+mid-word rule also needs the ngram to agree, a word with a sign the dictionary unless the sign is a
+letter of the other side (`bv,f` = имба). `FrequencyAnalysis` off drops the guards and the ngram.
 
 ## Data: `packs/` next to the exe
 

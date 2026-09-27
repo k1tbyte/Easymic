@@ -25,10 +25,19 @@ namespace {
         return {hits, words};
     }
 
+    bool _alpha(const wchar_t c) { return IsCharAlphaW(c); }
+
+    /// A sign is a letter of the other side (`bv,f` = имба) unless it is punctuation more often: not a letter
+    /// there (`ц.у` = `w/e`), at the end (`ofc.`), in a short token (`:p`), after a lone first letter (`e.g`).
+    bool _signsAreLetters(const std::wstring& text, const std::wstring& converted) {
+        return std::ranges::all_of(converted, _alpha) && _alpha(text.back())
+               && std::ranges::count_if(text, _alpha) >= 3 && (!_alpha(text[0]) || _alpha(text[1]));
+    }
+
 } // anonymous namespace
 
 Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
-               double thresholdOverride, const Rules* rules) {
+               double thresholdOverride, const Rules* rules, const bool frequency) {
     Verdict v;
     const std::wstring text = typed.Table->Render(word);
     if (text.empty()) {
@@ -58,12 +67,13 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     v.ScoreFixed = other.Pack->Score(converted);
 
     if (rules && typed.Table->Script() != other.Table->Script()) {
-        // A pattern never flips a known word; punctuation or a mid-word pattern needs the
-        // dictionary's or the ngram's agreement too (compounds, "ofc.", "uk,ru")
+        // A pattern never flips a known word. Frequency analysis guards it too: punctuation needs the
+        // dictionary's agreement, a mid-word pattern the ngram's ("ofc.", "uk,ru")
         const RuleHit hit = rules->Find(text, typed.Table->Script() == kCyrillic);
         const bool known = hitsSource > 0 && hitsCandidate == 0;
-        const bool plain = std::ranges::all_of(text, [](const wchar_t c) { return IsCharAlphaW(c); });
-        if (hit && !known && (hitsCandidate > 0 || plain) && (!hit.Anywhere || v.Margin() > 0)) {
+        const bool allLetters = std::ranges::all_of(text, _alpha) || _signsAreLetters(text, converted);
+        const bool agreed = (hitsCandidate > 0 || allLetters) && (!hit.Anywhere || v.Margin() > 0);
+        if (hit && !known && (agreed || !frequency)) {
             v.WrongLayout = v.ByRule = true;
             v.Rule = hit.Pattern;
             return v;
@@ -96,7 +106,8 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
         return v;
     }
 
-    if (letters < kNgramMinLetters) {
+    // Letters on the other side count: "и.т.д" makes three ("b/n/l")
+    if (!frequency || letters < kNgramMinLetters || std::ranges::count_if(converted, _alpha) < kNgramMinLetters) {
         return v;
     }
 

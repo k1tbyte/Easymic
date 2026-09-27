@@ -22,11 +22,15 @@ before 2026-09-27).
 - `Detect`, in order: rules (Punto's, below) > dictionary > ngram. A token with no letters (`1.`, `...`)
   is never converted. A word of 2 letters or less, or one both dictionaries know, is kept (`ambiguous`);
   if both know it and it has 2+ letters it waits in the run. The ngram decides only single words of 5+
-  letters (3+ trigrams), against the pack's threshold.
+  letters on both sides (3+ trigrams; `и.т.д` makes `b/n/l`, 3 letters), against the pack's threshold.
 - Rule guards: an `E` rule only cancels a rule; a rule never flips a word the dictionary knows (typed is a
-  hit, the conversion a miss); a word with punctuation, or an anywhere rule, also needs the dictionary or
-  the ngram to agree. Rules match the word rendered through the pair's tables (= key positions for US/RU)
-  and are skipped when both sides share a script.
+  hit, the conversion a miss); an anywhere rule also needs the ngram to agree, and a word with a sign the
+  dictionary - unless the sign is a letter of the other side (`bv,f` = имба): it converts to a letter, the
+  word ends in a letter, has 3+ letters and does not start with a lone letter (`e.g`, `:p`, `ofc.`, `ц.у`
+  stay). Rules match the word rendered through the pair's tables (= key positions for US/RU) and are
+  skipped when both sides share a script.
+- `FrequencyAnalysis` off (for testing Punto and a dictionary): rules unguarded but for known words, then
+  the dictionary, no ngram. Without rules that leaves the dictionary alone (7% of rare English fixed).
 - The run (`TypedWord::Join`): an `Undecided` word moves into `_run` when the next word starts after 1-7
   spaces; any other clear drops it. A sure fix of the next word (dictionary, rule, learned) erases and
   retypes both; an ngram fix is a guess and does not carry it. The phrase becomes the current word, so
@@ -55,7 +59,7 @@ before 2026-09-27).
 - `LogDecisions`: every verdict (word, reason, rule, margin), what was learned, why a Space was skipped,
   and how long each fix took from its Space until it landed or was dropped - off the input thread.
 - Config `KeyboardSettings`: `PairA`/`PairB`, `PackA`/`PackB` (empty = `<locale>.pack`), `AutoCorrect`,
-  `Exclude`, `Threshold` (hundredths, 0 = pack), `LogDecisions`, `Learned`, `SkipPasswords`,
+  `Exclude`, `Threshold` (hundredths, 0 = pack), `FrequencyAnalysis`, `LogDecisions`, `Learned`, `SkipPasswords`,
   `SkipFullscreen`, `FixSound`, `FixSoundVolume`, `FixNotification`.
 
 ## Punto Switcher, reverse engineered
@@ -128,6 +132,20 @@ Personal build, never distributed: Punto's data may be used here, never in a pub
   fix and never help one. It blocked real fixes (`путырше` -> `genshit`) and the run mid-text, and on
   6000 dictionary forms and 188 out-of-vocabulary words it prevented no false fix.
 - The next word decides a word of both languages (the run).
+- Punto's rules keep our guards (measured 2026-09-27; fixed / false switches). Without them (rules decide,
+  the dictionary vetoes known words, no ngram) the slang comes back but rare English words break
+  (`ashtray` -> `фырекфн`, 51 of 2000); a 100k English dictionary still leaves 47. Never flipping any known
+  word drops real text to 92%. Only the sign guard was narrowed (a sign as a letter, above); a review
+  caught `e.g`, `i'd`, `:p`, `@foo`, `ц.у` flipping under a looser first try. 60 such tokens stay put.
+
+  | Set | Punto | ours | ours + rules | Punto + dictionary |
+  |---|---|---|---|---|
+  | real text, 325 | 98% / 3 | 91% / 0 | 98% / 0 | 99% / 2 |
+  | ru random forms, 2000 | 100% / 9 | 100% / 0 | 100% / 0 | 100% / 0 |
+  | en random words, 2000 | 98% / 51 | 98% / 2 | 100% / 6 | 98% / 51 |
+  | en top 25k, 2000 | 97% / 15 | 99% / 0 | 99% / 5 | 99% / 5 |
+  | en brands and terms, 108 | 96% / 7 | 88% / 2 | 97% / 2 | 95% / 7 |
+  | ru slang, 80 | 93% / 2 | 64% / 2 | 83% / 3 (74% / 4 before) | 94% / 3 |
 - Learned words live in the config, edited on the settings page under the same Apply/Cancel.
 
 ## Plan: smooth switching

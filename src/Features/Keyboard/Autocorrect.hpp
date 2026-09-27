@@ -25,6 +25,7 @@ namespace Autocorrect {
         Convert::Rules Rules;
         std::unordered_set<std::string> Excluded;
         uint16_t Threshold = 0;
+        bool Frequency = true;
         bool Auto = false;
         bool SkipPasswords = true;
         bool SkipFullscreen = true;

@@ -11,7 +11,7 @@ int main() {
         || defaults.LogDecisions
         || !defaults.PackA.empty() || !defaults.PackB.empty() || defaults.Learned != LearnedWords{}
         || !defaults.FixSound.empty() || defaults.FixNotification || !defaults.SkipPasswords
-        || !defaults.SkipFullscreen) {
+        || !defaults.SkipFullscreen || !defaults.FrequencyAnalysis) {
         std::puts("keyboard defaults failed");
         return 1;
     }
@@ -27,6 +27,7 @@ int main() {
     cfg.Keyboard.FixSoundVolume = 30;
     cfg.Keyboard.FixNotification = true;
     cfg.Keyboard.SkipFullscreen = false;
+    cfg.Keyboard.FrequencyAnalysis = false;
 
     std::string json;
     if (glz::write_json(cfg, json)) {

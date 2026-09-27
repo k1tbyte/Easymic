@@ -70,13 +70,14 @@ only, never committed (see `docs/LAYOUT.md`).
 ### Line mode (default)
 
 ```
-langpack [--packs dir] [--pair en,ru] [--threshold X] [--rules file ...]
+langpack [--packs dir] [--pair en,ru] [--threshold X] [--frequency off] [--rules file ...]
 ```
 
 Loads packs from `dir`, binds each language of the pair to its first installed
 layout, and reads lines until an empty one. For each line the typed side is
 picked by alphabet coverage, the text is mapped to key positions through that
-side's reverse map, and `Detect` runs with the rules. Prints:
+side's reverse map, and `Detect` runs with the rules (`--frequency off`: as with
+`FrequencyAnalysis` off, no ngram and no rule guards). Prints:
 
 ```
   FIX -> fixed text   [source to target, reason margin=X.XX]

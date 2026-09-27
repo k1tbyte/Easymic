@@ -249,9 +249,12 @@ int _runRepl(const std::vector<std::string>& args) {
     std::string packDir = "packs";
     std::string pair;
     double thresholdOverride = 0.0;
+    bool frequency = true;
     Convert::Rules rules;
     for (size_t i = 0; i + 1 < args.size(); i += 2) {
-        if (args[i] == "--rules") {
+        if (args[i] == "--frequency") {
+            frequency = args[i + 1] != "off";
+        } else if (args[i] == "--rules") {
             if (!rules.Load(args[i + 1])) {
                 _line(L"cannot read " + _wide(args[i + 1]));
                 return 1;
@@ -267,7 +270,7 @@ int _runRepl(const std::vector<std::string>& args) {
 
     const auto langs = _split(pair, ',');
     if (langs.size() != 2) {
-        _line(L"usage: langpack [--packs dir] [--pair en,ru] [--threshold X]");
+        _line(L"usage: langpack [--packs dir] [--pair en,ru] [--threshold X] [--frequency off] [--rules file ...]");
         return 2;
     }
 
@@ -342,7 +345,8 @@ int _runRepl(const std::vector<std::string>& args) {
         const Convert::Side typed{sides[typedIdx].Layout->Table.get(), &sides[typedIdx].Pack};
         const Convert::Side other{sides[otherIdx].Layout->Table.get(), &sides[otherIdx].Pack};
 
-        const Convert::Verdict v = Convert::Detect(keys, typed, other, thresholdOverride, rules.Count() ? &rules : nullptr);
+        const Convert::Verdict v = Convert::Detect(keys, typed, other, thresholdOverride, rules.Count() ? &rules : nullptr,
+                                                     frequency);
         if (v.SourceLocale.empty()) {
             _line(L"  no language matched");
         } else {

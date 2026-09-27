@@ -100,6 +100,12 @@ try {
     Assert ([SettingsProbe]::Message($packA, 0x147, 0, [IntPtr]::Zero).ToInt32() -eq 1) 'Pack selection lost after changing layout back'
     [SettingsProbe]::Select($page, 1064, 1)
 
+    $frequency = [SettingsProbe]::GetDlgItem($page, 1128)
+    Assert ([SettingsProbe]::Message($frequency, 0xF0, 0, [IntPtr]::Zero).ToInt32() -eq 1) 'Frequency analysis is not on by default'
+    Assert ([SettingsProbe]::IsWindowEnabled([SettingsProbe]::GetDlgItem($page, 1144))) 'Threshold disabled with frequency analysis on'
+    [SettingsProbe]::Message($frequency, 0xF5, 0, [IntPtr]::Zero) | Out-Null
+    Assert (-not [SettingsProbe]::IsWindowEnabled([SettingsProbe]::GetDlgItem($page, 1144))) 'Threshold enabled without frequency analysis'
+
     [SettingsProbe]::Message($page, 0x115, 7, [IntPtr]::Zero) | Out-Null
     $panel = [SettingsProbe]::Child($page, 'EasyLauncher.KeyboardLists')
     Assert ($panel -ne [IntPtr]::Zero) 'Excluded apps panel missing'
@@ -142,6 +148,7 @@ try {
     $saved = Get-Content $cfg -Raw | ConvertFrom-Json
     Assert ($saved.Keyboard.PackA -eq 'en.pack' -and $saved.Keyboard.PackB -eq 'ru.pack') 'Pack selections were not saved'
     Assert ($saved.Keyboard.Exclude -eq 'chrome.exe, notepad.exe') 'App exclusions were not saved'
+    Assert ($saved.Keyboard.FrequencyAnalysis -eq $false) 'Frequency analysis was not saved'
     Assert ("$($saved.Keyboard.Learned.Always)|$($saved.Keyboard.Learned.Never)" -eq 'ye|ofc') 'Learned words were not saved'
 
     Assert ([SettingsProbe]::PostMessageW($main, 0x111, [IntPtr]40010, [IntPtr]::Zero)) 'Cannot reopen settings'

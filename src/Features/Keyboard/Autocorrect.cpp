@@ -60,6 +60,7 @@ namespace {
         }
         runtime->Pair = {static_cast<size_t>(a), static_cast<size_t>(b)};
         runtime->Threshold = settings.Threshold;
+        runtime->Frequency = settings.FrequencyAnalysis;
         runtime->SkipPasswords = settings.SkipPasswords;
         runtime->SkipFullscreen = settings.SkipFullscreen;
         runtime->LogDecisions = settings.LogDecisions;
@@ -85,7 +86,8 @@ namespace {
                             const std::span<const Convert::Key> word, const int from) {
         const Convert::Side source{&runtime.Table(from), &(*runtime.Packs)[from]};
         const Convert::Side target{&runtime.Table(1 - from), &(*runtime.Packs)[1 - from]};
-        Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.Threshold / 100.0, &runtime.Rules);
+        Convert::Verdict verdict = Convert::Detect(word, source, target, runtime.Threshold / 100.0, &runtime.Rules,
+                                                     runtime.Frequency);
         if (const auto always = Learning::Answer(learned, verdict.Typed); always && !verdict.Fixed.empty()) {
             verdict.WrongLayout = *always;
             verdict.ByUser = true;

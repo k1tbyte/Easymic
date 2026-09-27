@@ -83,6 +83,8 @@ struct KeyboardSettings {
     bool SkipFullscreen = true;
     std::string Exclude;
     uint16_t Threshold = 0;
+    /// Off: Punto's rules and the dictionary only, no ngram and no guards on the rules.
+    bool FrequencyAnalysis = true;
     bool LogDecisions = false;
     LearnedWords Learned;
     /// What an automatic fix plays and says once it landed: a SoundCatalog key or file, empty for none.
