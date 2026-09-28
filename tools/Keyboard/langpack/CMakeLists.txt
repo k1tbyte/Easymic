@@ -30,13 +30,18 @@ if(LANGPACK_EN_INPUT)
         message(FATAL_ERROR "English list not found: ${LANGPACK_EN_INPUT}")
     endif()
     set(EN_WORDS "${CMAKE_CURRENT_BINARY_DIR}/en_filtered.txt")
+    set(EN_MERGED "${CMAKE_CURRENT_BINARY_DIR}/en_words.txt")
     add_custom_command(OUTPUT "${PACK_DIR}/en.pack"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${PACK_DIR}"
             COMMAND "${CMAKE_COMMAND}" "-DINPUT_FILE=${LANGPACK_EN_INPUT}"
                     "-DOUTPUT_FILE=${EN_WORDS}" "-DTOP_N=${LANGPACK_EN_TOP}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/filter_en.cmake"
-            COMMAND "$<TARGET_FILE:langpack>" pack "${EN_WORDS}" en "${PACK_DIR}/en.pack" --fp 0.00001
+            COMMAND "${CMAKE_COMMAND}" "-DINPUT_FILE=${EN_WORDS}"
+                    "-DEXTRA_FILE=${CMAKE_CURRENT_SOURCE_DIR}/words/en.txt" "-DOUTPUT_FILE=${EN_MERGED}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/supplement.cmake"
+            COMMAND "$<TARGET_FILE:langpack>" pack "${EN_MERGED}" en "${PACK_DIR}/en.pack" --fp 0.00001
             DEPENDS langpack "${LANGPACK_EN_INPUT}" "${CMAKE_CURRENT_SOURCE_DIR}/filter_en.cmake"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/supplement.cmake" "${CMAKE_CURRENT_SOURCE_DIR}/words/en.txt"
             VERBATIM)
     add_custom_target(langpack_en DEPENDS "${PACK_DIR}/en.pack")
 endif()
@@ -45,10 +50,15 @@ if(LANGPACK_RU_INPUT)
     if(NOT EXISTS "${LANGPACK_RU_INPUT}")
         message(FATAL_ERROR "Russian list not found: ${LANGPACK_RU_INPUT}")
     endif()
+    set(RU_MERGED "${CMAKE_CURRENT_BINARY_DIR}/ru_words.txt")
     add_custom_command(OUTPUT "${PACK_DIR}/ru.pack"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${PACK_DIR}"
-            COMMAND "$<TARGET_FILE:langpack>" pack "${LANGPACK_RU_INPUT}" ru "${PACK_DIR}/ru.pack"
-            DEPENDS langpack "${LANGPACK_RU_INPUT}"
+            COMMAND "${CMAKE_COMMAND}" "-DINPUT_FILE=${LANGPACK_RU_INPUT}"
+                    "-DEXTRA_FILE=${CMAKE_CURRENT_SOURCE_DIR}/words/ru.txt" "-DOUTPUT_FILE=${RU_MERGED}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/supplement.cmake"
+            COMMAND "$<TARGET_FILE:langpack>" pack "${RU_MERGED}" ru "${PACK_DIR}/ru.pack"
+            DEPENDS langpack "${LANGPACK_RU_INPUT}" "${CMAKE_CURRENT_SOURCE_DIR}/supplement.cmake"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/words/ru.txt"
             VERBATIM)
     add_custom_target(langpack_ru DEPENDS "${PACK_DIR}/ru.pack")
 endif()

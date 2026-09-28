@@ -67,6 +67,7 @@ if ($Test) {
     if ($LASTEXITCODE -ne 0) { throw "keyboard config tests failed" }
     & (Join-Path $buildDir "AutocorrectTest.exe")
     if ($LASTEXITCODE -ne 0) { throw "autocorrect tests failed" }
+    & (Join-Path $root "tests\Keyboard\DetectionBenchTest.ps1")
 }
 
 if ($Tools) {

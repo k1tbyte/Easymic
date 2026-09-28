@@ -31,17 +31,20 @@ namespace Convert {
         bool Undecided = false;
         /// On the word so far, mid-word.
         bool Early = false;
+        /// A fix was refused: the other side's rules call the result impossible, or it holds signs for letters.
+        bool Implausible = false;
         std::wstring Rule;
         std::string_view SourceLocale;
         std::string_view FixedLocale;
 
         double Margin() const { return ScoreFixed - ScoreOriginal; }
         const char* Reason() const {
-            return ByUser ? "user" : ByRule ? "rule" : ByDictionary ? "dict" : Ambiguous ? "ambiguous" : "ngram";
+            return ByUser ? "user" : ByRule ? "rule" : ByDictionary ? "dict" : Implausible ? "implausible"
+                   : Ambiguous ? "ambiguous" : "ngram";
         }
     };
 
-    /// `frequency` off: Punto and a dictionary - rules unguarded but for known words, then the dictionary, no ngram.
+    /// `frequency` off: rules and dictionaries, still preserving known words, flags and numeric tokens.
     Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
                    double thresholdOverride = 0, const Rules* rules = nullptr, bool frequency = true);
 

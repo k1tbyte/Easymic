@@ -31,4 +31,15 @@ double NgramScore(const std::wstring& symbols, const uint32_t* tri,
     return n ? sum / static_cast<double>(n) : -20.0;
 }
 
+size_t NgramUnseen(const std::wstring& symbols, const uint32_t* tri, const std::wstring& text, const bool open) {
+    const Alphabet alphabet(symbols);
+    const uint64_t v = alphabet.Size();
+    const std::vector<uint32_t> seq = alphabet.Encode(text, open);
+    size_t unseen = 0;
+    for (size_t i = 2; i < seq.size(); ++i) {
+        unseen += tri[(seq[i - 2] * v + seq[i - 1]) * v + seq[i]] == 0;
+    }
+    return unseen;
+}
+
 }

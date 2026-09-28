@@ -94,6 +94,11 @@ namespace {
         return built;
     }
 
+    /// Words that give `target` every trigram without being a word themselves: a plausible unknown word.
+    std::wstring _around(const std::wstring& target, const wchar_t pad = L'и') {
+        return target + pad + L'\n' + pad + target + L'\n';
+    }
+
     void _detect() {
         HKL installed[32]{};
         const int count = GetKeyboardLayoutList(32, installed);
@@ -111,18 +116,22 @@ namespace {
         const auto temp = std::filesystem::temp_directory_path();
         const auto enPath = temp / L"easylauncher-test-en.pack", ruPath = temp / L"easylauncher-test-ru.pack";
         const auto rulesPath = temp / L"easylauncher-test-detect.rules";
-        std::ofstream(rulesPath, std::ios::binary) << "\xEF\xBB\xBF_P hello\n_B vbh\n";
+        std::ofstream(rulesPath, std::ios::binary) << "\xEF\xBB\xBF_P hello\n_B vbh\n_P vs\n_P b\n_B hellp\n_B lff\n_P fff\n"
+                                                   << Str::WideToUtf8(L"_B хат\n");
         {
             Convert::Pack enPack, ruPack;
             Convert::Rules rules;
-            _check(_pack(enPath, "en", L"hello\nvs\nworld\n") && _pack(ruPath, "ru", L"привет\nмы\nмир\n")
+            _check(_pack(enPath, "en", L"hello\nvs\nworld\n" + _around(L"hellp", L'a'))
+                   && _pack(ruPath, "ru", L"привет\nмы\nмир\nи\nз\nда\nкасса\n" + _around(L"даа") + _around(L"руддз")
+                                              + _around(L"мировой"))
                    && enPack.Load(enPath.wstring()) && ruPack.Load(ruPath.wstring()) && rules.Load(rulesPath),
                    "packs and rules load");
             const Convert::LayoutTable enTable(layout(0x0409)), ruTable(layout(0x0419));
             const Convert::Side en{&enTable, &enPack}, ru{&ruTable, &ruPack};
-            const auto detect = [&](const char* keys, const Convert::Side& typed, const Convert::Side& other) {
+            const auto detect = [&](const char* keys, const Convert::Side& typed, const Convert::Side& other,
+                                    const bool frequency = true) {
                 const TypedWord::Word word = _word(keys, 0, nullptr);
-                return Convert::Detect({word.Keys.data(), word.Count}, typed, other, 0, &rules);
+                return Convert::Detect({word.Keys.data(), word.Count}, typed, other, 0, &rules, frequency);
             };
             const auto early = [&](const char* keys, const bool frequency) {
                 const TypedWord::Word word = _word(keys, 0, nullptr);
@@ -133,11 +142,50 @@ namespace {
             _check(fixed.WrongLayout && fixed.ByDictionary && fixed.Fixed == L"привет", "a word of the other side");
             _check(detect("HELLO", ru, en).Fixed == L"hello" && detect("HELLO", ru, en).WrongLayout, "and back");
             _check(!detect("HELLO", en, ru).WrongLayout, "a known word stays, a rule on it or not");
-            _check(detect("VS", en, ru).Undecided, "a short word of both languages waits for the next");
-            _check(detect("VBHJDJQ", en, ru).ByRule, "a rule converts what no dictionary knows");
+            const auto both = detect("VS", en, ru);
+            _check(!both.WrongLayout && both.Undecided, "a rule cannot override a word of both dictionaries");
+            _check(!detect("VS", en, ru, false).WrongLayout, "both dictionaries also guard rules without frequency");
+            const auto letter = detect("B", en, ru);
+            _check(!letter.WrongLayout && letter.Undecided, "one letter waits for the next word");
+            _check(detect("LFF", en, ru).ByRule && !detect("LFFF", en, ru).WrongLayout, "an elongation stays");
+            auto capital = _word("FFF", 0, nullptr);
+            capital.Keys[0].Shift = true;
+            _check(!Convert::Detect({capital.Keys.data(), capital.Count}, en, ru, 0, &rules).WrongLayout,
+                   "a capitalized elongation stays");
+            _check(!detect("P", en, ru, false).WrongLayout, "one letter never switches on the dictionary alone");
+            _check(detect("B", en, ru, false).ByRule, "explicit rule-only mode can switch one letter");
+            _check(detect("LF", en, ru).WrongLayout, "two-letter dictionary corrections still work");
+            for (const bool frequency : {false, true}) {
+                _check(!detect("144P", en, ru, frequency).WrongLayout, "digits cannot be trimmed into dictionary hits");
+                _check(!detect("GHBDTN123", en, ru, frequency).WrongLayout, "a numeric identifier stays at the boundary");
+                auto flag = _word("-B", 0, nullptr);
+                flag.Keys[0].Vk = VK_OEM_MINUS;
+                _check(!Convert::Detect({flag.Keys.data(), flag.Count}, en, ru, 0, &rules, frequency).WrongLayout,
+                       "a command flag is not a dictionary word");
+            }
+            const auto typo = detect("HELLP", en, ru);
+            _check(typo.Margin() < 0 && !typo.WrongLayout, "a long begin rule cannot overrule a negative margin");
+            _check(detect("HELLP", en, ru, false).ByRule, "rule-only mode retains targeted overrides");
+            _check(detect("VBHJDJQ", en, ru, false).ByRule, "a rule converts unknown words without frequency");
+            const auto detectWord = [&](const TypedWord::Word& typedWord, const Convert::Side& from,
+                                        const Convert::Side& to, const bool frequency) {
+                return Convert::Detect({typedWord.Keys.data(), typedWord.Count}, from, to, 0, &rules, frequency);
+            };
+            const Convert::Verdict unseen = detect("LFFP", en, ru, false);
+            _check(detect("LFF", en, ru, false).ByRule && !unseen.WrongLayout && unseen.Implausible,
+                   "a rule cannot fix into text with a trigram no word has");
+            auto sign = _word("XFNF", 0, nullptr);
+            sign.Keys[0].Vk = VK_OEM_4;
+            _check(!detectWord(sign, ru, en, false).WrongLayout && detectWord(sign, ru, en, false).Implausible,
+                   "a sign where a letter was typed is no word of the other side");
+            auto closing = _word("HELLO?", 0, nullptr);
+            closing.Keys[5].Vk = VK_OEM_COMMA;
+            _check(detectWord(closing, ru, en, true).ByDictionary, "a closing comma is punctuation");
+            _check(early("LFF", false) && !early("LFFP", false), "mid-word: the start must be plausible too");
             _check(early("GHBD", true) && !early("GHB", true), "mid-word: a sure start from the 4th key");
             _check(early("VBH", false) && !early("GHBD", false), "mid-word without frequency: a rule alone");
             _check(!early("HELL", true), "mid-word: the start of a word of its own language");
+            _check(!early("RFCC", true) && early("RFCCF", true), "mid-word: a doubled letter waits a key");
         }
         for (const auto& path : {enPath, ruPath, rulesPath}) {
             std::filesystem::remove(path);

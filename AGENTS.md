@@ -34,7 +34,7 @@ violation (`scripts/check-architecture.ps1`). `UPX not found` is only a warning.
 - Config keys are permanent: renaming an `ActionDesc::Id` or a field is a migration.
 - Inside `Core/` include `"Hotkeys/X.hpp"`; elsewhere spell `"Core/Hotkeys/X.hpp"`.
 - Punto Switcher data is proprietary: never commit it or `.rules` built from it.
-- Live probes (`tests/*/*.ps1`) type into the foreground: idle desktop, no other EasyLauncher running.
+- Live probes (`tests/*/*Probe.ps1`) type into the foreground: idle desktop, no other EasyLauncher running.
 
 ## Details
 

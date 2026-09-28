@@ -133,4 +133,8 @@ double Pack::Score(const std::wstring& text, const bool open) const {
     return NgramScore(_symbols, _tri, _bi, text, open);
 }
 
+size_t Pack::Unseen(const std::wstring& text, const bool open) const {
+    return NgramUnseen(_symbols, _tri, text, open);
+}
+
 }

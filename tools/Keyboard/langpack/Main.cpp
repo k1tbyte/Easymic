@@ -350,7 +350,8 @@ int _runRepl(const std::vector<std::string>& args) {
         if (v.SourceLocale.empty()) {
             _line(L"  no language matched");
         } else {
-            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin());
+            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin())
+                                     + L" score=" + _num(v.ScoreOriginal) + L"/" + _num(v.ScoreFixed);
             if (v.WrongLayout) {
                 _line(L"  FIX -> " + v.Fixed + L"   [" + _wide(std::string(v.SourceLocale)) +
                       L" to " + _wide(std::string(v.FixedLocale)) + L", " + why + L"]");

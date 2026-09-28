@@ -71,6 +71,8 @@ namespace Convert {
         bool Begins(std::wstring_view text) const;
         /// `open`: the text goes on, so no word end is scored.
         double Score(const std::wstring& text, bool open = false) const;
+        /// Trigrams of `text` that no word of the pack has.
+        size_t Unseen(const std::wstring& text, bool open = false) const;
 
     private:
         void _close();
