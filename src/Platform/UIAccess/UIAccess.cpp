@@ -1,11 +1,12 @@
-#include <vector>
-#include "UIAccessManager.hpp"
+#include "UIAccess.hpp"
 
+#include <vector>
 #include <tlhelp32.h>
 
 #include "definitions.h"
 #include "Injection.hpp"
 
+namespace {
 
 struct ShellcodeWindowCreateParams {
     FARPROC pfCreateWindowExA;
@@ -25,6 +26,8 @@ struct ShellcodeAffinityParams {
     DWORD affinity;
 };
 
+/// MSVC gives no way to measure a function, so the copy takes more than either thread function needs
+constexpr SIZE_T ShellcodeSize = 2048;
 
 
 VOID WINAPI WindowCreateRemoteThreadFunc(LPVOID lpParam) {
@@ -62,13 +65,6 @@ VOID WINAPI WindowCreateRemoteThreadFunc(LPVOID lpParam) {
     }
 }
 
-
-#ifdef __MINGW32__ // Shit working with MinGW but no with MSVC
-DWORD WINAPI WindowCreateRemoteThreadFuncEnd() {
-    return 0;
-}
-#endif
-
 VOID WINAPI AffinityRemoteThreadFunc(LPVOID lpParam) {
     ShellcodeAffinityParams* params = (ShellcodeAffinityParams*)lpParam;
 
@@ -78,12 +74,6 @@ VOID WINAPI AffinityRemoteThreadFunc(LPVOID lpParam) {
 
     fnSetWindowDisplayAffinity(params->hWnd, params->affinity);
 }
-
-#ifdef __MINGW32__
-DWORD WINAPI AffinityRemoteThreadFuncEnd() {
-    return 0;
-}
-#endif
 
 BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
@@ -99,12 +89,7 @@ BOOL InjectToProcess(DWORD pid, LPCSTR title, DWORD exStyle, DWORD style) {
     strcpy_s(params.className, "Static");
     strcpy_s(params.windowTitle, title);
 
-#if _MSC_VER
-    SIZE_T codeSize = 2048;
-#else
-    SIZE_T codeSize = (SIZE_T) WindowCreateRemoteThreadFuncEnd - (SIZE_T) WindowCreateRemoteThreadFunc;
-#endif
-    return InjectShellcode(pid, params, (PVOID)WindowCreateRemoteThreadFunc, codeSize, false);
+    return InjectShellcode(pid, params, (PVOID)WindowCreateRemoteThreadFunc, ShellcodeSize, false);
 }
 
 bool IsUiAccessProcess(HANDLE hProcess) {
@@ -190,7 +175,9 @@ HWND GetWindowsByTitle(std::vector<DWORD> pids, LPCSTR title) {
     return hWnd;
 }
 
-HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD style) {
+} // anonymous namespace
+
+HWND UIAccess::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD style) {
     auto uiAccessPids = FindUiAccessProcesses();
     if (uiAccessPids.empty()) {
         LOG_ERROR("No UIAccess processes found");
@@ -212,7 +199,7 @@ HWND UIAccessManager::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD st
     return GetWindowsByTitle(uiAccessPids, key);
 }
 
-bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
+bool UIAccess::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     DWORD pid;
     GetWindowThreadProcessId(hWnd, &pid);
     if (pid == 0) {
@@ -224,12 +211,7 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     params.pfSetWindowDisplayAffinity = GetProcAddress(hUser32, "SetWindowDisplayAffinity");
     params.hWnd = hWnd;
     params.affinity = affinity;
-#ifdef _MSC_VER
-    SIZE_T codeSize = 2048;
-#else
-    SIZE_T codeSize = (SIZE_T) AffinityRemoteThreadFuncEnd - (SIZE_T) AffinityRemoteThreadFunc;
-#endif
-    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, true);
+    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, ShellcodeSize, true);
     LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
              affinity, pid, result ? "Success" : "Failure");
 

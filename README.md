@@ -9,7 +9,7 @@ Built using **Native WinAPI** in **C++**, sacrificing UI beauty for maximum perf
 ---
 
 ## ⚠️ Attention
-VirusTotal may flag EasyLauncher as potentially unwanted due to its global hotkey and system-level audio control features/UAC bypass/UPX compression.
+VirusTotal may flag EasyLauncher as potentially unwanted due to its global hotkey and system-level audio control features/UAC bypass.
 Rest assured, EasyLauncher is open-source and free of malware. 
 
 **You can review the source code yourself. Please don't create issues regarding false positives**
@@ -110,7 +110,7 @@ Rest assured, EasyLauncher is open-source and free of malware.
 
 ### Prerequisites
 - CMake 3.27+
-- C++23 compatible compiler (MSVC, MinGW, or Clang)
+- MSVC with C++23 (Visual Studio 2022 or newer)
 - Ninja build system (recommended)
 
 ### Build Steps
@@ -131,9 +131,6 @@ Rest assured, EasyLauncher is open-source and free of malware.
    ```bash
    ./build/EasyLauncher.exe
    ```
-
-### Build Options
-- `-DENABLE_UPX_COMPRESSION=ON/OFF` — Enable/disable UPX compression for release builds
 
 ---
 

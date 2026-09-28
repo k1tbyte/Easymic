@@ -12,7 +12,7 @@
 #include "TextLayer.hpp"
 #include "Str.hpp"
 #include "UACService.hpp"
-#include "UIAccess/UIAccessManager.hpp"
+#include "UIAccess/UIAccess.hpp"
 
 /**
  * @brief Where the overlay sits, how wide it is, and whether it is on screen at all.
@@ -92,7 +92,7 @@ class OverlaySurface {
         }
 
         _view->IsOvershadowed()
-            ? UIAccessManager::InjectDisplayAffinity(_view->GetEffectiveHandle(), affinity)
+            ? UIAccess::InjectDisplayAffinity(_view->GetEffectiveHandle(), affinity)
             : SetWindowDisplayAffinity(_view->GetHandle(), affinity);
     }
 
@@ -258,7 +258,7 @@ public:
 
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             _view->Hide();
-            _view->SetShadowHwnd(UIAccessManager::GetOrCreateWindow(
+            _view->SetShadowHwnd(UIAccess::GetOrCreateWindow(
                 ShadowWindowKey, MainWindow::StyleEx, MainWindow::Style));
             _view->RefreshPos(HWND_TOPMOST);
         }

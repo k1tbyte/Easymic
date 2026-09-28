@@ -14,7 +14,7 @@ idle footprint (it runs all day), binary size, simplicity.
 ```
 
 The script imports MSVC itself (`cl.exe` is never on PATH) and fails the build on a layering
-violation (`scripts/check-architecture.ps1`). `UPX not found` is only a warning.
+violation (`scripts/check-architecture.ps1`).
 
 ## Layout
 

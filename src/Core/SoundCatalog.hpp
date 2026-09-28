@@ -5,7 +5,6 @@
 #include <string>
 #include <windows.h>
 
-#include "Resource.hpp"
 #include "Resources/Resource.h"
 #include "Str.hpp"
 
@@ -63,12 +62,7 @@ namespace SoundCatalog {
         waveOutSetVolume(nullptr, MAKELONG(level, level));
 
         if (const Bundled* bundled = Find(sound)) {
-            // The buffer points into the module image, so it outlives the async playback
-            const Resource resource = Resource::FromModule(hInstance, MAKEINTRESOURCEA(bundled->ResourceId), "WAVE");
-            if (!resource.empty()) {
-                // SND_MEMORY takes a buffer, not a string - the W entry point is the same call
-                PlaySoundW(reinterpret_cast<LPCWSTR>(resource.buffer()), nullptr, SND_ASYNC | SND_MEMORY);
-            }
+            PlaySoundW(MAKEINTRESOURCEW(bundled->ResourceId), hInstance, SND_ASYNC | SND_RESOURCE);
             return;
         }
 

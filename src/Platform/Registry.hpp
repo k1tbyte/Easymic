@@ -12,14 +12,17 @@ namespace Registry {
     }
 
     inline bool AddToAutoStartup(LPCWSTR appName) {
-        wchar_t modulePath[MAX_PATH];
-        const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
-        if (length == 0) {
+        // Quoted, or a path with spaces is a command line Windows has to guess at
+        wchar_t command[MAX_PATH + 2] = L"\"";
+        const DWORD length = GetModuleFileNameW(nullptr, command + 1, MAX_PATH);
+        if (length == 0 || length == MAX_PATH) {
             return false;
         }
+        command[length + 1] = L'"';
+        command[length + 2] = L'\0';
 
         return RegSetKeyValueW(HKEY_CURRENT_USER, AutoStartupKey, appName, REG_SZ,
-                               modulePath, (length + 1) * sizeof(wchar_t)) == ERROR_SUCCESS;
+                               command, (length + 3) * sizeof(wchar_t)) == ERROR_SUCCESS;
     }
 
     inline bool RemoveFromAutoStartup(LPCWSTR appName) {

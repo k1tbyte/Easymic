@@ -9,7 +9,6 @@
 
 #include "Hold.hpp"
 #include "Router.hpp"
-#include "Win32Hook.hpp"
 #include "definitions.h"
 
 namespace Input {
@@ -30,8 +29,8 @@ namespace {
 
     std::thread _thread;
     std::atomic<DWORD> _threadId{0};
-    std::unique_ptr<Win32Hook> _keyboard;
-    std::unique_ptr<Win32Hook> _mouse;
+    HHOOK _keyboard = nullptr;
+    HHOOK _mouse = nullptr;
 
     UINT_PTR _holdTimer = 0;
     /// Outgoing swaps buffers with the hold, so it reserves what the hold may fill
@@ -196,20 +195,19 @@ namespace {
     }
 
     /// Puts the hook up or down to match what the stages want. True when that changed anything.
-    bool _sync(std::unique_ptr<Win32Hook>& hook, const bool wanted, const int id, const HOOKPROC proc) {
+    bool _sync(HHOOK& hook, const bool wanted, const int id, const HOOKPROC proc) {
         if (wanted == (hook != nullptr)) {
             return false;
         }
         if (!wanted) {
-            hook = nullptr;
+            UnhookWindowsHookEx(std::exchange(hook, nullptr));
             return true;
         }
-        auto created = Win32Hook::Create(id, proc, nullptr, 0);
-        if (!created->IsValid()) {
-            LOG_ERROR("SetWindowsHookEx(%d) failed: 0x%08lX", id, created->LastError());
+        hook = SetWindowsHookExW(id, proc, nullptr, 0);
+        if (!hook) {
+            LOG_ERROR("SetWindowsHookEx(%d) failed: 0x%08lX", id, GetLastError());
             return false;
         }
-        hook = std::move(created);
         return true;
     }
 
@@ -296,8 +294,11 @@ namespace {
         }
         // Rather than lost, since the hooks go down next
         _release();
-        _keyboard = nullptr;
-        _mouse = nullptr;
+        for (HHOOK* hook : {&_keyboard, &_mouse}) {
+            if (*hook) {
+                UnhookWindowsHookEx(std::exchange(*hook, nullptr));
+            }
+        }
         while (PeekMessageW(&msg, nullptr, WM_INPUT_RUN, WM_INPUT_RUN, PM_REMOVE)) {
             delete reinterpret_cast<Work*>(msg.lParam);
         }

@@ -33,13 +33,16 @@ Version::Version(const std::string& versionString) {
         char* next = nullptr;
         const long parsed = strtol(cursor, &next, 10);
 
-        // Stops on the '-' of a pre-release tag as well, which is exactly what we want
         if (next == cursor) {
             break;
         }
 
         *component = static_cast<int>(parsed);
-        cursor = *next == '.' ? next + 1 : next;
+        // A pre-release suffix is no component: strtol would read "-1" as minus one
+        if (*next != '.') {
+            break;
+        }
+        cursor = next + 1;
     }
 }
 

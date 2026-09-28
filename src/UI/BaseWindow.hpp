@@ -6,7 +6,6 @@
 #include <windows.h>
 
 #include "definitions.h"
-#include "RateLimiter.hpp"
 #include "ViewModel.hpp"
 
 template<typename T>
@@ -95,15 +94,6 @@ protected:
             const LRESULT result = DefWindowProcW(_hwnd, message, wParam, lParam);
             return result == HTCLIENT ? HTCAPTION : result;
         }
-
-#if _DEBUG
-        if (message == WM_PAINT) {
-            MEASURE_RATE(RenderDebugLimiter, 50, 1000, {
-                Beep(1600, 150);
-                throw std::runtime_error("Anomaly detected in WM_PAINT frequency");
-            });
-        }
-#endif
 
         return DefWindowProcW(_hwnd, message, wParam, lParam);
     }
