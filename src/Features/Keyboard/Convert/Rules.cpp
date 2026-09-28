@@ -1,5 +1,6 @@
 #include "Rules.hpp"
 
+#include "LayoutTable.hpp"
 #include "Platform/Str.hpp"
 
 #include <algorithm>
@@ -61,7 +62,7 @@ void Rules::_add(std::wstring_view line) {
     uint8_t kind = flags.contains(L'P') ? Whole : flags.contains(L'B') ? Begin : Anywhere;
     kind |= flags.contains(L'E') ? Exception : 0;
     kind |= flags.contains(L'C') ? CaseSensitive : 0;
-    kind |= std::ranges::any_of(line, [](const wchar_t c) { return c >= 0x400 && c <= 0x4FF; }) ? Cyrillic : 0;
+    kind |= std::ranges::any_of(line, [](const wchar_t c) { return ScriptOf(c) == CyrillicScript; }) ? Cyrillic : 0;
     _keys.push_back(_hash(kind, kind & CaseSensitive ? std::wstring(line) : Str::Lower(line)));
     _longest = std::max(_longest, line.size());
 }

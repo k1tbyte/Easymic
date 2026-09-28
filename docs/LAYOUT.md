@@ -9,8 +9,8 @@ before 2026-09-27).
 
 - Stage `kbd.text`, order 300, on the input thread. A buffer of 64 `{vk, Shift, Caps}`, the spaces after
   the word (up to 8), the foreground window at word start and `Word.Layout`, the layout the word is on
-  screen in: null until a Space or a conversion pins it, then read from the focused window. `OnKey` does
-  no allocation and no table lookup, and always returns `Next`.
+  screen in: null until a Space or a conversion pins it, then read from the focused window. `OnKey`
+  allocates only to hand a word off (an edit, a result), does no table lookup, and always returns `Next`.
 - Modifiers and Caps come from the stage's own stream (Caps seeded on enable). Backspace pops a space,
   then a key. Space ends the word but keeps it. The word clears on focus change, a mouse button, Enter,
   Tab, Esc, navigation keys, a Ctrl/Alt/Win chord and any key outside the typing set.

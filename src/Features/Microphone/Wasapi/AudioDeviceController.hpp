@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include "EventHandlers/SessionCreateEventsHandler.hpp"
@@ -10,45 +12,9 @@
 #include "EventHandlers/SessionStateEventsHandler.hpp"
 #include "Event.hpp"
 
-#ifdef _DEBUG
-#define LOG_SESSION(message, ...) \
-    printf("[AUDIO SESSION] (Registered: %zu | Active: %d) -> " message "\n", \
-        audioSessions.size(), \
-        _activeSessionsCount.load(), \
-        ##__VA_ARGS__ \
-    );
-#else
-#define LOG_SESSION(message, ...)
-#endif
-
-#ifdef __GNUC__
-__CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64)
-
-MIDL_INTERFACE ("C02216F6-8C67-4B5B-9D00-D008E73E0064")
-IAudioMeterInformation : IUnknown
-    {
-    virtual ~IAudioMeterInformation() = default;
-    virtual HRESULT STDMETHODCALLTYPE GetPeakValue(float *pfPeak) = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetMeteringChannelCount(UINT * pnChannelCount) = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetChannelsPeakValues(UINT32 u32ChannelCount, float *afPeakValues) = 0;
-    virtual HRESULT STDMETHODCALLTYPE QueryHardwareSupport(DWORD * pdwHardwareSupportMask) = 0;
-
-
-
-
-
-    };
-#endif
-
-
 class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceController> {
-    constexpr static GUID IDeviceFriendlyName =
-    {
-        0xa45c254e,
-        0xdf1c,
-        0x4efd,
-        {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}
-    };
+    /// PKEY_Device_FriendlyName, spelled out: the SDK header only declares it.
+    static constexpr PROPERTYKEY FriendlyNameKey{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
 
     ComPtr<IMMDevice> device;
     ComPtr<IPropertyStore> propertyStore;
@@ -59,11 +25,13 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
     ComPtr<SessionCreateEventsHandler> sessionCreateHandler;
     PROPVARIANT deviceNameProp{};
 
+    struct Watched {
+        ComPtr<SessionStateEventsHandler> Handler;
+        bool Active = false;
+    };
+    std::unordered_map<IAudioSessionControl *, Watched> audioSessions;
 
-    std::unordered_map<IAudioSessionControl *, ComPtr<SessionStateEventsHandler>> audioSessions;
-
-    mutable std::recursive_mutex audioSessionMutex;
-    std::atomic<int> _activeSessionsCount{0};
+    mutable std::mutex audioSessionMutex;
     bool _isInitialized = false;
     // Written by the WASAPI callback, read by actions on other threads
     std::atomic<bool> _isMuted = false;
@@ -71,7 +39,8 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
 
 public:
     Event<bool, float> *OnDeviceStateChanged;
-    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> *OnSessionPropertyChanged;
+    /// A session came, went, started or stopped capturing. Threadpool.
+    Event<> *OnSessionsChanged;
 
     /// False when the endpoint is missing or a COM call failed - the controller then stays idle
     /// and the app runs on without that device.
@@ -87,16 +56,12 @@ public:
             return false;
         }
 
-        PROPERTYKEY key{};
-        key.pid = 14;
-        key.fmtid = IDeviceFriendlyName;
-
         result = device->OpenPropertyStore(STGM_READ, &propertyStore);
 
         CHECK_HR(result, "Failed to open property store for capture device");
         PropVariantInit(&deviceNameProp);
 
-        result = propertyStore->GetValue(key, &deviceNameProp);
+        result = propertyStore->GetValue(FriendlyNameKey, &deviceNameProp);
         CHECK_HR(result, "Failed to get device friendly name property");
 
         result = device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
@@ -175,8 +140,10 @@ public:
         SetMute(!_isMuted);
     }
 
-    int GetActiveSessionsCount() const {
-        return _activeSessionsCount.load();
+    /// Anything capturing from the device right now.
+    bool AnySessionActive() const {
+        std::lock_guard lock(audioSessionMutex);
+        return std::ranges::any_of(audioSessions, [](const auto &session) { return session.second.Active; });
     }
 
     void SetMute(const bool mute) const {
@@ -193,54 +160,24 @@ public:
         return std::ceil(_volumeLevel * 100);
     }
 
-    // Runs on COM notification threads (session-create callback) — must not throw
-    // across the COM boundary, so failures are swallowed rather than CHECK_HR'd.
-    void IterateSessions(const std::function<void(ComPtr<IAudioSessionControl>, int i)> &iterator) const {
-        if (!sessionManager) {
-            return;
-        }
-
-        ComPtr<IAudioSessionEnumerator> enumerator;
-        if (FAILED(sessionManager->GetSessionEnumerator(&enumerator)) || !enumerator) {
-            return;
-        }
-
-        int sessionsCount{};
-        if (FAILED(enumerator->GetCount(&sessionsCount))) {
-            return;
-        }
-
-        for (int i = 0; i < sessionsCount; i++) {
-            ComPtr<IAudioSessionControl> control;
-            if (SUCCEEDED(enumerator->GetSession(i, &control)) && control) {
-                iterator(control, i);
-            }
-        }
-    }
-
     void WatchForSessions() {
         std::lock_guard lock(audioSessionMutex);
 
-        if (sessionCreateHandler || !sessionManager) {
+        ComPtr<IAudioSessionEnumerator> sessions;
+        int count = 0;
+        if (sessionCreateHandler || !sessionManager || FAILED(sessionManager->GetSessionEnumerator(&sessions))
+            || FAILED(sessions->GetCount(&count))) {
             return;
         }
-
-        IterateSessions([this](const ComPtr<IAudioSessionControl> &control, int i) {
-            this->_watchForSessionStateChanges(control);
-        });
-
-        const std::weak_ptr weak_this = shared_from_this();
-        // capture 'this' for logging purposes, in release compiler removes it
-        sessionCreateHandler.Attach(new SessionCreateEventsHandler([weak_this, this](IAudioSessionControl *control) {
-            const auto _this = weak_this.lock();
-            if (!_this) {
-                return;
+        for (int i = 0; i < count; i++) {
+            ComPtr<IAudioSessionControl> control;
+            if (SUCCEEDED(sessions->GetSession(i, &control))) {
+                _watch(control.Get());
             }
+        }
 
-            LOG_SESSION("New session {%p} created", control);
-            _this->_watchForSessionStateChanges(control, true);
-        }));
-
+        sessionCreateHandler.Attach(new SessionCreateEventsHandler(
+            [weak = weak_from_this()](IAudioSessionControl *control) { _later(weak, control, false); }));
         sessionManager->RegisterSessionNotification(sessionCreateHandler.Get());
     }
 
@@ -251,24 +188,13 @@ public:
             return;
         }
 
-        for (auto &[control, handler]: audioSessions) {
-            control->UnregisterAudioSessionNotification(handler.Get());
-            handler.Reset();
+        for (auto &[control, watched]: audioSessions) {
+            control->UnregisterAudioSessionNotification(watched.Handler.Get());
         }
+        audioSessions.clear();
 
         sessionManager->UnregisterSessionNotification(sessionCreateHandler.Get());
         sessionCreateHandler.Reset();
-
-        audioSessions.clear();
-        _activeSessionsCount = 0;
-    }
-
-    static AudioSessionState GetSessionState(const ComPtr<IAudioSessionControl> &control) {
-        AudioSessionState state = AudioSessionStateExpired;
-        if (control) {
-            control->GetState(&state);
-        }
-        return state;
     }
 
     void Cleanup() {
@@ -291,60 +217,62 @@ public:
     }
 
 private:
-    void _watchForSessionStateChanges(const ComPtr<IAudioSessionControl> &sessionControl, const bool notifyConnected = false) {
-        std::lock_guard lock(audioSessionMutex);
+    static AudioSessionState _state(IAudioSessionControl *control) {
+        AudioSessionState state = AudioSessionStateExpired;
+        control->GetState(&state);
+        return state;
+    }
 
-        if (audioSessions.contains(sessionControl.Get())) {
+    /// Off the WASAPI callback, which may not register, unregister, wait or drop a last reference.
+    static void _later(std::weak_ptr<AudioDeviceController> weak, IAudioSessionControl *control, const bool gone) {
+        struct Job {
+            std::weak_ptr<AudioDeviceController> Owner;
+            ComPtr<IAudioSessionControl> Control;
+            bool Gone;
+        };
+        auto *job = new Job{std::move(weak), control, gone};
+        if (!TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, void *context) {
+                const std::unique_ptr<Job> owned(static_cast<Job *>(context));
+                if (const auto owner = owned->Owner.lock()) {
+                    owner->_update(owned->Control.Get(), owned->Gone);
+                }
+            }, job, nullptr)) {
+            delete job;
+        }
+    }
+
+    /// Reads the state afresh, so jobs landing out of order still leave the last one. Raises under the
+    /// lock: once the watch stops, no job reaches an owner being torn down.
+    void _update(IAudioSessionControl *control, const bool gone) {
+        std::lock_guard lock(audioSessionMutex);
+        if (!sessionCreateHandler) {
             return;
         }
-
-        std::weak_ptr weak_this = shared_from_this();
-
-        ComPtr<SessionStateEventsHandler> eventHandler;
-        eventHandler.Attach(new SessionStateEventsHandler(sessionControl,
-            [weak_this, this](
-        const ComPtr<IAudioSessionControl> &control,
-        const EAudioSessionProperty property) {
-                const auto _this = weak_this.lock();
-                if (!_this) {
-                    return;
-                }
-
-                std::lock_guard lock_(_this->audioSessionMutex);
-
-                if (!_this->audioSessions.contains(control.Get())) {
-                    return;
-                }
-
-                if (property == Disconnected ||
-                    (property == State && GetSessionState(control) == AudioSessionStateExpired)) {
-                    // We dont need do decrement _activeSessionsCount here, because it was already done on State change to Inactive
-                    // Windows raise Disconnect event after Inactive state
-                    _this->audioSessions.erase(control.Get());
-                    LOG_SESSION("Session {%p} disconnected", control.Get());
-                } else if (property == State) {
-                    _this->_activeSessionsCount.fetch_add(GetSessionState(control) == AudioSessionStateActive ? 1 : -1);
-                    LOG_SESSION("Session {%p} state changed", control.Get());
-                }
-
-                if (_this->OnSessionPropertyChanged) {
-                    (*_this->OnSessionPropertyChanged)(control, property);
-                }
-            }));
-
-        sessionControl->RegisterAudioSessionNotification(eventHandler.Get());
-        audioSessions[sessionControl.Get()] = eventHandler;
-
-        // Count session if it's already active at registration time
-        if (GetSessionState(sessionControl) == AudioSessionStateActive) {
-            ++_activeSessionsCount;
+        const AudioSessionState state = _state(control);
+        const auto it = audioSessions.find(control);
+        if (gone || state == AudioSessionStateExpired) {
+            if (it == audioSessions.end()) {
+                return;
+            }
+            control->UnregisterAudioSessionNotification(it->second.Handler.Get());
+            audioSessions.erase(it);
+        } else if (it == audioSessions.end()) {
+            _watch(control);
+        } else {
+            it->second.Active = state == AudioSessionStateActive;
         }
+        if (OnSessionsChanged) {
+            (*OnSessionsChanged)();
+        }
+    }
 
-        LOG_SESSION("Started watching session {%p}", sessionControl.Get());
-
-        if (notifyConnected && OnSessionPropertyChanged) {
-            (*OnSessionPropertyChanged)(sessionControl, Connected);
+    /// Under the lock.
+    void _watch(IAudioSessionControl *control) {
+        ComPtr<SessionStateEventsHandler> handler;
+        handler.Attach(new SessionStateEventsHandler(control,
+            [weak = weak_from_this()](IAudioSessionControl *session, const bool gone) { _later(weak, session, gone); }));
+        if (SUCCEEDED(control->RegisterAudioSessionNotification(handler.Get()))) {
+            audioSessions[control] = {handler, _state(control) == AudioSessionStateActive};
         }
     }
 };
-

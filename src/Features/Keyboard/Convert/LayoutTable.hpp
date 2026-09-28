@@ -17,6 +17,10 @@ namespace Convert {
         bool Caps;
     };
 
+    /// Unicode block of a letter, Latin variants as one: 0 Latin, `CyrillicScript`.
+    constexpr uint8_t ScriptOf(const wchar_t c) { return c < 0x250 ? 0 : static_cast<uint8_t>(c >> 8); }
+    inline constexpr uint8_t CyrillicScript = 4;
+
     /**
      * @brief What each key position types in one layout, built from the system layout.
      *
@@ -32,7 +36,7 @@ namespace Convert {
         wchar_t Char(Key key) const;
         /// Empty when any of the keys types nothing here.
         std::wstring Render(std::span<const Key> keys) const;
-        /// Unicode block of the letter keys, Latin variants as one: 0 Latin, 4 Cyrillic.
+        /// `ScriptOf` the letter keys.
         uint8_t Script() const;
 
     private:

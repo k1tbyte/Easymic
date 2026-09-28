@@ -1,7 +1,6 @@
 #pragma once
 
 
-#include <future>
 #include <mutex>
 #include "EventHandlers/AudioDeviceEventsHandler.hpp"
 #include "AudioDeviceController.hpp"
@@ -17,10 +16,19 @@ class AudioManager {
     std::shared_ptr<AudioDeviceController> _device = std::make_shared<AudioDeviceController>();
     Event<> _defaultChanged;
     Event<bool, float> _stateChanged;
-    Event<ComPtr<IAudioSessionControl>, EAudioSessionProperty> _sessionPropertyChanged;
+    Event<> _sessionsChanged;
     std::atomic<bool> _reinitPending = false;
-    std::atomic<bool> _watching = false;
-    std::future<void> _reinitTask;
+    /// Orders a device swap against the watch turning on or off.
+    std::mutex _watchMutex;
+    bool _watching = false;
+    PTP_WORK _reinit = CreateThreadpoolWork([](PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) {
+        auto* self = static_cast<AudioManager*>(context);
+        // Windows announces the new default before it can actually be activated
+        Sleep(100);
+        self->_initDevice();
+        self->_defaultChanged();
+        self->_reinitPending = false;
+    }, this, nullptr);
 
     ComPtr<IMMDeviceEnumerator> _deviceEnumerator;
     ComPtr<AudioDeviceEventsHandler> _deviceHandler;
@@ -31,7 +39,7 @@ public:
 
     IEvent<>& OnDefaultCaptureChanged = _defaultChanged;
     IEvent<bool, float>& OnCaptureStateChanged = _stateChanged;
-    IEvent<ComPtr<IAudioSessionControl>, EAudioSessionProperty>& OnCaptureSessionPropertyChanged = _sessionPropertyChanged;
+    IEvent<>& OnCaptureSessionsChanged = _sessionsChanged;
 
     /// False when COM refused to hand out the enumerator - the app then runs without audio control.
     bool Init() {
@@ -57,15 +65,6 @@ public:
         return true;
     }
 
-    void Cleanup() {
-        if (_deviceEnumerator && _deviceHandler) {
-            _deviceEnumerator->UnregisterEndpointNotificationCallback(_deviceHandler.Get());
-        }
-
-        _deviceHandler.Reset();
-        _deviceEnumerator.Reset();
-    }
-
     void WatchForCaptureSessions() { _setWatching(true); }
     void StopWatchingForCaptureSessions() { _setWatching(false); }
 
@@ -77,10 +76,16 @@ public:
     }
 
     ~AudioManager() {
-        if (_reinitTask.valid()) {
-            _reinitTask.wait();
+        if (_deviceEnumerator && _deviceHandler) {
+            _deviceEnumerator->UnregisterEndpointNotificationCallback(_deviceHandler.Get());
         }
-        Cleanup();
+        // A reinit in flight still reaches the enumerator
+        if (_reinit) {
+            WaitForThreadpoolWorkCallbacks(_reinit, FALSE);
+            CloseThreadpoolWork(_reinit);
+        }
+        // A session job may outlive us holding the device: stopped, it no longer raises our events
+        _device->StopWatchingForSessions();
     }
 
 private:
@@ -88,40 +93,34 @@ private:
     void _initDevice() {
         auto newDevice = std::make_shared<AudioDeviceController>();
         newDevice->OnDeviceStateChanged     = &_stateChanged;
-        newDevice->OnSessionPropertyChanged = &_sessionPropertyChanged;
+        newDevice->OnSessionsChanged        = &_sessionsChanged;
         newDevice->Init(_deviceEnumerator, eCapture, ERole::eCommunications);
 
-        if (_watching) {
-            newDevice->WatchForSessions();
+        std::shared_ptr<AudioDeviceController> old;
+        {
+            std::lock_guard watch(_watchMutex);
+            if (_watching) {
+                newDevice->WatchForSessions();
+            }
+            std::lock_guard lock(_deviceMutex);
+            old = std::exchange(_device, std::move(newDevice));
         }
-
-        std::lock_guard lock(_deviceMutex);
-        _device = std::move(newDevice);
+        // Someone may still hold it, and its session jobs would go on raising our events
+        old->StopWatchingForSessions();
     }
 
     void _setWatching(const bool watching) {
+        std::lock_guard watch(_watchMutex);
         _watching = watching;
-        std::lock_guard lock(_deviceMutex);
-
-        if (!_device) {
-            return;
-        }
-
-        watching ? _device->WatchForSessions() : _device->StopWatchingForSessions();
+        // Not under _deviceMutex: a session job takes it under the session lock
+        const auto device = CaptureDevice();
+        watching ? device->WatchForSessions() : device->StopWatchingForSessions();
     }
 
     const std::function<void(EDataFlow, ERole, LPCWSTR)> _handleDeviceChanged = [this](EDataFlow flow, ERole role, LPCWSTR) {
-        if (role != ERole::eCommunications || flow != eCapture || _reinitPending.exchange(true)) {
-            return;
+        if (role == ERole::eCommunications && flow == eCapture && _reinit && !_reinitPending.exchange(true)) {
+            SubmitThreadpoolWork(_reinit);
         }
-
-        _reinitTask = std::async(std::launch::async, [this] {
-            // Windows announces the new default before it can actually be activated
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            _initDevice();
-            _defaultChanged();
-            _reinitPending = false;
-        });
     };
 
 };

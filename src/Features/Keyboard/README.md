@@ -25,7 +25,7 @@ are in `docs/LAYOUT.md`; the hook and hold contract is in `docs/INPUT.md`.
 
 ## Threads
 
-- Input thread: `OnKey` stays O(1) and never allocates; it records key positions and wakes the judge.
+- Input thread: `OnKey` stays O(1) and allocates only to hand a word off; it records key positions and wakes the judge.
 - Judge (threadpool): detection and rules on the word so far, as if it ended here and mid-word.
 - Edit lane (threadpool): the password check, and detection when the judge is behind.
 - UI thread: `Restore` builds the `Runtime` from the config, learned words are filed and saved.

@@ -93,12 +93,14 @@ namespace {
         if (SendMessageW(combo, CB_GETCOUNT, 0, 0) != static_cast<LRESULT>(items.size())) {
             return true;
         }
+        // One buffer for the list: every slider tick syncs the page, the font combo too
+        std::wstring text;
         for (size_t i = 0; i < items.size(); ++i) {
             const auto len = SendMessageW(combo, CB_GETLBTEXTLEN, i, 0);
             if (len < 0) {
                 return true;
             }
-            std::wstring text(static_cast<size_t>(len) + 1, L'\0');
+            text.resize(static_cast<size_t>(len) + 1);
             if (SendMessageW(combo, CB_GETLBTEXT, i, reinterpret_cast<LPARAM>(text.data())) != len
                 || std::wstring_view(text.data(), static_cast<size_t>(len)) != items[i]) {
                 return true;

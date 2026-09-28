@@ -290,9 +290,9 @@ namespace Overlay {
 }
 ```
 
-Same shape as `ActionRegistry` and `SettingsHost`, deliberately: a POD descriptor with plain
-function pointers, an `Order` sort key, enumerated in a stable order. A layer holds its state in
-its own slice and reads it on the UI thread, exactly as `SettingsPage::Build` does.
+Same shape as `SettingsHost` and `Tray`, deliberately: a POD descriptor with plain function
+pointers, an `Order` sort key, enumerated in a stable order. A layer holds its state in its own
+slice and reads it on the UI thread, as a settings page's `Rows` do.
 
 What a layer is told differs between the two phases, and the first draft of this design made
 that a second struct - `OverlayCanvas : OverlayCell`, adding the canvas and the granted width.

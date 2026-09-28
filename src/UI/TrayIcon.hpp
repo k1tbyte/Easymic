@@ -4,10 +4,7 @@
 #include <shellapi.h>
 #include <string>
 
-/**
- * @brief System tray icon management
- * Single Responsibility: only tray icon operations
- */
+/// The app's icon in the notification area.
 class TrayIcon {
 public:
     TrayIcon() = default;
@@ -15,57 +12,56 @@ public:
         Remove();
     }
 
-    // Disable copying
     TrayIcon(const TrayIcon&) = delete;
     TrayIcon& operator=(const TrayIcon&) = delete;
 
     bool Create(HWND hwnd, UINT id, HICON icon, const std::wstring& tooltip, UINT callbackMessage) {
-        if (isCreated_) {
+        if (_isCreated) {
             return false;
         }
 
-        iconData_.cbSize = sizeof(NOTIFYICONDATAW);
-        iconData_.hWnd = hwnd;
-        iconData_.uID = id;
-        iconData_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-        iconData_.hIcon = icon;
-        iconData_.uCallbackMessage = callbackMessage;
+        _iconData.cbSize = sizeof(NOTIFYICONDATAW);
+        _iconData.hWnd = hwnd;
+        _iconData.uID = id;
+        _iconData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+        _iconData.hIcon = icon;
+        _iconData.uCallbackMessage = callbackMessage;
 
-        wcsncpy_s(iconData_.szTip, tooltip.c_str(), _TRUNCATE);
+        wcsncpy_s(_iconData.szTip, tooltip.c_str(), _TRUNCATE);
 
-        isCreated_ = Shell_NotifyIconW(NIM_ADD, &iconData_);
-        return isCreated_;
+        _isCreated = Shell_NotifyIconW(NIM_ADD, &_iconData);
+        return _isCreated;
     }
 
     bool UpdateIcon(HICON icon) {
-        if (!isCreated_) {
+        if (!_isCreated) {
             return false;
         }
 
-        iconData_.hIcon = icon;
-        return Shell_NotifyIconW(NIM_MODIFY, &iconData_);
+        _iconData.hIcon = icon;
+        return Shell_NotifyIconW(NIM_MODIFY, &_iconData);
     }
 
     bool UpdateTooltip(const std::wstring& tooltip) {
-        if (!isCreated_) {
+        if (!_isCreated) {
             return false;
         }
 
-        wcsncpy_s(iconData_.szTip, tooltip.c_str(), _TRUNCATE);
-        return Shell_NotifyIconW(NIM_MODIFY, &iconData_);
+        wcsncpy_s(_iconData.szTip, tooltip.c_str(), _TRUNCATE);
+        return Shell_NotifyIconW(NIM_MODIFY, &_iconData);
     }
 
     void Remove() {
-        if (!isCreated_) {
+        if (!_isCreated) {
             return;
         }
 
-        Shell_NotifyIconW(NIM_DELETE, &iconData_);
-        isCreated_ = false;
+        Shell_NotifyIconW(NIM_DELETE, &_iconData);
+        _isCreated = false;
     }
 
 private:
-    NOTIFYICONDATAW iconData_{};
-    bool isCreated_ = false;
+    NOTIFYICONDATAW _iconData{};
+    bool _isCreated = false;
 };
 

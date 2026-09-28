@@ -34,8 +34,7 @@ wchar_t LayoutTable::Char(const Key key) const {
 }
 
 uint8_t LayoutTable::Script() const {
-    const wchar_t c = _plain['F'];
-    return c < 0x250 ? 0 : static_cast<uint8_t>(c >> 8);
+    return ScriptOf(_plain['F']);
 }
 
 std::wstring LayoutTable::Render(const std::span<const Key> keys) const {

@@ -27,7 +27,7 @@ namespace {
     bool _allowed() {
         return Mic::HasDevice() && _settings->Pill != MicPillMode::Hidden
                && (!_settings->HideWhenInactive
-                   || Mic::Audio().CaptureDevice()->GetActiveSessionsCount() > 0);
+                   || Mic::Audio().CaptureDevice()->AnySessionActive());
     }
 
     /// Whether a loud peak may turn the pill into "talking" - never over the muted glyph.

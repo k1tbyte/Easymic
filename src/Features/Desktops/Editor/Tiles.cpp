@@ -179,7 +179,9 @@ namespace Tiles {
     }
 
     RECT Drag(const RECT& start, const unsigned grip, const POINT delta, const Limits& limits) {
-        std::vector<RECT> obstacles;
+        // Reused: a drag calls this on every mouse move
+        static std::vector<RECT> obstacles;
+        obstacles.clear();
         for (const RECT& other : limits.Obstacles) {
             if (!_sameRows(start, other) || !_sameColumns(start, other)) {
                 obstacles.push_back(other);

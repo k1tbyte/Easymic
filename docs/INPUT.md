@@ -67,7 +67,7 @@ namespace Input {
     struct Stage {
         std::string_view Id;                // "hotkeys.capture", "hotkeys", "kbd.text"
         int Order;
-        Verdict (*OnKey)(const KeyEvent&);  // input thread, O(1), no allocation
+        Verdict (*OnKey)(const KeyEvent&);  // input thread, O(1); allocates only to hand work off
         void (*OnReset)();                  // enabled, or hooks/desktop changed: held state is void
     };
 

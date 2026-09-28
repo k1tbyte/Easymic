@@ -109,13 +109,7 @@ namespace {
             }
         };
 
-        Mic::Audio().OnCaptureSessionPropertyChanged += [](const ComPtr<IAudioSessionControl>&,
-                                                           const EAudioSessionProperty property) {
-            if (property == Disconnected || property == Connected || property == State) {
-                Mic::Refresh();
-            }
-        };
-
+        Mic::Audio().OnCaptureSessionsChanged += [] { Mic::Refresh(); };
         Mic::Audio().OnDefaultCaptureChanged += [] { Mic::Refresh(); };
     }
 
@@ -269,7 +263,7 @@ namespace Mic {
         Mic::OnStateChanged += [] { Tray::Changed(); };
 
         // The session watch stops while settings hold the config, and resumes before the frame
-        // relays the overlay out - the pill's "anything recording" reads the count it keeps
+        // relays the overlay out - the pill's "anything recording" reads the sessions it keeps
         Lifecycle::Suspend += [] { Mic::Audio().StopWatchingForCaptureSessions(); };
         Lifecycle::Restore += [] {
             Mic::Audio().WatchForCaptureSessions();

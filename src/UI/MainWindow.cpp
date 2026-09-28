@@ -106,10 +106,8 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             UpdateRect();
             return 0;
 
+        // The app quits from the tray menu, never by closing its window
         case WM_CLOSE:
-            if (OnClose) {
-                OnClose();
-            }
             return 0;
 
         case WM_TRAYICON:

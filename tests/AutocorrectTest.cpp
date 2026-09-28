@@ -3,9 +3,11 @@
 #include <fstream>
 #include <string>
 
+#include "Features/Keyboard/Convert/Detector.hpp"
 #include "Features/Keyboard/Convert/Rules.hpp"
 #include "Features/Keyboard/TypedWord.hpp"
 #include "Platform/Str.hpp"
+#include "langpack/PackBuilder.hpp"
 
 namespace {
 
@@ -77,11 +79,76 @@ namespace {
         _check(!type(VK_LEFT) && !type(VK_RETURN), "a caret move ends the text");
         _check(type(VK_BACK) && type(VK_BACK) && !type(VK_BACK), "erased whole");
     }
+
+    /// Built as langpack builds one, each word ten times so its letters make the ngram alphabet.
+    bool _pack(const std::filesystem::path& path, const char* locale, const std::wstring& words) {
+        const auto list = std::filesystem::path(path).replace_extension(L".txt");
+        {
+            std::ofstream out(list, std::ios::binary);
+            for (int i = 0; i < 10; ++i) {
+                out << Str::WideToUtf8(words);
+            }
+        }
+        const bool built = BuildPack(list.string(), {.Locale = locale}, path.string(), nullptr);
+        std::filesystem::remove(list);
+        return built;
+    }
+
+    void _detect() {
+        HKL installed[32]{};
+        const int count = GetKeyboardLayoutList(32, installed);
+        const auto layout = [&](const WORD language) -> HKL {
+            for (int i = 0; i < count; ++i) {
+                if (LOWORD(reinterpret_cast<UINT_PTR>(installed[i])) == language) return installed[i];
+            }
+            return nullptr;
+        };
+        if (!layout(0x0409) || !layout(0x0419)) {
+            std::puts("detection skipped: needs the en-US and ru-RU layouts");
+            return;
+        }
+
+        const auto temp = std::filesystem::temp_directory_path();
+        const auto enPath = temp / L"easylauncher-test-en.pack", ruPath = temp / L"easylauncher-test-ru.pack";
+        const auto rulesPath = temp / L"easylauncher-test-detect.rules";
+        std::ofstream(rulesPath, std::ios::binary) << "\xEF\xBB\xBF_P hello\n_B vbh\n";
+        {
+            Convert::Pack enPack, ruPack;
+            Convert::Rules rules;
+            _check(_pack(enPath, "en", L"hello\nvs\nworld\n") && _pack(ruPath, "ru", L"привет\nмы\nмир\n")
+                   && enPack.Load(enPath.wstring()) && ruPack.Load(ruPath.wstring()) && rules.Load(rulesPath),
+                   "packs and rules load");
+            const Convert::LayoutTable enTable(layout(0x0409)), ruTable(layout(0x0419));
+            const Convert::Side en{&enTable, &enPack}, ru{&ruTable, &ruPack};
+            const auto detect = [&](const char* keys, const Convert::Side& typed, const Convert::Side& other) {
+                const TypedWord::Word word = _word(keys, 0, nullptr);
+                return Convert::Detect({word.Keys.data(), word.Count}, typed, other, 0, &rules);
+            };
+            const auto early = [&](const char* keys, const bool frequency) {
+                const TypedWord::Word word = _word(keys, 0, nullptr);
+                return Convert::Early({word.Keys.data(), word.Count}, en, ru, &rules, frequency).WrongLayout;
+            };
+
+            const Convert::Verdict fixed = detect("GHBDTN", en, ru);
+            _check(fixed.WrongLayout && fixed.ByDictionary && fixed.Fixed == L"привет", "a word of the other side");
+            _check(detect("HELLO", ru, en).Fixed == L"hello" && detect("HELLO", ru, en).WrongLayout, "and back");
+            _check(!detect("HELLO", en, ru).WrongLayout, "a known word stays, a rule on it or not");
+            _check(detect("VS", en, ru).Undecided, "a short word of both languages waits for the next");
+            _check(detect("VBHJDJQ", en, ru).ByRule, "a rule converts what no dictionary knows");
+            _check(early("GHBD", true) && !early("GHB", true), "mid-word: a sure start from the 4th key");
+            _check(early("VBH", false) && !early("GHBD", false), "mid-word without frequency: a rule alone");
+            _check(!early("HELL", true), "mid-word: the start of a word of its own language");
+        }
+        for (const auto& path : {enPath, ruPath, rulesPath}) {
+            std::filesystem::remove(path);
+        }
+    }
 }
 
 int main() {
     _rules();
     _join();
+    _detect();
     if (_failures) {
         return 1;
     }

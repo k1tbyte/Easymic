@@ -10,7 +10,6 @@ namespace {
 
     // Under three trigrams one sample decides: "щас" reads as the likelier "ofc"
     constexpr size_t kNgramMinLetters = 5;
-    constexpr uint8_t kCyrillic = 4;
     // Measured on typos and brands: fewer keys or a thinner margin switch words typed right
     constexpr size_t kEarlyKeys = 4;
     constexpr double kEarlyMargin = 1.0;
@@ -72,7 +71,7 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     if (rules && typed.Table->Script() != other.Table->Script()) {
         // A pattern never flips a known word. Frequency analysis guards it too: punctuation needs the
         // dictionary's agreement, a mid-word pattern the ngram's ("ofc.", "uk,ru")
-        const RuleHit hit = rules->Find(text, typed.Table->Script() == kCyrillic);
+        const RuleHit hit = rules->Find(text, typed.Table->Script() == CyrillicScript);
         const bool known = hitsSource > 0 && hitsCandidate == 0;
         const bool allLetters = std::ranges::all_of(text, _alpha) || _signsAreLetters(text, converted);
         const bool agreed = (hitsCandidate > 0 || allLetters) && (!hit.Anywhere || v.Margin() > 0);
@@ -141,7 +140,7 @@ Verdict Early(const std::span<const Key> word, const Side& typed, const Side& ot
     v.FixedLocale = other.Pack->Locale();
     v.ScoreOriginal = typed.Pack->Score(text, true);
     v.ScoreFixed = other.Pack->Score(converted, true);
-    const RuleHit hit = rules ? rules->Find(text, typed.Table->Script() == kCyrillic, true) : RuleHit{};
+    const RuleHit hit = rules ? rules->Find(text, typed.Table->Script() == CyrillicScript, true) : RuleHit{};
     // Frequency analysis guards a rule as at the word end; alone it waits for more keys
     const bool agreed = other.Pack->Begins(converted) && v.Margin() > kEarlyMargin;
     v.WrongLayout = frequency ? agreed && (hit || word.size() >= kEarlyKeys) : static_cast<bool>(hit);

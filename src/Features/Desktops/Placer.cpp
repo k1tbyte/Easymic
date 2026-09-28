@@ -43,8 +43,10 @@ namespace {
 
     void _submit(std::function<void()> work) {
         auto* task = new std::function<void()>(std::move(work));
-        if (!TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, void* context) {
+        if (!TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE instance, void* context) {
                 const std::unique_ptr<std::function<void()>> owned(static_cast<std::function<void()>*>(context));
+                // It sleeps for seconds on a window: the pool is not to wait for it
+                CallbackMayRunLong(instance);
                 (*owned)();
             }, task, nullptr)) {
             delete task;

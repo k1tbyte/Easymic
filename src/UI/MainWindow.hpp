@@ -47,7 +47,6 @@ public:
     // View model delegation - single subscriber each, assigned once during Init
     std::function<void(UINT_PTR commandId)> OnTrayMenu;
     std::function<void()> OnTrayRefresh;
-    std::function<void()> OnClose;
     std::function<void(UINT_PTR timerId)> OnTimer;
     std::function<void()> OnThemeChanged;
     std::function<void()> OnRelayout;
