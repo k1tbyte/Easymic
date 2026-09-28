@@ -18,7 +18,7 @@ namespace Autocorrect {
 
     /// What the tracker converts with: built on Restore, immutable after, shared with the edit lane.
     struct Runtime {
-        /// Every installed layout: a third one (uk next to ru) converts by hand and as the target of its script's side
+        /// Every installed layout: a third one (uk next to ru) only converts by hand
         std::vector<Convert::LayoutTable> Layouts;
         std::array<size_t, 2> Pair{};
         std::unique_ptr<std::array<Convert::Pack, 2>> Packs;

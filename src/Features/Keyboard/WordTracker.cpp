@@ -1,7 +1,6 @@
 #include "WordTracker.hpp"
 
 #include <algorithm>
-#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -62,25 +61,9 @@ namespace {
     bool _erasedWhole = false;
     uint8_t _modifiers = 0;
     bool _caps = false;
-    /// The layout each pair side was last typed in: a conversion goes there, not to the pair's.
-    std::array<HKL, 2> _last{};
 
     HKL _layoutOf(const Word& word, const HWND focus) {
         return word.Layout ? word.Layout : InputLanguage::LayoutOf(focus);
-    }
-
-    /// The pair side a layout types for, noted as that side's last. -1: none.
-    int _sideOf(const Runtime& runtime, const HKL layout) {
-        const int side = runtime.SideOf(layout);
-        if (side >= 0) {
-            _last[side] = layout;
-        }
-        return side;
-    }
-
-    const Convert::LayoutTable& _target(const Runtime& runtime, const int from) {
-        const Convert::LayoutTable* last = runtime.Find(_last[1 - from]);
-        return last ? *last : runtime.Table(1 - from);
     }
 
     /// The caret left the text the words describe. A layout switch between erase and retype keeps `_erased`.
@@ -100,7 +83,7 @@ namespace {
                                                  &Convert::Key::Vk, &Convert::Key::Vk)) {
             return false;
         }
-        const int side = _sideOf(*_runtime, _erased.Layout);
+        const int side = _runtime->SideOf(_erased.Layout);
         if (side < 0 || side == from) {
             return false;
         }
@@ -164,7 +147,7 @@ namespace {
             return;
         }
         const HWND focus = InputLanguage::FocusedWindow();
-        const int from = focus && InputLanguage::LayoutOf(focus) == layout ? _sideOf(*_runtime, layout) : -1;
+        const int from = focus && InputLanguage::LayoutOf(focus) == layout ? _runtime->SideOf(layout) : -1;
         if (from >= 0) {
             _decideHeld(from, layout, focus, &verdict, true);
         }
@@ -235,7 +218,7 @@ namespace {
             if (_judging() && !event.Repeat) {
                 const HWND focus = InputLanguage::FocusedWindow();
                 const HKL layout = focus ? _layoutOf(_word, focus) : nullptr;
-                const int from = layout ? _sideOf(*_runtime, layout) : -1;
+                const int from = layout ? _runtime->SideOf(layout) : -1;
                 if (from < 0 || !_runtime->Reads(layout)) {
                     Autocorrect::LogSkip(*_runtime, "layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
                 } else if (!_retyped(from)) {
@@ -302,7 +285,6 @@ namespace {
         _apps = {};
         _modifiers = 0;
         _caps = GetKeyState(VK_CAPITAL) & 1;
-        _last = {};
     }
 
     void _onHold(const Input::HoldId id) {
@@ -364,13 +346,14 @@ namespace {
             return false;
         }
         const HKL layout = _layoutOf(_held, _heldFocus);
-        const int from = _sideOf(*_runtime, layout);
+        const int from = _runtime->SideOf(layout);
         if (from < 0) {
             return false;
         }
         // A resolved side means the layout is installed, so Find cannot miss
         const Convert::LayoutTable& source = *_runtime->Find(layout);
-        const Convert::LayoutTable* target = requested ? _runtime->Find(requested) : &_target(*_runtime, from);
+        // The pair's layout, never a third one: a fix into uk left the user typing there, unjudged
+        const Convert::LayoutTable* target = requested ? _runtime->Find(requested) : &_runtime->Table(1 - from);
         if (!target) {
             return false;
         }

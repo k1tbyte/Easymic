@@ -52,8 +52,8 @@ before 2026-09-27).
   is down). The layout switch is posted before `Commit`; a refused `Commit` switches back.
 - The pair is two installed layouts bound by KLID. Any other installed layout of a side's script (uk -> ru
   side, fr -> en side) is never judged: the side's pack would read uk's і as ы and fix the word. It still
-  converts by hand; a conversion goes to the layout last typed in on the other
-  side (`WordTracker::_last`), else the pair's. `InputLanguage::Installed()` lists Preload, then the
+  converts by hand. A conversion always goes to the other side's pair layout: sent to the last one typed in, a
+  fix left the user in uk, unjudged. `InputLanguage::Installed()` lists Preload, then the
   session layouts Preload lacks (their id is the HKL in hex).
 - Learning (`Learning.*`): `Learned.Always` / `Learned.Never` in the config, lowercase, ASCII punctuation
   trimmed, as typed on the side typed on. The user's words overrule `Detect` (reason `user`). Signals:
