@@ -3,8 +3,7 @@ paths:
   - "src/Core/Input/**"
   - "src/Core/Hotkeys/**"
   - "src/Features/Keyboard/WordTracker*"
-  - "tests/RouterTest.cpp"
-  - "tests/*.ps1"
+  - "tests/Input/**"
 ---
 
 # Input pipeline
@@ -55,6 +54,6 @@ already cover it.
 
 ## Test and open
 
-- `tests/RouterTest.cpp` drives the router and hold with synthetic events; `.\tests\HotkeyProbe.ps1
+- `tests/Input/RouterTest.cpp` drives the router and hold with synthetic events; `.\tests\Input\HotkeyProbe.ps1
   [-Autocorrect]` drives the real hooks on MinSizeRel.
 - Measure the hold timeout and the thread priority; is `GetKeyState(VK_CAPITAL)` right on this thread.

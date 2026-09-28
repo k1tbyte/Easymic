@@ -1,6 +1,6 @@
 # Settings UI check on MinSizeRel. Stop any running EasyLauncher before this probe.
 $ErrorActionPreference = 'Stop'
-$dir = Join-Path $PSScriptRoot '..\cmake-build-minsizerel'
+$dir = Join-Path $PSScriptRoot '..\..\cmake-build-minsizerel'
 $exe = Join-Path $dir 'EasyLauncher.exe'
 $cfg = Join-Path $dir 'config.json'
 $backup = Join-Path $dir 'config.json.keyboard-settings-backup'

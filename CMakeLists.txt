@@ -160,27 +160,27 @@ elseif(MSVC)
 endif()
 
 # The input router's rules without a hook: .\build.ps1 -Test
-add_executable(RouterTest EXCLUDE_FROM_ALL tests/RouterTest.cpp src/Core/Input/Router.cpp
+add_executable(RouterTest EXCLUDE_FROM_ALL tests/Input/RouterTest.cpp src/Core/Input/Router.cpp
                src/Core/Input/Hold.cpp)
 target_include_directories(RouterTest PRIVATE src/Core)
 target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
 
-add_executable(KeyboardConfigTest EXCLUDE_FROM_ALL tests/KeyboardConfigTest.cpp)
+add_executable(KeyboardConfigTest EXCLUDE_FROM_ALL tests/Keyboard/KeyboardConfigTest.cpp)
 target_include_directories(KeyboardConfigTest PRIVATE src src/Core src/Platform)
 target_compile_definitions(KeyboardConfigTest PRIVATE NOMINMAX UNICODE _UNICODE)
 target_link_libraries(KeyboardConfigTest PRIVATE glaze::glaze)
 
-add_executable(AutocorrectTest EXCLUDE_FROM_ALL tests/AutocorrectTest.cpp
+add_executable(AutocorrectTest EXCLUDE_FROM_ALL tests/Keyboard/AutocorrectTest.cpp
                src/Features/Keyboard/Convert/Rules.cpp src/Features/Keyboard/Convert/Detector.cpp
                src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/LayoutTable.cpp
                src/Features/Keyboard/Convert/Alphabet.cpp src/Features/Keyboard/Convert/Ngram.cpp
-               tools/langpack/PackBuilder.cpp tools/langpack/Console.cpp)
-target_include_directories(AutocorrectTest PRIVATE src tools)
+               tools/Keyboard/langpack/PackBuilder.cpp tools/Keyboard/langpack/Console.cpp)
+target_include_directories(AutocorrectTest PRIVATE src tools/Keyboard)
 target_compile_definitions(AutocorrectTest PRIVATE NOMINMAX UNICODE _UNICODE)
 target_compile_options(AutocorrectTest PRIVATE /utf-8)
 
 # Pack builder and detection console: .\build.ps1 -Tools
-add_subdirectory(tools/langpack)
+add_subdirectory(tools/Keyboard/langpack)
 
 if(IS_DEBUG)
     # Desktop-wide keyboard/mouse hooks under a debugger freeze input on every breakpoint

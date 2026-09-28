@@ -1,9 +1,8 @@
 ---
 paths:
   - "src/Features/Keyboard/**"
-  - "tools/**"
-  - "tests/Autocorrect*"
-  - "tests/Keyboard*"
+  - "tests/Keyboard/**"
+  - "tools/Keyboard/**"
 ---
 
 # Keyboard: conversion and autocorrect
@@ -16,7 +15,7 @@ paths:
   thread: a page fault in the mapped pack would stall desktop input.
 - `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
 - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`.
-- `Convert/` - the engine, shared with `tools/langpack`: `LayoutTable`, `Pack`, `Rules`, `Detector`.
+- `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack`, `Rules`, `Detector`.
 
 ## Flow
 
@@ -51,8 +50,8 @@ paths:
   `langpack rules <out> <ps.dat> [triggers.dat]` converts Punto's (XOR 0xAA, CP1251).
 - CMake `langpack_en` (`-DLANGPACK_EN_INPUT`: hackerb9/gwordlist, CC BY 3.0, top 25k) and `langpack_ru`
   (`-DLANGPACK_RU_INPUT`: danakt/russian-words, MIT, converted to UTF-8).
-- `langpack --packs <dir> --pair en,ru` is the detection console; `tools/langpack/bench.ps1` and
-  `tools/punto/Sim.ps1` measure accuracy. `LogDecisions` writes every verdict to `easylauncher.log`.
+- `langpack --packs <dir> --pair en,ru` is the detection console; `tools/Keyboard/langpack/bench.ps1`
+  and `tools/Keyboard/punto/Sim.ps1` measure accuracy. `LogDecisions` writes every verdict to `easylauncher.log`.
 
 ## Decided
 

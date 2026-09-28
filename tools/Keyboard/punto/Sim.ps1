@@ -1,5 +1,5 @@
 # Punto Switcher rule emulator: decodes ps.dat and scores its rules on a corpus.
-# .\tools\punto\Sim.ps1 -PsDat <Punto>\Data\ps.dat [-BenchDir <bench.ps1 output dir>]
+# .\tools\Keyboard\punto\Sim.ps1 -PsDat <Punto>\Data\ps.dat [-BenchDir <bench.ps1 output dir>]
 param(
     [Parameter(Mandatory)] [string]$PsDat,
     [string]$Corpus,

@@ -5,7 +5,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD 23)
 endif()
 
-get_filename_component(LANGPACK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+get_filename_component(LANGPACK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(ENGINE "${LANGPACK_ROOT}/src/Features/Keyboard/Convert")
 
 add_executable(langpack EXCLUDE_FROM_ALL

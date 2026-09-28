@@ -1,11 +1,11 @@
-# Live hotkey probe against the MinSizeRel build: .\tests\HotkeyProbe.ps1
+# Live hotkey probe against the MinSizeRel build: .\tests\Input\HotkeyProbe.ps1
 # Stop any running EasyLauncher first (single instance). Injects F13-F20 and LCtrl into a text box
 # of its own; its own LL hook sits below ours, so it sees what was swallowed. F20 converts the last
 # word; F21 undoes only an autocorrection, and both teach autocorrect. The pair must be en-US and ru-RU.
 param([switch]$Autocorrect)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
-$dir = Join-Path $PSScriptRoot '..\cmake-build-minsizerel'
+$dir = Join-Path $PSScriptRoot '..\..\cmake-build-minsizerel'
 $exe = Join-Path $dir 'EasyLauncher.exe'
 $cfg = Join-Path $dir 'config.json'
 $backup = Join-Path $dir 'config.json.probe-backup'

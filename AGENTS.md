@@ -10,7 +10,7 @@ idle footprint (it runs all day), binary size, simplicity.
 .\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/EasyLauncher.exe
 .\build.ps1 -Config Debug -Run   # Debug binds no hotkeys (APP_NO_GLOBAL_HOOKS): check hooks on MinSizeRel
 .\build.ps1 -Test                # tests/: router and hold, keyboard config, autocorrect
-.\build.ps1 -Tools               # tools/langpack
+.\build.ps1 -Tools               # tools/Keyboard/langpack
 ```
 
 The script imports MSVC itself (`cl.exe` is never on PATH) and fails the build on a layering
@@ -26,6 +26,7 @@ violation (`scripts/check-architecture.ps1`). `UPX not found` is only a warning.
 - `src/UI/` - windows, settings (row tables -> controls), the overlay surface, `UpdateManager`.
 - A new feature: one folder plus one line in `Modules[]` in `src/main.cpp`; `Register(Host&)` adds
   its `ActionDesc`s, settings page, overlay layer, tray provider.
+- `tests/<Area>/`, `tools/<Area>/` - tests and dev tools, grouped like the slices (`Input`, `Keyboard`).
 
 ## Rules
 
@@ -33,7 +34,7 @@ violation (`scripts/check-architecture.ps1`). `UPX not found` is only a warning.
 - Config keys are permanent: renaming an `ActionDesc::Id` or a field is a migration.
 - Inside `Core/` include `"Hotkeys/X.hpp"`; elsewhere spell `"Core/Hotkeys/X.hpp"`.
 - Punto Switcher data is proprietary: never commit it or `.rules` built from it.
-- Live probes (`tests/*.ps1`) type into the foreground: idle desktop, no other EasyLauncher running.
+- Live probes (`tests/*/*.ps1`) type into the foreground: idle desktop, no other EasyLauncher running.
 
 ## Details
 

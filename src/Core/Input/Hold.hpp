@@ -12,7 +12,7 @@
  *
  * The hold stays up until every event we sent has come back through our hook - an event already
  * queued behind the hold would otherwise reach the app ahead of the edit. What arrives meanwhile
- * is held too and sent after. Input thread only, no Win32 call: tests/RouterTest.cpp drives it.
+ * is held too and sent after. Input thread only, no Win32 call: tests/Input/RouterTest.cpp drives it.
  */
 namespace Input::Hold {
 

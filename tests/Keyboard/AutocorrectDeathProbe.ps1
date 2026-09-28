@@ -1,11 +1,11 @@
 # Autocorrect repro (diagnosis): types the reported session into a window of its
 # own - a Russian line, Alt+Shift through every installed layout, the same words again - and prints
 # a per-word timeline of the box text, the layout and the app's decision log.
-# Same rules as HotkeyProbe.ps1: it stops any running EasyLauncher, runs its own with a backed-up
+# Same rules as tests/Input/HotkeyProbe.ps1: it stops any running EasyLauncher, runs its own with a backed-up
 # config, and the machine must stay idle while it types.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
-$dir = Join-Path $PSScriptRoot '..\cmake-build-minsizerel'
+$dir = Join-Path $PSScriptRoot '..\..\cmake-build-minsizerel'
 $exe = Join-Path $dir 'EasyLauncher.exe'
 $cfg = Join-Path $dir 'config.json'
 $backup = Join-Path $dir 'config.json.probe-backup'

@@ -18,7 +18,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$LangpackExe = (Join-Path $PSScriptRoot "..\..\cmake-build-minsizerel\langpack.exe"),
+    [string]$LangpackExe = (Join-Path $PSScriptRoot "..\..\..\cmake-build-minsizerel\langpack.exe"),
     [string]$DictDir = "D:\Repositories\Clion\puntish\data",
     [string]$PackDir = "D:\Repositories\Clion\puntish\packs",
     [string]$EnglishList = (Join-Path $DictDir "dict_en.txt"),
