@@ -55,6 +55,30 @@ namespace TypedWord {
         }
     };
 
+    /// Typing on after `word`, into one text: a key, a Space or a Backspace. False for any other key, or once the text
+    /// is gone or does not fit.
+    inline bool Type(Word& word, const Convert::Key key) {
+        if (key.Vk == VK_BACK) {
+            if (word.Spaces) {
+                --word.Spaces;
+            } else {
+                --word.Count;
+            }
+            return word.Count != 0;
+        }
+        if (key.Vk == VK_SPACE) {
+            return word.Spaces < MaxSpaces && ++word.Spaces;
+        }
+        if (!TypingKeys[key.Vk] || word.Count + word.Spaces >= MaxKeys) {
+            return false;
+        }
+        std::fill_n(word.Keys.begin() + word.Count, word.Spaces, Convert::Key{VK_SPACE, false, false});
+        word.Count += word.Spaces;
+        word.Spaces = 0;
+        word.Keys[word.Count++] = key;
+        return true;
+    }
+
     /// `run`, its spaces as keys, then `word`: one text. Just `word` when they differ in layout or overflow.
     inline Word Join(const Word& run, const Word& word) {
         if (!run.Count || run.Layout != word.Layout || run.Count + run.Spaces + word.Count > MaxKeys) {

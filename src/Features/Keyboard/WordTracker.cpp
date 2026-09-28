@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "Autocorrect.hpp"
@@ -29,11 +30,12 @@ namespace {
 
     constexpr std::string_view StageId = "kbd.text";
 
+    /// The last auto-fix, and all typed after it (`Text`): undo converts the whole text back, the word teaches.
     struct Undo {
         HKL Original = nullptr;
-        HKL Corrected = nullptr;
         HWND Focus = nullptr;
-        HWND Window = nullptr;
+        Word Fixed;
+        Word Text;
     };
 
     // Input thread
@@ -179,6 +181,11 @@ namespace {
             return Input::Verdict::Next;
         }
         const bool chord = _modifiers & WordEdit::ChordBits;
+        const Convert::Key key{event.Vk, (_modifiers & WordEdit::ShiftBits) != 0, _caps};
+        // An undo lasts while the typing goes on from its word; a caret move ends it
+        if (_undo.Original && (chord || !TypedWord::Type(_undo.Text, key))) {
+            _undo = {};
+        }
         if (event.Vk == VK_SPACE && !chord && _heldId && (_autoSpaces || _heldEarly)
             && _held.Window == window && !_word.Count) {
             if (_autoSpaces < MaxSpaces) {
@@ -187,12 +194,6 @@ namespace {
                 _typedSince = true;
             }
             return Input::Verdict::Next;
-        }
-        // An undo lasts through the fixed word's spaces, and the rest of a word fixed mid-word
-        const bool onFixed = !chord && _word.Count
-            && (event.Vk == VK_SPACE ? _word.Spaces < MaxSpaces : TypingKeys[event.Vk] && !_word.Spaces);
-        if (_undo.Original && !onFixed) {
-            _undo = {};
         }
         _typedSince = true;
         if (event.Vk == VK_BACK && !chord) {
@@ -264,7 +265,7 @@ namespace {
             if (!_word.EarlyAt || _word.Judged != Judgement::Fixed) {
                 _word.Judged = Judgement::None;
             }
-            _word.Keys[_word.Count++] = {event.Vk, (_modifiers & WordEdit::ShiftBits) != 0, _caps};
+            _word.Keys[_word.Count++] = key;
             _typed();
         }
         return Input::Verdict::Next;
@@ -337,7 +338,9 @@ namespace {
         return true;
     }
 
-    bool _apply(const Input::HoldId id, const bool autoSpace = false, const HKL requested = nullptr) {
+    /// `taught`: the word the user's convert or undo overrules, the held one if null.
+    bool _apply(const Input::HoldId id, const bool autoSpace = false, const HKL requested = nullptr,
+                const Word* taught = nullptr) {
         if (!_runtime || !id || id != _heldId || !_held.Count) {
             return false;
         }
@@ -376,8 +379,8 @@ namespace {
             Autocorrect::Announce(std::move(typed), text);
         }
         _undo = {};
-        if (!autoSpace && _held.Judged != Judgement::None) {
-            Autocorrect::Overruled(*_runtime, _held, from);
+        if (const Word& word = taught ? *taught : _held; !autoSpace && word.Judged != Judgement::None) {
+            Autocorrect::Overruled(*_runtime, word, from);
         }
         if (autoSpace) {
             // Typed during the hold, so they follow the fixed word
@@ -386,10 +389,10 @@ namespace {
         if (_rejoin()) {
             ++_gen;
             _word.Judged = autoSpace ? Judgement::Fixed : Judgement::None;
-            if (autoSpace) {
-                _undo = {layout, target->Layout(), _heldFocus, _held.Window};
-            }
             _word.Layout = target->Layout();
+            if (autoSpace) {
+                _undo = {layout, _heldFocus, _word, _word};
+            }
         }
         return true;
     }
@@ -467,12 +470,14 @@ namespace {
                 return;
             }
             const Undo pending = _undo;
-            const bool valid = pending.Original && pending.Corrected == _held.Layout
-                && pending.Focus == _heldFocus && pending.Window == _held.Window
-                && _held.Count && !_typedSince;
+            const bool valid = pending.Original && pending.Focus == _heldFocus && !_typedSince;
             _undo = {};
-            if (valid && _apply(id, false, pending.Original)) {
-                return;
+            if (valid) {
+                const Word held = std::exchange(_held, pending.Text);
+                if (_apply(id, false, pending.Original, &pending.Fixed)) {
+                    return;
+                }
+                _held = held;
             }
             if (_unhold() && valid) {
                 _undo = pending;

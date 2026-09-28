@@ -69,6 +69,13 @@ namespace {
         TypedWord::Word full = _word("", 1, us);
         full.Count = 60;
         _check(TypedWord::Join(full, _word("UKZYE", 1, us)).Count == 5, "overflow keeps the word");
+
+        TypedWord::Word text = _word("YE", 1, us);
+        const auto type = [&](const uint8_t vk) { return TypedWord::Type(text, {vk, false, false}); };
+        _check(type('U') && text.Count == 4 && text.Keys[2].Vk == VK_SPACE && !text.Spaces, "a space turns into a key");
+        _check(type(VK_SPACE) && type(VK_BACK) && type(VK_BACK) && text.Count == 3 && !text.Spaces, "backspace");
+        _check(!type(VK_LEFT) && !type(VK_RETURN), "a caret move ends the text");
+        _check(type(VK_BACK) && type(VK_BACK) && !type(VK_BACK), "erased whole");
     }
 }
 

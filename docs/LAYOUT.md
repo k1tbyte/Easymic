@@ -60,8 +60,9 @@ before 2026-09-27).
   convert or undo right after an auto-fix teaches never; converting a kept word teaches always; a judged
   word erased whole and retyped from the other side teaches the matching one. A phrase teaches nothing.
   Overruling a mid-word fix refuses the start it fired on: `kube*` in Never stops only mid-word switches.
-- `kbd.convert_word` converts the last word (again to convert back); `kbd.undo_auto_convert` undoes only
-  the last auto-fix, through its word's rest and spaces, and returns to the original layout. Exclusions suppress
+- `kbd.convert_word` converts the last word (again to convert back); `kbd.undo_auto_convert` undoes the
+  last auto-fix and what was typed after it (letters, spaces, Backspace): that whole text goes back to the original
+  layout, only the fixed word teaches. A caret move, a chord, a layout switch or the next fix ends it. Exclusions suppress
   both. Enter and Tab clear the word (the line is usually sent by then).
 - Guards: excluded apps, fullscreen windows (`SkipFullscreen`: rect equals its monitor's and not
   maximized, judged when the window takes the foreground) and unresolved foreground apps are not
