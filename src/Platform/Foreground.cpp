@@ -38,6 +38,8 @@ namespace {
                && EqualRect(&rect, &monitor.rcMonitor);
     }
 
+    void _focus(HWND window);
+
     void CALLBACK _resolve(PTP_CALLBACK_INSTANCE, void*, PTP_WORK) {
         const HWND window = _latestHwnd.load(std::memory_order_relaxed);
         const uint64_t generation = _generation.load(std::memory_order_relaxed);
@@ -51,12 +53,16 @@ namespace {
             || _generation.load(std::memory_order_relaxed) != generation) {
             return;
         }
-        // No GetForegroundWindow recheck: caught mid-switch (a virtual desktop), it left the window without its exe
-        // until the next switch, and keyboard tracking off there
         Dispatcher::ToUi([window, generation, fullscreen, exe = std::move(exe)]() mutable {
             if (!_running.load(std::memory_order_relaxed)
                 || _generation.load(std::memory_order_relaxed) != generation
                 || _latestHwnd.load(std::memory_order_relaxed) != window) {
+                return;
+            }
+            // Alt+Tab's hidden host reports itself after the window it switched to, and no event follows. A visible
+            // window stands: the live one can still be the window before it
+            if (const HWND live = GetForegroundWindow(); live && live != window && !IsWindowVisible(window)) {
+                _focus(live);
                 return;
             }
             _publish(window, std::move(exe), fullscreen);
