@@ -42,7 +42,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LOG_ERROR("%s", report.c_str());
     };
 
-    if (!CrashHandler::Initialize({.logCallback = logCallback})) {
+    if (!CrashHandler::Initialize(logCallback)) {
         LOG_ERROR("Failed to initialize CrashHandler");
         CloseHandle(mutex);
         return 1;
@@ -81,7 +81,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     Gdiplus::GdiplusStartupInput input;
     Gdiplus::GdiplusStartup(&gdiplusToken, &input, nullptr);
 
-    g_AppVersion = Version::GetCurrentVersion();
     LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());
 
     // Static for the same reason the config is: an action registered here outlives WinMain, and
@@ -107,7 +106,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         Input::Stop();
         Dispatcher::Stop();
     };
-    Dispatcher::Start();
+    // The dispatcher starts in the view model's RestoreConfig, as after every settings session
     Input::Start();
 
     static MainWindow mainWindow(hInstance);

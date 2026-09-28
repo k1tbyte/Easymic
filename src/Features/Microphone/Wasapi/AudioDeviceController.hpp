@@ -1,9 +1,4 @@
-//
-// Created by kitbyte on 24.10.2025.
-//
-
 #pragma once
-
 
 #include <atomic>
 #include <cmath>
@@ -70,8 +65,9 @@ class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceCon
     mutable std::recursive_mutex audioSessionMutex;
     std::atomic<int> _activeSessionsCount{0};
     bool _isInitialized = false;
-    BOOL _isMuted = false;
-    float _volumeLevel = -1.0f;
+    // Written by the WASAPI callback, read by actions on other threads
+    std::atomic<bool> _isMuted = false;
+    std::atomic<float> _volumeLevel = -1.0f;
 
 public:
     Event<bool, float> *OnDeviceStateChanged;
@@ -131,15 +127,19 @@ public:
             _this->_volumeLevel = pNotify->fMasterVolume;
 
             if (_this->OnDeviceStateChanged) {
-                (*_this->OnDeviceStateChanged)(_this->_isMuted, _this->_volumeLevel);
+                (*_this->OnDeviceStateChanged)(pNotify->bMuted, pNotify->fMasterVolume);
             }
         };
 
         result = volumeEndpoint->RegisterControlChangeNotify(volumeEventsHandler.Get());
         CHECK_HR(result, "Failed to register volume change notify for capture device");
 
-        volumeEndpoint->GetMute(&_isMuted);
-        volumeEndpoint->GetMasterVolumeLevelScalar(&_volumeLevel);
+        BOOL muted = FALSE;
+        float level = -1.0f;
+        volumeEndpoint->GetMute(&muted);
+        volumeEndpoint->GetMasterVolumeLevelScalar(&level);
+        _isMuted = muted;
+        _volumeLevel = level;
 
         _isInitialized = true;
         return true;

@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 25.10.2025.
-//
-
 #pragma once
 #include <cstdint>
 #include "definitions.h"

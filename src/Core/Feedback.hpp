@@ -1,8 +1,8 @@
 #pragma once
 
-#include <atomic>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "AppConfig.hpp"
 #include "SoundCatalog.hpp"
@@ -12,9 +12,8 @@
 /**
  * @brief What an action says and plays when it fires.
  *
- * Everything here runs on the hotkey worker except Bind and the two publishers, which the UI
- * thread calls. Nothing writes the config: the tokens that depend on state read values the
- * action itself published, so a press reports what it just did rather than the previous value.
+ * Everything here runs on the hotkey worker except Bind and AddResolver, which run at startup.
+ * Nothing writes the config.
  */
 class Feedback {
 public:
@@ -22,18 +21,15 @@ public:
     /// which message carries it or where it goes, so whoever owns the window hands this in at
     /// Bind time and keeps the handle on its own side.
     using PostFn = void (*)(const std::wstring& text);
+    /// Replaces a feature's own state tokens in the text.
+    using ResolveFn = std::string (*)(std::string text);
 
 private:
     const AppConfig& _cfg;
     /// Unlike a window handle, this one is used right here - SoundCatalog plays from resources.
     HINSTANCE _instance = nullptr;
     PostFn _post = nullptr;
-
-    /// The device only publishes a new level from its callback, so the action that changed it
-    /// posts the value it just asked for - otherwise {volume} shows the previous one.
-    std::atomic<uint8_t> _volumePercent = 0;
-    std::atomic<bool> _micMuted = false;
-    std::atomic<bool> _bellEnabled = true;
+    std::vector<ResolveFn> _resolvers;
 
 public:
     explicit Feedback(const AppConfig& config) : _cfg(config) {}
@@ -43,14 +39,9 @@ public:
         _post = post;
     }
 
-    uint8_t VolumePercent() const { return _volumePercent.load(); }
-    void PublishVolumePercent(const uint8_t percent) { _volumePercent = percent; }
-
-    bool MicMuted() const { return _micMuted.load(); }
-    void PublishMicMuted(const bool muted) { _micMuted = muted; }
-
-    bool BellEnabled() const { return _bellEnabled.load(); }
-    void PublishBellEnabled(const bool enabled) { _bellEnabled = enabled; }
+    void AddResolver(const ResolveFn resolve) {
+        _resolvers.push_back(resolve);
+    }
 
     /**
      * @brief What an action announces, as far as it can be known when the hotkey is registered.
@@ -97,7 +88,7 @@ public:
     }
 
     /**
-     * @brief Resolves the state tokens against what the actions have published so far.
+     * @brief Resolves the state tokens through the features' resolvers.
      *
      * Runs on the hotkey worker, after the action - a state token must read what it has just
      * done. Public because an action that answers later, a captured command, has to resolve them
@@ -108,11 +99,11 @@ public:
             return text;
         }
 
-        auto expanded = Str::Replace(text, Tokens::Volume,
-                                     std::to_string(_volumePercent.load()));
-        expanded = Str::Replace(std::move(expanded), Tokens::Mic, _micMuted ? "off" : "on");
-        return Str::Replace(std::move(expanded), Tokens::Bell,
-                            _bellEnabled ? "on" : "off");
+        std::string expanded = text;
+        for (const ResolveFn resolve : _resolvers) {
+            expanded = resolve(std::move(expanded));
+        }
+        return expanded;
     }
 
     /// Puts text that is already resolved on the indicator, from any thread - it travels through

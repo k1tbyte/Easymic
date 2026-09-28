@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 03.11.2025.
-//
-
 #include <vector>
 #include "UIAccessManager.hpp"
 
@@ -233,7 +229,7 @@ bool UIAccessManager::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
 #else
     SIZE_T codeSize = (SIZE_T) AffinityRemoteThreadFuncEnd - (SIZE_T) AffinityRemoteThreadFunc;
 #endif
-    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, false);
+    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, codeSize, true);
     LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
              affinity, pid, result ? "Success" : "Failure");
 

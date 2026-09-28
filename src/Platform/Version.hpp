@@ -16,8 +16,6 @@ public:
 
     bool operator>(const Version& other) const;
 
-    static Version GetCurrentVersion();
-
 private:
     Version(int major, int minor, int patch, int build);
 

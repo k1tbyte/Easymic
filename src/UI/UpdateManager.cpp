@@ -9,6 +9,7 @@
 #include "AppConfig.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Resources/Resource.h"
+#include "Settings/DialogControls.hpp"
 #include "Str.hpp"
 #include "definitions.h"
 
@@ -292,12 +293,7 @@ INT_PTR CALLBACK UpdateManager::UpdateDialogProc(HWND hDlg, UINT message, WPARAM
                                             ? "No release notes available."
                                             : manager->_latestRelease.body).c_str());
 
-        RECT rect;
-        GetWindowRect(hDlg, &rect);
-        SetWindowPos(hDlg, nullptr,
-                     (GetSystemMetrics(SM_CXSCREEN) - (rect.right - rect.left)) / 2,
-                     (GetSystemMetrics(SM_CYSCREEN) - (rect.bottom - rect.top)) / 2,
-                     0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        DialogControls::CenterOnScreen(hDlg);
         return TRUE;
     }
 

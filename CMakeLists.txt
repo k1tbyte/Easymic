@@ -74,8 +74,6 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE
         ole32
         uuid
-        wsock32
-        ws2_32
         winmm
         gdiplus
         comctl32

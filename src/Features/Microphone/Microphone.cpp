@@ -16,6 +16,8 @@
 #include "Logger.hpp"
 #include "MicLayer.hpp"
 #include "SoundCatalog.hpp"
+#include "Str.hpp"
+#include "Tokens.hpp"
 
 namespace {
 
@@ -24,8 +26,19 @@ namespace {
     MicSettings* _settings = nullptr;
     /// Only to persist a bell toggle - the module reads nothing outside its own section
     AppConfig* _config = nullptr;
-    Feedback* _fb = nullptr;
     HINSTANCE _instance = nullptr;
+
+    /// What {volume}, {mic} and {bell} show. The device reports a change only from its callback, so an
+    /// action publishes what it just asked for, or the text would show the state before the press.
+    std::atomic<uint8_t> _shownVolume = 0;
+    std::atomic<bool> _shownMuted = false;
+    std::atomic<bool> _shownBell = true;
+
+    std::string _expand(std::string text) {
+        text = Str::Replace(std::move(text), Tokens::Volume, std::to_string(_shownVolume.load()));
+        text = Str::Replace(std::move(text), Tokens::Mic, _shownMuted ? "off" : "on");
+        return Str::Replace(std::move(text), Tokens::Bell, _shownBell ? "on" : "off");
+    }
 
     // Written from the WASAPI notification thread, read from the hotkey worker and the UI
     std::atomic<bool> _hasDevice = false;
@@ -41,7 +54,7 @@ namespace {
         const auto mic = Mic::Audio().CaptureDevice();
         const int target = std::clamp(mic->GetVolumePercent() + delta, 0, 100);
         mic->SetVolumePercent(static_cast<BYTE>(target));
-        _fb->PublishVolumePercent(static_cast<uint8_t>(target));
+        _shownVolume = static_cast<uint8_t>(target);
     }
 
     /// The user asked for one level and expects the device to keep it across reconnects.
@@ -67,7 +80,7 @@ namespace {
         Dispatcher::ToUi([silent, muted = _muted.load(), hasDevice = _hasDevice.load()] {
             if (hasDevice) {
                 // The device has spoken, so whatever an action optimistically published is stale
-                _fb->PublishVolumePercent(Mic::Audio().CaptureDevice()->GetVolumePercent());
+                _shownVolume = Mic::Audio().CaptureDevice()->GetVolumePercent();
             }
 
             _stateChanged();
@@ -85,7 +98,7 @@ namespace {
         Mic::Audio().OnCaptureStateChanged += [](const bool muted, const float level) {
             const bool silent = _muted == muted;
             _muted = muted;
-            _fb->PublishMicMuted(muted);
+            _shownMuted = muted;
             _settle(silent);
 
             if (level != _deviceVolume) {
@@ -115,7 +128,7 @@ namespace {
         } else {
             _settings->BellVolume = _prevBellVolume > 0 ? _prevBellVolume : 25;
         }
-        _fb->PublishBellEnabled(_settings->BellVolume > 0);
+        _shownBell = _settings->BellVolume > 0;
         _config->Save();
     }
 
@@ -127,7 +140,7 @@ namespace {
         constexpr auto bufferSize = 255;
         wchar_t buffer[bufferSize];
         swprintf(buffer, bufferSize, APP_NAME L" - %ls [%d%%]",
-                 Mic::Audio().CaptureDevice()->GetDeviceName(), _fb->VolumePercent());
+                 Mic::Audio().CaptureDevice()->GetDeviceName(), _shownVolume.load());
         return buffer;
     }
 
@@ -145,7 +158,7 @@ namespace {
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
                  Mic::Audio().CaptureDevice()->ToggleMute();
-                 _fb->PublishMicMuted(!_fb->MicMuted());
+                 _shownMuted = !_shownMuted;
              };
          }},
 
@@ -157,13 +170,13 @@ namespace {
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
                  Mic::Audio().CaptureDevice()->SetMute(false);
-                 _fb->PublishMicMuted(false);
+                 _shownMuted = false;
              };
          },
          .MakeRelease = [](const ActionContext&) -> ActionFn {
              return [] {
                  Mic::Audio().CaptureDevice()->SetMute(true);
-                 _fb->PublishMicMuted(true);
+                 _shownMuted = true;
              };
          }},
 
@@ -190,7 +203,7 @@ namespace {
          // same trick {volume} uses - and hands the write itself over to that thread
          .Make = [](const ActionContext&) -> ActionFn {
              return [] {
-                 _fb->PublishBellEnabled(!_fb->BellEnabled());
+                 _shownBell = !_shownBell;
                  Dispatcher::ToUi(_toggleBell);
              };
          }},
@@ -230,8 +243,8 @@ namespace Mic {
     void Register(Host& host) {
         _settings = &host.Config.Mic;
         _config = &host.Config;
-        _fb = &host.Fb;
         _instance = host.Instance;
+        host.Fb.AddResolver(&_expand);
 
         if (!Mic::Audio().Init()) {
             LOG_ERROR("AudioManager failed to initialize - continuing without microphone control");
@@ -288,13 +301,13 @@ namespace Mic {
         _hasDevice = mic->IsInitialized();
         _muted = mic->IsMuted();
         // No device is not "live" either, so {mic} reads off rather than claiming an open mic
-        _fb->PublishMicMuted(!_hasDevice || _muted);
+        _shownMuted = !_hasDevice || _muted;
         _deviceVolume = mic->GetVolumeLevel();
 
         // Both read the config, so both go the same way _settle does - and posted first, because
         // the volume _settle publishes has to be the one _adjustVolume has already set
         Dispatcher::ToUi([] {
-            _fb->PublishBellEnabled(_settings->BellVolume > 0);
+            _shownBell = _settings->BellVolume > 0;
             _adjustVolume();
         });
         _settle(true);

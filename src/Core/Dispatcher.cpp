@@ -115,10 +115,6 @@ void Stop() {
     }
 }
 
-bool IsRunning() {
-    return _worker.joinable();
-}
-
 void Post(std::function<void()> action) {
     if (!action) {
         return;

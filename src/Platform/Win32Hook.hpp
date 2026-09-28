@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 04.11.2025.
-//
-
 #pragma once
 
 #include <windows.h>

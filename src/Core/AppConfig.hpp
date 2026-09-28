@@ -1,5 +1,4 @@
 #pragma once
-#define CONFIG_ENABLED
 
 #include <cstdint>
 #include <string>
@@ -10,9 +9,7 @@
 #include "Hotkeys/KeyNames.hpp"
 #include "Platform/Foreground.hpp"
 
-#ifdef CONFIG_ENABLED
 #include <glaze/glaze.hpp>
-#endif // CONFIG_ENABLED
 
 /// When the microphone's pill is on the overlay: never, while muted, or while muted or talking.
 enum class MicPillMode {
@@ -21,7 +18,6 @@ enum class MicPillMode {
     MutedOrTalk,
 };
 
-#ifdef CONFIG_ENABLED
 /// Named rather than numbered on disk - the whole point of the JSON move is a file a person can
 /// read and edit, and "2" says nothing.
 template <>
@@ -29,7 +25,6 @@ struct glz::meta<MicPillMode> {
     using enum MicPillMode;
     static constexpr auto value = enumerate(Hidden, Muted, MutedOrTalk);
 };
-#endif // CONFIG_ENABLED
 
 /// When autocorrect converts a word typed in the wrong layout: never (the hotkey still does), on its Space, or
 /// mid-word as soon as its start is sure.
@@ -39,13 +34,11 @@ enum class AutoCorrectMode {
     MidWord,
 };
 
-#ifdef CONFIG_ENABLED
 template <>
 struct glz::meta<AutoCorrectMode> {
     using enum AutoCorrectMode;
     static constexpr auto value = enumerate(Off, Space, MidWord);
 };
-#endif // CONFIG_ENABLED
 
 /// Everything that is nobody's feature in particular.
 struct CoreSettings {
@@ -229,9 +222,6 @@ struct Binding {
 };
 
 struct AppConfig {
-
-    static inline std::string DefaultPath{};
-
     CoreSettings Core;
     MicSettings Mic;
     KeyboardSettings Keyboard;
@@ -246,7 +236,6 @@ struct AppConfig {
     bool operator==(const AppConfig&) const = default;
 
     void Save() {
-#ifdef CONFIG_ENABLED
         for (auto& binding : Bindings) {
             binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
         }
@@ -254,7 +243,6 @@ struct AppConfig {
                 *this, GetConfigPath(), std::string{})) {
             LOG_ERROR("Config save failed: %s", glz::format_error(ec).c_str());
         }
-#endif // CONFIG_ENABLED
     }
 
     /// Reads the file, or hands back defaults. Nothing migrates: a file that does not parse is
@@ -262,7 +250,6 @@ struct AppConfig {
     static AppConfig Load()
     {
         AppConfig config{};
-#ifdef CONFIG_ENABLED
         // A missing file is the normal first-run case, anything else means a broken config
         if (const auto ec = glz::read_file_json<glz::opts{.error_on_unknown_keys = false}>(
                 config, GetConfigPath(), std::string{});
@@ -281,25 +268,17 @@ struct AppConfig {
             }
             binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
         }
-#endif // CONFIG_ENABLED
         return config;
     }
 
 private:
-    static std::string GetConfigPath()
-    {
-
-#ifdef CONFIG_ENABLED
-        if (DefaultPath.empty()) {
+    static const std::string& GetConfigPath() {
+        static const std::string path = [] {
             wchar_t modulePath[MAX_PATH] = {};
-            if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
-                DefaultPath = "config.json";
-            } else {
-                const std::filesystem::path path{modulePath};
-                DefaultPath = (path.parent_path() / CONFIG_NAME).string();
-            }
-        }
-#endif // CONFIG_ENABLED
-        return DefaultPath;
+            return GetModuleFileNameW(nullptr, modulePath, MAX_PATH)
+                ? (std::filesystem::path{modulePath}.parent_path() / CONFIG_NAME).string()
+                : std::string{"config.json"};
+        }();
+        return path;
     }
 };

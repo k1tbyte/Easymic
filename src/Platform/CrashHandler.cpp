@@ -19,7 +19,7 @@
 namespace CrashHandler {
     namespace {
         struct HandlerState {
-            Config config;
+            LogCallback log;
             bool initialized = false;
 
             LPTOP_LEVEL_EXCEPTION_FILTER previousFilter = nullptr;
@@ -31,9 +31,8 @@ namespace CrashHandler {
 
         HandlerState g_state;
 
-        constexpr std::array<int, 6> HANDLED_SIGNALS = {
-            SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM
-        };
+        // A tray app gets no SIGINT or SIGTERM
+        constexpr std::array<int, 4> HANDLED_SIGNALS = {SIGABRT, SIGFPE, SIGILL, SIGSEGV};
 
         std::string GetTimestamp() {
             SYSTEMTIME st;
@@ -90,9 +89,7 @@ namespace CrashHandler {
                 case SIGABRT: return "SIGABRT (Abort)";
                 case SIGFPE: return "SIGFPE (Floating Point Exception)";
                 case SIGILL: return "SIGILL (Illegal Instruction)";
-                case SIGINT: return "SIGINT (Interrupt)";
                 case SIGSEGV: return "SIGSEGV (Segmentation Fault)";
-                case SIGTERM: return "SIGTERM (Terminate)";
                 default: return "Unknown Signal";
             }
         }
@@ -188,26 +185,14 @@ namespace CrashHandler {
         }
 
         void NotifyException(const std::string &info) {
-            if (g_state.config.logCallback) {
+            if (g_state.log) {
                 try {
-                    g_state.config.logCallback(info);
+                    g_state.log(info);
                 } catch (...) {
                     // Ignore callback exceptions
                 }
             }
-
-            if (g_state.config.showErrorDialog) {
-                constexpr std::wstring_view message =
-                        L"The application has encountered a critical error and needs to close.\n\n"
-                        L"Please report this error to the developers.";
-
-                MessageBoxW(nullptr, message.data(), L"Application Error",
-                            MB_OK | MB_ICONERROR | MB_SYSTEMMODAL);
-            }
-
-            if (g_state.config.terminateOnException) {
-                TerminateProcess(GetCurrentProcess(), 1);
-            }
+            TerminateProcess(GetCurrentProcess(), 1);
         }
 
         void HandleStructuredException(EXCEPTION_POINTERS *pExceptionInfo, const std::string &source) {
@@ -311,12 +296,12 @@ namespace CrashHandler {
 
     } // anonymous namespace
 
-    bool Initialize(const Config &config) {
+    bool Initialize(LogCallback log) {
         if (g_state.initialized) {
             return false;
         }
 
-        g_state.config = config;
+        g_state.log = std::move(log);
 
         g_state.previousFilter = SetUnhandledExceptionFilter(UnhandledExceptionFilter);
         g_state.previousPurecallHandler = _set_purecall_handler(PurecallHandler);

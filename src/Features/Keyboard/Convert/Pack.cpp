@@ -7,19 +7,9 @@
 #include <algorithm>
 #include <cstring>
 
+#include "Platform/Str.hpp"
+
 namespace Convert {
-
-namespace {
-
-    std::wstring _lower(std::wstring_view s) {
-        std::wstring out(s);
-        if (!out.empty()) {
-            CharLowerBuffW(out.data(), static_cast<DWORD>(out.size()));
-        }
-        return out;
-    }
-
-} // anonymous namespace
 
 std::wstring TrimWord(std::wstring_view s) {
     const auto isEdge = [](const wchar_t c) {
@@ -36,12 +26,12 @@ std::wstring TrimWord(std::wstring_view s) {
 }
 
 std::wstring WordKey(std::wstring_view word) {
-    return _lower(TrimWord(word));
+    return Str::Lower(TrimWord(word));
 }
 
 std::wstring StartKey(const std::wstring_view text) {
     // The marker keeps a start apart from the word it spells
-    return _lower(text.substr(0, StartLetters)) + L'\x1';
+    return Str::Lower(text.substr(0, StartLetters)) + L'\x1';
 }
 
 Pack::~Pack() {

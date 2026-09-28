@@ -29,8 +29,6 @@ namespace Dispatcher {
     /// Drops whatever is queued or waiting and joins the worker. Safe when not running.
     void Stop();
 
-    bool IsRunning();
-
     /// Queues an action. An empty function is ignored, so an unbound slot needs no check of its own.
     void Post(std::function<void()> action);
 

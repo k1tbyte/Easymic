@@ -154,7 +154,10 @@ void SettingsWindowViewModel::RegisterPages() {
                        }
                    }},
          .Items = [] {
-             _current->LoadFonts();
+             // Once per window: every slider tick syncs the page, and the list takes a font enumeration
+             if (_current->_fontItems.empty()) {
+                 _current->LoadFonts();
+             }
              return std::span<const wchar_t* const>{_current->_fontItems};
          },
          .Changed = [](HWND, AppConfig&) { _current->_previewFont(); }},

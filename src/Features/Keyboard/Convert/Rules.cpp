@@ -22,14 +22,6 @@ namespace {
         return h;
     }
 
-    std::wstring _lower(const std::wstring_view text) {
-        std::wstring out(text);
-        if (!out.empty()) {
-            CharLowerBuffW(out.data(), static_cast<DWORD>(out.size()));
-        }
-        return out;
-    }
-
 } // anonymous namespace
 
 bool Rules::Load(const std::filesystem::path& file) {
@@ -70,7 +62,7 @@ void Rules::_add(std::wstring_view line) {
     kind |= flags.contains(L'E') ? Exception : 0;
     kind |= flags.contains(L'C') ? CaseSensitive : 0;
     kind |= std::ranges::any_of(line, [](const wchar_t c) { return c >= 0x400 && c <= 0x4FF; }) ? Cyrillic : 0;
-    _keys.push_back(_hash(kind, kind & CaseSensitive ? std::wstring(line) : _lower(line)));
+    _keys.push_back(_hash(kind, kind & CaseSensitive ? std::wstring(line) : Str::Lower(line)));
     _longest = std::max(_longest, line.size());
 }
 
@@ -107,7 +99,7 @@ RuleHit Rules::Find(const std::wstring_view word, const bool cyrillic, const boo
     if (_keys.empty() || word.empty()) {
         return {};
     }
-    const std::wstring lower = _lower(word);
+    const std::wstring lower = Str::Lower(word);
     const uint8_t script = cyrillic ? Cyrillic : 0;
     const auto match = [&](const uint8_t kind, RuleHit& hit) {
         return _match(script | kind, lower, hit, open) || _match(script | kind | CaseSensitive, word, hit, open);

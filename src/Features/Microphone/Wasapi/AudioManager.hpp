@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 24.10.2025.
-//
-
 #pragma once
 
 

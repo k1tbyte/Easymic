@@ -55,10 +55,6 @@ bool Version::operator>(const Version& other) const {
     return _build > other._build;
 }
 
-Version Version::GetCurrentVersion() {
-    return LoadFromVersionResource();
-}
-
 Version Version::LoadFromVersionResource() {
     const Version fallback(FallbackVersion[0], FallbackVersion[1], FallbackVersion[2], FallbackVersion[3]);
 

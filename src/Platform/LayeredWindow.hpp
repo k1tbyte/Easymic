@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 01.11.2025.
-//
-
 #pragma once
 
 #include <functional>

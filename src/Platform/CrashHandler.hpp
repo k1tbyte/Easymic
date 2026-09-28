@@ -6,19 +6,8 @@
 namespace CrashHandler {
     using LogCallback = std::function<void(const std::string& info)>;
 
-    struct Config {
-        bool showErrorDialog = false;            // Show error message to user
-        bool terminateOnException = true;        // Terminate process after handling
-        LogCallback logCallback = nullptr;       // Custom logging function
-    };
-
-    /**
-     * Initialize global exception handler
-     * Must be called early in main/WinMain
-     * @param config Handler configuration
-     * @return true if initialized successfully
-     */
-    bool Initialize(const Config& config = Config());
+    /// Installs the handlers: a crash is reported to `log`, then the process ends. Early in WinMain.
+    bool Initialize(LogCallback log);
 
 } // namespace CrashHandler
 

@@ -18,6 +18,15 @@
  */
 namespace Str {
 
+    /// A lowercase copy, by the rules Windows compares names with.
+    inline std::wstring Lower(const std::wstring_view text) {
+        std::wstring out(text);
+        if (!out.empty()) {
+            CharLowerBuffW(out.data(), static_cast<DWORD>(out.size()));
+        }
+        return out;
+    }
+
     /// Replaces every occurrence. Skipping past the replacement keeps `to` containing `from` safe.
     inline std::string Replace(std::string text, const std::string_view from, const std::string_view to) {
         if (from.empty()) {

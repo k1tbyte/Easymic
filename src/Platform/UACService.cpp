@@ -1,6 +1,3 @@
-//
-// Created by kitbyte on 20.11.2025.
-//
 #include "UACService.hpp"
 
 #include <comdef.h>

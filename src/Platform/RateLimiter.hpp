@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 20.11.2025.
-//
-
 #pragma once
 
 #ifdef _DEBUG

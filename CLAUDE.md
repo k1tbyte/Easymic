@@ -41,14 +41,16 @@ features register into it.
 - `src/Platform/` - thin Win32 wrappers with no domain knowledge: `Str`, `Event`, `Logger`,
   `Registry`, `Win32Hook`, `Gdi` (rounded pill, text measure, centred draw), `TrayIconTheme`,
   `LayeredWindow` (per-pixel alpha surface), `Controls` (child control in dialog units),
-  `UACService`, `UIAccess/`, `CrashHandler`, `UpdateManager`, `Version`.
+  `UACService`, `UIAccess/`, `CrashHandler`, `Version`. It includes none of `Core/`, `Features/`
+  or `UI/`, and `build.ps1` checks that too.
 - `src/Features/` - vertical slices: `Microphone/` (with `Wasapi/`), `Keyboard/`, `Launcher/`,
   `Desktops/` (virtual desktops, Windows 11 24H2+). A feature may own a private window built
   from `Platform/` helpers.
   **A file under `Features/` may include `Core/` and `Platform/`, and nothing else** -
   `build.ps1` fails the build on a cross-slice include or a `src/UI` header, judging an include
   by where it resolves. Anything two features both need is a `Core/` concern.
-- `src/UI/` - Win32 windows and their view models, `UI/Settings/` for the settings window,
+- `src/UI/` - Win32 windows and their view models, `UpdateManager` (the update check and its
+  dialog), `UI/Settings/` for the settings window,
   `UI/Overlay/` for the surface features draw into: the layout pass, the pill, the text layer.
   A settings page is a row table registered with `SettingsHost`; `UI/Settings/SettingsRows`
   turns it into controls inside the one empty `IDD_SETTINGS_PAGE`. The only other dialog

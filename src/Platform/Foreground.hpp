@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,7 +15,8 @@ namespace Foreground {
         bool Fullscreen = false;
     };
 
-    bool Start();
+    /// `toUi` runs a task on the UI thread, where the snapshot is written.
+    bool Start(void (*toUi)(std::function<void()>));
     void Stop();
 
     /// Any thread, without allocating - the input thread reads it from inside the hook. Null

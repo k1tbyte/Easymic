@@ -158,11 +158,10 @@ namespace Placer {
             rules->Names.push_back(Str::Utf8ToWide(preset.Name));
 
             for (const WindowRule& rule : preset.Windows) {
-                std::wstring exe = Str::Utf8ToWide(rule.Exe);
+                const std::wstring exe = Str::Lower(Str::Utf8ToWide(rule.Exe));
                 if (exe.empty()) {
                     continue;
                 }
-                CharLowerBuffW(exe.data(), static_cast<DWORD>(exe.size()));
                 auto app = std::ranges::find(rules->Apps, exe, &App::Exe);
                 if (app == rules->Apps.end()) {
                     app = rules->Apps.insert(app, App{.Exe = exe});

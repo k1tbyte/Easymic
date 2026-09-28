@@ -100,6 +100,14 @@ namespace {
         _flush();
     }
 
+    /// What the hold keeps goes out now, edit or not: one tick expires it, the next stops waiting for its echo.
+    void _release() {
+        for (int phase = 0; phase < 2; ++phase) {
+            Hold::Tick(UINT64_MAX);
+            _flush();
+        }
+    }
+
     void _hold(const INPUT& event) {
         Hold::Take(event, GetTickCount64());
         _flush();
@@ -173,10 +181,10 @@ namespace {
                 }
                 default: break;
             }
-            if (const uint8_t level = _level(info->dwExtraInfo); !vk) {
-                // Moves and the wheel are never held
-            } else if (level == EditLevel) {
+            if (const uint8_t level = _level(info->dwExtraInfo); level == EditLevel) {
                 _arrived();
+            } else if (!vk) {
+                // Moves and the wheel are never held
             } else if (Router::Key(vk, down, true, level)) {
                 return 1;
             } else if (Hold::Active()) {
@@ -219,11 +227,8 @@ namespace {
     /// ups of whatever was held when it came up are gone.
     void CALLBACK _onDesktopSwitch(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
         Router::Reset();
-        // What a hold is keeping goes out now, edit or not: the secure desktop would only eat it
-        Hold::Tick(UINT64_MAX);
-        _flush();
-        Hold::Tick(UINT64_MAX);
-        _flush();
+        // The secure desktop would only eat what is held
+        _release();
     }
 
     void CALLBACK _runEdit(PTP_CALLBACK_INSTANCE, void* context) {
@@ -242,6 +247,7 @@ namespace {
             Post([id = job->Id] { Commit(id, {}); });
         }
         --_edits;
+        _edits.notify_all();
     }
 
     void _startEdit(std::function<void()> work, std::function<void()> landed) {
@@ -288,12 +294,8 @@ namespace {
         if (desktopSwitch) {
             UnhookWinEvent(desktopSwitch);
         }
-        // What is held goes out without its edit rather than being lost; nothing that comes
-        // back is waited for, since the hooks go down next
-        Hold::Tick(UINT64_MAX);
-        _flush();
-        Hold::Tick(UINT64_MAX);
-        _flush();
+        // Rather than lost, since the hooks go down next
+        _release();
         _keyboard = nullptr;
         _mouse = nullptr;
         while (PeekMessageW(&msg, nullptr, WM_INPUT_RUN, WM_INPUT_RUN, PM_REMOVE)) {
@@ -329,8 +331,8 @@ void Stop() {
     }
     PostThreadMessageW(GetThreadId(_thread.native_handle()), WM_QUIT, 0, 0);
     _thread.join();
-    while (_edits.load()) {
-        Sleep(1);
+    for (int left; (left = _edits.load());) {
+        _edits.wait(left);
     }
 }
 

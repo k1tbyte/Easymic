@@ -52,7 +52,7 @@ src/
   Core/                    the kernel - no knowledge of any feature
     ActionRegistry.hpp       id -> ActionDesc {title, args, factory}
     Dispatcher.*             worker thread + ToUi
-    Feedback.hpp             sound + overlay text + token expansion
+    Feedback.hpp             sound + overlay text + token expansion through feature resolvers
     Overlay.hpp              the layer registry: who is allowed to draw on the overlay
     Tray.hpp                 tray providers: who paints the icon, who adds a menu item
     Lifecycle.hpp            Suspend / Restore - the settings window taking the config and back
@@ -74,7 +74,7 @@ src/
     TrayIconTheme.hpp        light taskbar detection, and the darkened copy of an icon
     LayeredWindow.hpp        per-pixel alpha surface + UpdateLayeredWindow
     Controls.hpp             a child control placed in dialog units
-    UIAccess/ UACService.* CrashHandler.* UpdateManager.* Version.*
+    UIAccess/ UACService.* CrashHandler.* Version.*
 
   Features/                vertical slices
     Microphone/            Wasapi/, actions, its overlay layer, its icons, its settings page
@@ -83,7 +83,7 @@ src/
     Desktops/              virtual desktop COM facade, presets, placer, page, tile editor, tracker
 
   UI/                      Win32 plumbing, feature-agnostic
-    BaseWindow.hpp TrayIcon.hpp
+    BaseWindow.hpp TrayIcon.hpp UpdateManager.*
     Overlay/               the surface, the slot layout, the text pill
     Settings/              page host, declarative row builder
 
@@ -93,15 +93,17 @@ src/
 
 ### Layering rules
 
-**A file under `Features/` may include `Core/` and `Platform/`, and nothing else.** Two rules
-fall out of that, and both are grepped in `build.ps1` rather than trusted - cheap, and they are
-what keeps the whole design from rotting back into `Lib/`:
+**A file under `Features/` may include `Core/` and `Platform/`, and nothing else.** The rules
+below are grepped in `build.ps1` rather than trusted - cheap, and they are what keeps the whole
+design from rotting back into `Lib/`:
 
 - **No file under `Features/X/` may include `Features/Y/`.** If two features need to talk, that
   is a `Core/` concern.
 - **No file under `Features/` may include a header under `src/UI`.** A feature describes itself
   to the frame - an action, an overlay layer, a settings page, a tray provider - and never
   reaches up into a window.
+- **No file under `Platform/` may include `Core/`, `Features/` or `UI/`.** A wrapper that needs
+  the UI thread takes the poster as an argument (`Foreground::Start`).
 
 **A feature may own a private window.** Its own class, its own message loop if it is modal, built
 from `Platform/` helpers only: the Desktops page panel and the fullscreen tile editor are both

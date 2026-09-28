@@ -1,7 +1,3 @@
-//
-// Created by kitbyte on 31.10.2025.
-//
-
 #pragma once
 
 #include <memory>
@@ -125,7 +121,7 @@ private:
 
 public:
     void Init() override {
-        if (!Foreground::Start()) {
+        if (!Foreground::Start(&Dispatcher::ToUi)) {
             LOG_ERROR("Foreground tracking unavailable; app-specific hotkeys will use global bindings");
         }
         _overlay.Bind();
