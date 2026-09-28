@@ -13,7 +13,7 @@
  * A consumer is a stage. Events walk the enabled stages in Order on the input thread, and each
  * stage answers at once - anything slow is handed off. Input a stage sends is seen only by the
  * stages after it, so a remap can feed hotkeys and nothing loops. The hooks are up only while an
- * enabled stage wants them. docs/INPUT.md holds the rules.
+ * enabled stage wants them. .claude/rules/input.md holds the rules.
  */
 namespace Input {
 

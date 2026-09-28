@@ -1,4 +1,4 @@
-# Autocorrect repro (docs/LAYOUT.md, diagnosis): types the reported session into a window of its
+# Autocorrect repro (diagnosis): types the reported session into a window of its
 # own - a Russian line, Alt+Shift through every installed layout, the same words again - and prints
 # a per-word timeline of the box text, the layout and the app's decision log.
 # Same rules as HotkeyProbe.ps1: it stops any running EasyLauncher, runs its own with a backed-up
