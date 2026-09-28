@@ -18,7 +18,7 @@ namespace Autocorrect {
 
     /// What the tracker converts with: built on Restore, immutable after, shared with the edit lane.
     struct Runtime {
-        /// Every installed layout: a third one (uk next to ru) types for the pair side of its script
+        /// Every installed layout: a third one (uk next to ru) converts by hand and as the target of its script's side
         std::vector<Convert::LayoutTable> Layouts;
         std::array<size_t, 2> Pair{};
         std::unique_ptr<std::array<Convert::Pack, 2>> Packs;
@@ -37,6 +37,8 @@ namespace Autocorrect {
         const Convert::LayoutTable* Find(HKL layout) const;
         /// The pair side `layout` types for, itself or by script; -1 when none.
         int SideOf(HKL layout) const;
+        /// Only the pair's own layouts are judged: a pack read uk as ru, і as ы, and fixed every such word.
+        bool Reads(HKL layout) const { return Table(0).Layout() == layout || Table(1).Layout() == layout; }
     };
 
     /// Once, from Keyboard::Register: what a fix plays and says, and through whom.

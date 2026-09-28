@@ -51,11 +51,12 @@ namespace {
             || _generation.load(std::memory_order_relaxed) != generation) {
             return;
         }
+        // No GetForegroundWindow recheck: caught mid-switch (a virtual desktop), it left the window without its exe
+        // until the next switch, and keyboard tracking off there
         Dispatcher::ToUi([window, generation, fullscreen, exe = std::move(exe)]() mutable {
             if (!_running.load(std::memory_order_relaxed)
                 || _generation.load(std::memory_order_relaxed) != generation
-                || _latestHwnd.load(std::memory_order_relaxed) != window
-                || GetForegroundWindow() != window) {
+                || _latestHwnd.load(std::memory_order_relaxed) != window) {
                 return;
             }
             _publish(window, std::move(exe), fullscreen);

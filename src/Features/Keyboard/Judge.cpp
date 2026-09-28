@@ -65,10 +65,10 @@ namespace {
             return;
         }
         const HKL layout = word.Layout ? word.Layout : InputLanguage::LayoutOf(InputLanguage::FocusedWindow());
-        const int from = runtime->SideOf(layout);
-        if (from < 0) {
+        if (!runtime->Reads(layout)) {
             return;
         }
+        const int from = runtime->SideOf(layout);
         const auto learned = Learning::Current();
         const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
         Result result{word.Gen, layout, Autocorrect::Decide(*runtime, *learned, keys, from)};

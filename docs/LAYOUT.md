@@ -50,8 +50,9 @@ before 2026-09-27).
   layouts. The edit is Backspace x (keys + spaces), then the target rendering and the spaces as
   `KEYEVENTF_UNICODE`, wrapped in ups and downs of the held modifiers (a vkE8 tap first when Alt or Win
   is down). The layout switch is posted before `Commit`; a refused `Commit` switches back.
-- The pair is two installed layouts bound by KLID. Any other installed layout types for the pair side of
-  its script (uk -> ru side, fr -> en side); a conversion goes to the layout last typed in on the other
+- The pair is two installed layouts bound by KLID. Any other installed layout of a side's script (uk -> ru
+  side, fr -> en side) is never judged: the side's pack would read uk's і as ы and fix the word. It still
+  converts by hand; a conversion goes to the layout last typed in on the other
   side (`WordTracker::_last`), else the pair's. `InputLanguage::Installed()` lists Preload, then the
   session layouts Preload lacks (their id is the HKL in hex).
 - Learning (`Learning.*`): `Learned.Always` / `Learned.Never` in the config, lowercase, ASCII punctuation

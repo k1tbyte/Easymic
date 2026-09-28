@@ -236,7 +236,7 @@ namespace {
                 const HWND focus = InputLanguage::FocusedWindow();
                 const HKL layout = focus ? _layoutOf(_word, focus) : nullptr;
                 const int from = layout ? _sideOf(*_runtime, layout) : -1;
-                if (from < 0) {
+                if (from < 0 || !_runtime->Reads(layout)) {
                     Autocorrect::LogSkip(*_runtime, "layout outside the pair", reinterpret_cast<UINT_PTR>(layout));
                 } else if (!_retyped(from)) {
                     // Pinned before the hold snapshots it: the conversion reads the layout typed in
@@ -272,8 +272,9 @@ namespace {
                 _word.Clear();
                 _heldIntact = false;
             }
-            if (!_erasedWhole) {
-                // Typed into a half-erased word: an edit, no retype
+            // Into a half-erased word, or not the erased word again: no retype, and mid-word fixes are back
+            if (!_erasedWhole || _word.Count >= _erased.Count || _erased.Keys[_word.Count].Vk != event.Vk) {
+                _erasedWhole = false;
                 _erased.Count = 0;
             }
             // A mid-word fix stands for the rest of its word

@@ -129,7 +129,7 @@ Without it everything works; the run and the dictionary cover most of what the r
 6. Optional: a `langpack_<iso>` target in `tools/langpack/CMakeLists.txt`, like `langpack_ru`.
 
 Limits: the two sides need different scripts (EN/DE cannot work); rules only help a Latin/Cyrillic
-pair; a third layout of a side's script (uk next to ru) uses that side's pack.
+pair; a third layout of a side's script (uk next to ru) is never judged, it only converts by hand.
 
 ## Debug and test
 
