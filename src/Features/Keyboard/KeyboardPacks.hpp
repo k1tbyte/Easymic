@@ -8,6 +8,7 @@
 
 #include "Convert/Pack.hpp"
 #include "Convert/Rules.hpp"
+#include "Platform/File.hpp"
 #include "Platform/Str.hpp"
 
 namespace KeyboardPacks {
@@ -22,9 +23,7 @@ namespace KeyboardPacks {
     }
 
     inline std::filesystem::path PacksDir() {
-        wchar_t module[MAX_PATH]{};
-        if (!GetModuleFileNameW(nullptr, module, MAX_PATH)) return {};
-        return std::filesystem::path(module).parent_path() / L"packs";
+        return File::NextToExe(L"packs");
     }
 
     inline bool ValidPackFilename(const std::wstring_view name) {

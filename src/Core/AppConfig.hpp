@@ -1,15 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
-#include <set>
-#include <windows.h>
-#include "definitions.h"
-#include "Hotkeys/KeyNames.hpp"
-#include "Platform/Foreground.hpp"
-
-#include <glaze/glaze.hpp>
 
 /// When the microphone's pill is on the overlay: never, while muted, or while muted or talking.
 enum class MicPillMode {
@@ -18,26 +12,12 @@ enum class MicPillMode {
     MutedOrTalk,
 };
 
-/// Named rather than numbered on disk - the whole point of the JSON move is a file a person can
-/// read and edit, and "2" says nothing.
-template <>
-struct glz::meta<MicPillMode> {
-    using enum MicPillMode;
-    static constexpr auto value = enumerate(Hidden, Muted, MutedOrTalk);
-};
-
 /// When autocorrect converts a word typed in the wrong layout: never (the hotkey still does), on its Space, or
 /// mid-word as soon as its start is sure.
 enum class AutoCorrectMode {
     Off,
     Space,
     MidWord,
-};
-
-template <>
-struct glz::meta<AutoCorrectMode> {
-    using enum AutoCorrectMode;
-    static constexpr auto value = enumerate(Off, Space, MidWord);
 };
 
 /// Everything that is nobody's feature in particular.
@@ -235,50 +215,9 @@ struct AppConfig {
 
     bool operator==(const AppConfig&) const = default;
 
-    void Save() {
-        for (auto& binding : Bindings) {
-            binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
-        }
-        if (const auto ec = glz::write_file_json<glz::opts{.prettify = true}>(
-                *this, GetConfigPath(), std::string{})) {
-            LOG_ERROR("Config save failed: %s", glz::format_error(ec).c_str());
-        }
-    }
-
+    /// Writes the whole file.
+    void Save();
     /// Reads the file, or hands back defaults. Nothing migrates: a file that does not parse is
     /// ignored whole, and a key no field has is dropped.
-    static AppConfig Load()
-    {
-        AppConfig config{};
-        // A missing file is the normal first-run case, anything else means a broken config
-        if (const auto ec = glz::read_file_json<glz::opts{.error_on_unknown_keys = false}>(
-                config, GetConfigPath(), std::string{});
-            ec && ec.ec != glz::error_code::file_open_failure) {
-            LOG_ERROR("Config load failed: %s", glz::format_error(ec).c_str());
-            return {};
-        }
-
-        // Whatever the file says becomes the canonical spelling, so two bindings that mean the
-        // same combination compare equal - KeyNames::Parse accepts LCTRL, which Format never
-        // prints, and a hand-edited file is exactly where that shows up. A name that does not
-        // parse is left as the user wrote it: the binding shows up unbound rather than blank.
-        for (auto& binding : config.Bindings) {
-            if (const uint64_t mask = KeyNames::Parse(binding.Trigger.Keys)) {
-                binding.Trigger.Keys = KeyNames::Format(mask);
-            }
-            binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
-        }
-        return config;
-    }
-
-private:
-    static const std::string& GetConfigPath() {
-        static const std::string path = [] {
-            wchar_t modulePath[MAX_PATH] = {};
-            return GetModuleFileNameW(nullptr, modulePath, MAX_PATH)
-                ? (std::filesystem::path{modulePath}.parent_path() / CONFIG_NAME).string()
-                : std::string{"config.json"};
-        }();
-        return path;
-    }
+    static AppConfig Load();
 };

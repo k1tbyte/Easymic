@@ -35,6 +35,8 @@ paths:
   the whole file. Nothing migrates, no compatibility shims.
 - Section structs live in `Core/AppConfig.hpp`; a module sees only its section. A field goes to the
   section that would still want it if the feature were deleted.
+- `AppConfig.hpp` includes no glaze: serialization is in `AppConfig.cpp`, enum names in `AppConfigJson.hpp`.
+- Files go through `Platform/File.hpp`, never iostreams: their locale code costs ~100 KB of exe.
 - Hotkeys are stored as names (`CTRL + SHIFT + M`); one that does not parse stays in the list unbound.
 
 ## Known, not fixed

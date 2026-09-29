@@ -1,6 +1,6 @@
 #include "UpdateManager.hpp"
 
-#include <fstream>
+#include <optional>
 #include <thread>
 #include <windows.h>
 #include <wininet.h>
@@ -8,6 +8,7 @@
 
 #include "AppConfig.hpp"
 #include "Core/Dispatcher.hpp"
+#include "File.hpp"
 #include "Resources/Resource.h"
 #include "Settings/DialogControls.hpp"
 #include "Str.hpp"
@@ -32,17 +33,17 @@ namespace {
     };
 
     /**
-     * @brief Streams a URL to the sink.
+     * @brief The body of a URL, or nothing.
      *
-     * The status check is the point: without it an error page is just a body like any other, and
-     * a 404 from GitHub would be written to disk and then copied over the running executable.
+     * The status and read checks are the point: an error page or a cut download would otherwise be
+     * written to disk and then copied over the running executable.
      */
-    bool Fetch(const std::string& url, const std::function<void(const char*, DWORD)>& sink) {
+    std::optional<std::string> Fetch(const std::string& url) {
         constexpr DWORD NetworkTimeoutMs = 10000;
         const InternetHandle session(InternetOpenA("EasyLauncher-Updater", INTERNET_OPEN_TYPE_PRECONFIG,
                                                    nullptr, nullptr, 0));
         if (!session) {
-            return false;
+            return std::nullopt;
         }
 
         DWORD timeout = NetworkTimeoutMs;
@@ -52,7 +53,7 @@ namespace {
         const InternetHandle connection(InternetOpenUrlA(session, url.c_str(), nullptr, 0,
                                                          INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0));
         if (!connection) {
-            return false;
+            return std::nullopt;
         }
 
         DWORD status = 0;
@@ -60,16 +61,19 @@ namespace {
         if (!HttpQueryInfoA(connection, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
                             &status, &statusSize, nullptr) || status != HTTP_STATUS_OK) {
             LOG_ERROR("Update request for '%s' answered %lu", url.c_str(), status);
-            return false;
+            return std::nullopt;
         }
 
+        std::string body;
         char buffer[8192];
         DWORD bytesRead = 0;
-        while (InternetReadFile(connection, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
-            sink(buffer, bytesRead);
+        while (InternetReadFile(connection, buffer, sizeof(buffer), &bytesRead)) {
+            if (bytesRead == 0) {
+                return body;
+            }
+            body.append(buffer, bytesRead);
         }
-
-        return true;
+        return std::nullopt;
     }
 
     /// Single quotes are the only PowerShell quoting that takes a string verbatim; the one
@@ -109,13 +113,13 @@ void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::str
         GitHubRelease release;
         std::string error;
         bool hasUpdate = false;
-        std::string response;
+        const std::optional<std::string> response = Fetch(GetApiUrl());
 
-        if (!Fetch(GetApiUrl(), [&response](const char* data, DWORD size) { response.append(data, size); })) {
+        if (!response) {
             error = "Failed to reach GitHub";
         } else if (const auto parseResult = glz::read<glz::opts{.error_on_unknown_keys = false}>(
-                       release, response)) {
-            error = "Failed to parse JSON response: " + glz::format_error(parseResult, response);
+                       release, *response)) {
+            error = "Failed to parse JSON response: " + glz::format_error(parseResult, *response);
         } else if (GetExecutableAssets(release).empty()) {
             error = "Release " + release.tag_name + " carries no executable";
         } else {
@@ -215,22 +219,12 @@ std::wstring UpdateManager::DownloadFile(const std::string& url, const std::stri
     // widening it byte by byte turns any non-ASCII asset name into a path that does not exist
     const std::wstring downloadPath = std::wstring(tempPath, tempLength) + Str::Utf8ToWide(filename);
 
-    std::ofstream file(downloadPath, std::ios::binary);
-    if (!file.is_open()) {
-        LOG_ERROR("Update download: cannot create the target file");
-        return {};
-    }
-
-    const bool fetched = Fetch(url, [&file](const char* data, const DWORD size) {
-        file.write(data, size);
-    });
-    file.close();
-
-    if (!fetched || !file) {
+    const std::optional<std::string> body = Fetch(url);
+    if (!body || !File::Write(downloadPath.c_str(), *body)) {
+        LOG_ERROR("Update download failed");
         DeleteFileW(downloadPath.c_str());
         return {};
     }
-
     return downloadPath;
 }
 

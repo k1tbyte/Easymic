@@ -1,10 +1,11 @@
 #include "Logger.hpp"
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <windows.h>
 
-std::string Logger::_logFilePath;
+#include "File.hpp"
+
+std::wstring Logger::_logFilePath;
 std::mutex Logger::_logMutex;
 std::once_flag Logger::_initFlag;
 Event<Logger::Level, const std::string&, const std::string&> Logger::OnLogAdded;
@@ -12,13 +13,8 @@ Event<Logger::Level, const std::string&, const std::string&> Logger::OnLogAdded;
 
 void Logger::Initialize() {
     std::call_once(_initFlag, [] {
-        wchar_t modulePath[MAX_PATH];
-        if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
-            return;
-        }
-
         std::lock_guard lock(_logMutex);
-        _logFilePath = (std::filesystem::path(modulePath).parent_path() / L"easylauncher.log").string();
+        _logFilePath = File::NextToExe(L"easylauncher.log");
         CheckLogFileSize();
     });
 }
@@ -56,10 +52,15 @@ void Logger::LogImpl(Level level, const std::string& message) {
         std::lock_guard lock(_logMutex);
         formattedEntry = FormatLogEntry(level, message);
 
-        // Text mode on purpose: the log ends up in an edit control that wants CRLF
-        if (std::ofstream logFile(_logFilePath, std::ios::app); logFile.is_open()) {
-            logFile << formattedEntry << std::endl;
+        // CRLF: the log ends up in an edit control
+        std::string line;
+        for (const char c : formattedEntry) {
+            if (c == '\n') {
+                line += '\r';
+            }
+            line += c;
         }
+        File::Write(_logFilePath.c_str(), line + "\r\n", true);
     }
 
     // Raised with nothing held: a log line can come from any thread, and a subscriber that has
@@ -83,22 +84,7 @@ std::string Logger::GetLogText() {
     }
 
     std::lock_guard lock(_logMutex);
-
-    // Binary: the file already holds the CRLF the edit control expects
-    std::ifstream logFile(_logFilePath, std::ios::binary | std::ios::ate);
-    if (!logFile.is_open()) {
-        return {};
-    }
-
-    const auto size = logFile.tellg();
-    if (size <= 0) {
-        return {};
-    }
-
-    std::string text(size, '\0');
-    logFile.seekg(0, std::ios::beg);
-    logFile.read(text.data(), size);
-    return text;
+    return File::Read(_logFilePath.c_str()).value_or(std::string{});
 }
 
 std::string Logger::FormatLogEntry(Level level, const std::string& message) {

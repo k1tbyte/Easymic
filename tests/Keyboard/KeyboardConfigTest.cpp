@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <string>
 
-#include "Core/AppConfig.hpp"
+#include "Core/AppConfigJson.hpp"
 #include "Core/SettingsHost.hpp"
 
 int main() {

@@ -2,10 +2,11 @@
 
 #include <cstddef>
 #include <cstring>
-#include <fstream>
 #include <string>
+#include <string_view>
 #include <windows.h>
 
+#include "File.hpp"
 #include "Str.hpp"
 
 /**
@@ -39,40 +40,27 @@ namespace AudioFileValidator {
          * They are not at fixed offsets: ffmpeg and Audacity happily emit LIST or fact chunks in
          * between, and reading a fixed 44-byte header there yields a garbage duration.
          */
-        inline bool ReadWavHeader(std::ifstream& file, WavHeader& header) {
-            char riff[4], wave[4];
-            uint32_t riffSize;
-
-            file.read(riff, 4);
-            file.read(reinterpret_cast<char*>(&riffSize), 4);
-            file.read(wave, 4);
-
-            if (!file || strncmp(riff, "RIFF", 4) != 0 || strncmp(wave, "WAVE", 4) != 0) {
+        inline bool ReadWavHeader(const std::string_view bytes, WavHeader& header) {
+            if (bytes.size() < 12 || !bytes.starts_with("RIFF") || bytes.substr(8, 4) != "WAVE") {
                 return false;
             }
 
             bool hasFormat = false;
             header.dataSize = 0;
-
-            while (file) {
-                char id[4];
+            for (size_t at = 12; at + 8 <= bytes.size();) {
+                const std::string_view id = bytes.substr(at, 4);
                 uint32_t size;
-                file.read(id, 4);
-                file.read(reinterpret_cast<char*>(&size), 4);
-                if (!file) {
-                    break;
-                }
+                memcpy(&size, bytes.data() + at + 4, sizeof size);
+                at += 8;
 
-                if (strncmp(id, "fmt ", 4) == 0 && size >= 16) {
-                    file.read(reinterpret_cast<char*>(&header.audioFormat), 16);
-                    hasFormat = file.good();
-                    size -= 16;
-                } else if (strncmp(id, "data", 4) == 0) {
+                if (id == "fmt " && size >= 16 && at + 16 <= bytes.size()) {
+                    memcpy(&header.audioFormat, bytes.data() + at, 16);
+                    hasFormat = true;
+                } else if (id == "data") {
                     header.dataSize = size;
                     break; // Everything past the samples is metadata
                 }
-
-                file.seekg(size + (size & 1), std::ios::cur); // Chunks are word aligned
+                at += size + (size & 1); // Chunks are word aligned
             }
 
             return hasFormat && header.dataSize > 0;
@@ -88,14 +76,14 @@ namespace AudioFileValidator {
 
         /// @return why the file was rejected, empty when it is fine.
         inline std::string Reject(const std::string& filePath) {
-            // The wide overload is the only one that opens a non-ASCII path: the narrow one is ACP
-            std::ifstream file(Str::Utf8ToWide(filePath), std::ios::binary);
-            if (!file.is_open()) {
+            // The chunk headers sit up front; the samples are never read
+            const auto bytes = File::Read(Str::Utf8ToWide(filePath).c_str(), 1 << 20);
+            if (!bytes) {
                 return "Cannot open file";
             }
 
             WavHeader header;
-            if (!ReadWavHeader(file, header)) {
+            if (!ReadWavHeader(*bytes, header)) {
                 return "Invalid WAV file format";
             }
 

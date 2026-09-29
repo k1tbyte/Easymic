@@ -37,16 +37,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 0;
     }
 
-    // "%s": the report is a runtime string and carries whatever an exception message had in it
-    const CrashHandler::LogCallback logCallback = [](const std::string& report) {
-        LOG_ERROR("%s", report.c_str());
-    };
-
-    if (!CrashHandler::Initialize(logCallback)) {
-        LOG_ERROR("Failed to initialize CrashHandler");
-        CloseHandle(mutex);
-        return 1;
-    }
+    // "%s": the report carries whatever an exception message had in it
+    CrashHandler::Install([](const char* report) { LOG_ERROR("%s", report); });
 
     // Static: feature registrations and the feedback object keep references to the config.
     static AppConfig config = AppConfig::Load();

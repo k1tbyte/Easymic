@@ -28,7 +28,7 @@ public:
     static Event<Level, const std::string&, const std::string&> OnLogAdded;
 
 private:
-    static std::string _logFilePath;
+    static std::wstring _logFilePath;
     static std::mutex _logMutex;
     static std::once_flag _initFlag;
     static constexpr size_t MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB

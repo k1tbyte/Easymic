@@ -1,11 +1,10 @@
 #include "Rules.hpp"
 
 #include "LayoutTable.hpp"
+#include "Platform/File.hpp"
 #include "Platform/Str.hpp"
 
 #include <algorithm>
-#include <fstream>
-#include <iterator>
 
 namespace Convert {
 
@@ -26,15 +25,14 @@ namespace {
 } // anonymous namespace
 
 bool Rules::Load(const std::filesystem::path& file) {
-    std::ifstream in(file, std::ios::binary);
-    if (!in) {
+    auto bytes = File::Read(file.c_str());
+    if (!bytes) {
         return false;
     }
-    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (bytes.starts_with("\xEF\xBB\xBF")) {
-        bytes.erase(0, 3);
+    if (bytes->starts_with("\xEF\xBB\xBF")) {
+        bytes->erase(0, 3);
     }
-    const std::wstring text = Str::Utf8ToWide(bytes);
+    const std::wstring text = Str::Utf8ToWide(*bytes);
     for (size_t start = 0; start < text.size();) {
         const size_t end = std::min(text.find_first_of(L"\r\n", start), text.size());
         _add(std::wstring_view(text).substr(start, end - start));
