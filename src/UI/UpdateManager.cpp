@@ -17,7 +17,8 @@
 
 #pragma comment(lib, "wininet.lib")
 
-namespace {
+// Glaze's member-name reflection needs external linkage on MSVC.
+namespace UpdateJson {
 
     struct GitHubAsset {
         std::string name;
@@ -29,6 +30,9 @@ namespace {
         std::string body;
         std::vector<GitHubAsset> assets;
     };
+}
+
+namespace {
 
     constexpr auto ApiUrl = "https://api.github.com/repos/" DEV_NAME "/" REPO_NAME "/releases/latest";
 
@@ -137,12 +141,12 @@ void UpdateManager::CheckForUpdatesAsync() {
     JoinWorker();
     _worker = std::thread([this] {
         const std::optional<std::string> response = _fetch(ApiUrl);
-        GitHubRelease release;
+        UpdateJson::GitHubRelease release;
         if (!response || glz::read<glz::opts{.error_on_unknown_keys = false}>(release, *response)) {
             return;
         }
 
-        const auto asset = std::ranges::find_if(release.assets, [](const GitHubAsset& candidate) {
+        const auto asset = std::ranges::find_if(release.assets, [](const UpdateJson::GitHubAsset& candidate) {
             return candidate.name.ends_with(".exe");
         });
         if (asset == release.assets.end() || !(Version(release.tag_name) > Version::App())) {
