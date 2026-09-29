@@ -2,7 +2,7 @@
 
 #include "AppConfig.hpp"
 #include "Str.hpp"
-#include "WindowCatalog.hpp"
+#include "Windowing/WindowCatalog.hpp"
 
 #include <dwmapi.h>
 

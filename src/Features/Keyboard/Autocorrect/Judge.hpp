@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "../Convert/Detector.hpp"
-#include "TypedWord.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/TypedWord.hpp"
 
 namespace Autocorrect {
     struct Runtime;

@@ -6,8 +6,8 @@
 #include "ActionDialog.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
-#include "Platform/Controls.hpp"
-#include "Platform/Foreground.hpp"
+#include "Platform/Windowing/Controls.hpp"
+#include "Platform/Windowing/Foreground.hpp"
 #include "Resources/Resource.h"
 #include "Str.hpp"
 

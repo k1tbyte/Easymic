@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "../Convert/Detector.hpp"
-#include "TypedWord.hpp"
-#include "UserRules.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/TypedWord.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/UserRules.hpp"
 
 class Feedback;
 struct KeyboardSettings;

@@ -3,7 +3,7 @@
 #include "AppConfigJson.hpp"
 #include "Hotkeys/KeyNames.hpp"
 #include "Platform/File.hpp"
-#include "Platform/Foreground.hpp"
+#include "Platform/Windowing/Foreground.hpp"
 #include "definitions.h"
 
 namespace {

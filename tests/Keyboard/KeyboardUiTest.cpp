@@ -11,7 +11,7 @@
 #include "Core/AppConfig.hpp"
 #include "Core/SettingsHost.hpp"
 #include "Features/Keyboard/KeyboardExclusions.hpp"
-#include "Features/Keyboard/KeyboardPage.hpp"
+#include "Features/Keyboard/Settings/KeyboardPage.hpp"
 #include "Platform/Str.hpp"
 #include "Resources/Resource.h"
 #include "UI/Settings/SettingsWindow.hpp"

@@ -12,7 +12,7 @@
 #include "Resources/Resource.h"
 #include "Settings/DialogControls.hpp"
 #include "Str.hpp"
-#include "Version.hpp"
+#include "System/Version.hpp"
 #include "definitions.h"
 
 #pragma comment(lib, "wininet.lib")

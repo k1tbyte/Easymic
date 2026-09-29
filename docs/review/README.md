@@ -1,5 +1,8 @@
 # Performance and cleanliness review
 
+The fix pass is done: see [TASKS.md](TASKS.md) for what was fixed, what was left and why, and what needs a Windows run.
+The findings below describe the tree at `b57e231`; file paths in them predate the folder regrouping.
+
 Base: `b57e231`. Read-only review, no source changed, nothing built with MSVC (Linux sandbox).
 Method: four area reviewers read every file in their area; I reviewed `Core/Input`, `Core/Hotkeys`,
 tests and build myself and ran mocks with g++ (`mocks/`, a 13-line `windows.h` shim).
@@ -40,7 +43,6 @@ microseconds, so micro-optimising it is not where the latency is. Simplifying it
 | 11 | AC-1 | perf | One `Input::Post` plus allocations per typed key | M |
 | 12 | UP-4, UP-5 | ux, bug | No Tab/Enter/Esc in settings; update script races the exit | S |
 
-Checklist with acceptance notes: [TASKS.md](TASKS.md).
 
 ## Reports
 
@@ -64,7 +66,7 @@ g++ -std=c++23 -Imocks -Isrc/Core tests/Input/RouterTest.cpp src/Core/Input/Rout
 | Mock | Result |
 |---|---|
 | `hotkey_lookup` | two hash lookups per key down 12-26 ns; a 256-bit "vk ends a mask" guard 1.8 ns |
-| `router_stuck` | stage enabled or router reset mid-press, then a consumed autorepeat: app sees the down, never the up |
+| `router_stuck` | stage enabled or router reset mid-press, then a consumed autorepeat: the app saw the down and never the up (fixed: prints 0 now) |
 | `hold_fuzz` | 20,000 random runs of type, commit, echo, time: 0 lost, 0 duplicated, 0 reordered, hold always ends |
 | `RouterTest` | existing tests pass on Linux with the shim |
 

@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-#include "Autocorrect.hpp"
-#include "Platform/Foreground.hpp"
+#include "Features/Keyboard/Autocorrect/Autocorrect.hpp"
+#include "Platform/Windowing/Foreground.hpp"
 
 namespace Autocorrect {
 

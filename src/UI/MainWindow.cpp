@@ -5,8 +5,8 @@
 #include "Core/Hotkeys/HotkeyService.hpp"
 #include "Core/Lifecycle.hpp"
 #include "Core/Tray.hpp"
-#include "Foreground.hpp"
-#include "TrayIconTheme.hpp"
+#include "Windowing/Foreground.hpp"
+#include "Gfx/TrayIconTheme.hpp"
 #include "definitions.h"
 
 #include "Resources/Resource.h"

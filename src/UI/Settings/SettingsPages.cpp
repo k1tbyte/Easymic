@@ -5,16 +5,16 @@
 #include <gdiplus.h>
 
 #include "ActionList.hpp"
-#include "Controls.hpp"
+#include "Windowing/Controls.hpp"
 #include "Core/Overlay.hpp"
 #include "Core/SettingsHost.hpp"
 #include "Core/Tray.hpp"
 #include "Overlay/TextLayer.hpp"
 #include "Resources/Resource.h"
-#include "Logger.hpp"
+#include "Diagnostics/Logger.hpp"
 #include "Str.hpp"
-#include "UACService.hpp"
-#include "Version.hpp"
+#include "System/UACService.hpp"
+#include "System/Version.hpp"
 #include "definitions.h"
 
 namespace {

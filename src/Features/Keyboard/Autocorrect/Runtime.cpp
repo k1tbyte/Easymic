@@ -3,7 +3,7 @@
 #include <algorithm>
 
 #include "Core/AppConfig.hpp"
-#include "../InputLanguage.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
 #include "../KeyboardExclusions.hpp"
 #include "../KeyboardPacks.hpp"
 #include "definitions.h"

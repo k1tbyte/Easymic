@@ -2,9 +2,9 @@
 
 #include <algorithm>
 
-#include "Accessibility.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/Accessibility.hpp"
 #include "Core/AppConfig.hpp"
-#include "Learning.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/Learning.hpp"
 #include "Platform/Str.hpp"
 
 namespace Autocorrect {

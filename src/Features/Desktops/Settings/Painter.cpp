@@ -1,7 +1,7 @@
 #include "Painter.hpp"
 
 #include "AppConfig.hpp"
-#include "Gdi.hpp"
+#include "Gfx/Gdi.hpp"
 #include "Str.hpp"
 
 namespace {

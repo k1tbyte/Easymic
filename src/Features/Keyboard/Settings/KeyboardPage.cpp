@@ -4,10 +4,10 @@
 #include "Core/Lifecycle.hpp"
 #include "Core/Overlay.hpp"
 #include "Core/SettingsHost.hpp"
-#include "InputLanguage.hpp"
-#include "KeyboardPacks.hpp"
-#include "Settings/ExcludedApps.hpp"
-#include "Settings/RulesPage.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
+#include "Features/Keyboard/KeyboardPacks.hpp"
+#include "ExcludedApps.hpp"
+#include "RulesPage.hpp"
 #include "Str.hpp"
 
 #include <algorithm>

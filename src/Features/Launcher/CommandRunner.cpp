@@ -8,7 +8,7 @@
 #include "ShellContext.hpp"
 #include "ShellLaunch.hpp"
 #include "Str.hpp"
-#include "WindowCatalog.hpp"
+#include "Windowing/WindowCatalog.hpp"
 #include "definitions.h"
 
 namespace CommandRunner {

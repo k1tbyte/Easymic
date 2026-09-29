@@ -3,7 +3,7 @@
 
 #include "../Check.hpp"
 #include "Core/AppConfig.hpp"
-#include "Features/Keyboard/Autocorrect/UserRules.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/UserRules.hpp"
 
 namespace {
 

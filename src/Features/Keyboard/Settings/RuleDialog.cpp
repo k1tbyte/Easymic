@@ -1,8 +1,8 @@
 #include "RuleDialog.hpp"
 
-#include "../Autocorrect/UserRules.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/UserRules.hpp"
 #include "Core/AppConfig.hpp"
-#include "Platform/Controls.hpp"
+#include "Platform/Windowing/Controls.hpp"
 #include "Platform/Str.hpp"
 #include "Resources/Resource.h"
 

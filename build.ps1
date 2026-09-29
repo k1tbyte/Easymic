@@ -46,8 +46,6 @@ if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
     }
 }
 
-& (Join-Path $root "scripts\check-architecture.ps1") -Root $root
-
 # Quotes are required: PS 5.1 does not expand variables in unquoted "-D...=" arguments
 cmake -S "$root" -B "$buildDir" -G Ninja "-DCMAKE_BUILD_TYPE=$Config"
 if ($LASTEXITCODE -ne 0) { throw "configure failed" }
@@ -59,18 +57,10 @@ $exe = Join-Path $buildDir "EasyLauncher.exe"
 Write-Host "`n$exe  ($([math]::Round((Get-Item $exe).Length / 1KB)) KB)" -ForegroundColor Green
 
 if ($Test) {
-    cmake --build $buildDir --target RouterTest KeyboardConfigTest AutocorrectTest UserRulesTest KeyboardUiTest
+    cmake --build $buildDir --target unit_tests
     if ($LASTEXITCODE -ne 0) { throw "test build failed" }
-    & (Join-Path $buildDir "RouterTest.exe")
-    if ($LASTEXITCODE -ne 0) { throw "router tests failed" }
-    & (Join-Path $buildDir "KeyboardConfigTest.exe")
-    if ($LASTEXITCODE -ne 0) { throw "keyboard config tests failed" }
-    & (Join-Path $buildDir "AutocorrectTest.exe")
-    if ($LASTEXITCODE -ne 0) { throw "autocorrect tests failed" }
-    & (Join-Path $buildDir "UserRulesTest.exe")
-    if ($LASTEXITCODE -ne 0) { throw "user rules tests failed" }
-    & (Join-Path $buildDir "KeyboardUiTest.exe")
-    if ($LASTEXITCODE -ne 0) { throw "keyboard UI tests failed" }
+    ctest --test-dir $buildDir --output-on-failure
+    if ($LASTEXITCODE -ne 0) { throw "tests failed" }
     & (Join-Path $root "tests\Keyboard\DetectionBenchTest.ps1")
 }
 

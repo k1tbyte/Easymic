@@ -1,9 +1,9 @@
 #include "Editor.hpp"
 
 #include "AppConfig.hpp"
-#include "../Painter.hpp"
-#include "Gdi.hpp"
-#include "LayeredWindow.hpp"
+#include "Features/Desktops/Settings/Painter.hpp"
+#include "Gfx/Gdi.hpp"
+#include "Gfx/LayeredWindow.hpp"
 #include "Tiles.hpp"
 
 #include <algorithm>

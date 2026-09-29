@@ -13,7 +13,7 @@
 #include "Core/SettingsHost.hpp"
 #include "Core/Tray.hpp"
 #include "definitions.h"
-#include "Logger.hpp"
+#include "Diagnostics/Logger.hpp"
 #include "MicLayer.hpp"
 #include "SoundCatalog.hpp"
 #include "Str.hpp"

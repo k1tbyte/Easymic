@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <windows.h>
 
-#include "File.hpp"
+#include "Platform/File.hpp"
 
 std::wstring Logger::_logFilePath;
 std::mutex Logger::_logMutex;

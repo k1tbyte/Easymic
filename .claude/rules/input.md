@@ -2,7 +2,7 @@
 paths:
   - "src/Core/Input/**"
   - "src/Core/Hotkeys/**"
-  - "src/Features/Keyboard/Autocorrect/WordTracker*"
+  - "src/Features/Keyboard/Autocorrect/Tracker/**"
   - "tests/Input/**"
 ---
 
@@ -27,6 +27,8 @@ paths:
   replays carry `EditLevel` (0xFF) and reach no stage. This is AutoHotkey's SendLevel: a remap to
   Backspace must still reach the word buffer.
 - A stage that consumes a down owns that vk until its up; a stage never gets an up without its down.
+- A `Consume` on a down the app already saw (stage enabled or router reset while the key was held)
+  swallows that event only and takes no ownership, so the up reaches the app.
 - `SendInput` from inside the proc re-enters the hook before it returns: update state before `Send`.
 - A hook set change or a desktop switch (lock, UAC) resets the router and calls every `OnReset`.
 

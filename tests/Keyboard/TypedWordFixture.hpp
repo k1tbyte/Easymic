@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Features/Keyboard/Autocorrect/TypedWord.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/TypedWord.hpp"
 
 namespace Fixture {
 

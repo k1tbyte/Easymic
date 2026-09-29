@@ -3,7 +3,7 @@
 #include <commctrl.h>
 
 #include "AudioFileValidator.hpp"
-#include "Controls.hpp"
+#include "Windowing/Controls.hpp"
 #include "DialogControls.hpp"
 
 namespace {

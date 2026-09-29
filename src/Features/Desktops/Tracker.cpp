@@ -5,9 +5,9 @@
 #include "Core/Feedback.hpp"
 #include "Core/Tray.hpp"
 #include "definitions.h"
-#include "Gdi.hpp"
+#include "Gfx/Gdi.hpp"
 #include "Str.hpp"
-#include "TrayIconTheme.hpp"
+#include "Gfx/TrayIconTheme.hpp"
 #include "VirtualDesktops.hpp"
 
 #include <atomic>

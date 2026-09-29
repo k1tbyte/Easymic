@@ -6,10 +6,10 @@
 
 #include "SettingsPages.hpp"
 #include "SettingsRows.hpp"
-#include "UACService.hpp"
-#include "Controls.hpp"
+#include "System/UACService.hpp"
+#include "Windowing/Controls.hpp"
 #include "Resources/Resource.h"
-#include "Version.hpp"
+#include "System/Version.hpp"
 #include "Str.hpp"
 #include "definitions.h"
 

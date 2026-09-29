@@ -3,7 +3,7 @@
 #include <cstdarg>
 #include <mutex>
 #include <string>
-#include "Event.hpp"
+#include "Platform/Event.hpp"
 
 /// Go through the LOG_* macros: they compile a level out of the build.
 class Logger {

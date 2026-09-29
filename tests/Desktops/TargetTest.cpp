@@ -1,7 +1,7 @@
 #include <cstdio>
 
 #include "../Check.hpp"
-#include "Features/Desktops/Target.hpp"
+#include "Features/Desktops/Placement/Target.hpp"
 
 namespace {
 

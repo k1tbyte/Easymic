@@ -11,6 +11,8 @@ paths:
 - Edit lane: the threadpool behind `Input::Edit`, a text edit under a hold.
 - Action worker (`Dispatcher`): every action body. Stopped while settings are open, since actions read
   and save the config; `Start` drops what was posted meanwhile.
+- Desktops lane: the `vd.*` actions run on their own one-at-a-time threadpool lane, so a desktop
+  animation never queues mute or volume behind it.
 - UI thread: windows and the config, reached with `Dispatcher::ToUi`. Overlay `Measure`/`Render`/`Tick`
   run here only; `Overlay::Invalidate` may be called from any thread.
 - WASAPI callbacks: atomics only. No register, unregister, wait or last release inside one: hand the work
@@ -39,6 +41,10 @@ paths:
 - `AppConfig.hpp` includes no glaze: serialization is in `AppConfig.cpp`, enum names in `AppConfigJson.hpp`.
 - Files go through `Platform/File.hpp`, never iostreams: their locale code costs ~100 KB of exe.
 - Hotkeys are stored as names (`CTRL + SHIFT + M`); one that does not parse stays in the list unbound.
+- Saved through `config.json.tmp` and a rename; a file that does not parse is renamed to `config.json.bad`
+  and defaults load.
+- The settings window is modeless and runs through `IsDialogMessage`: Tab, Enter (OK), Esc (Cancel).
+- An update renames the running exe to `.old` and moves the download in; `.old` is deleted on the next start.
 
 ## Known, not fixed
 

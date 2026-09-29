@@ -1,11 +1,11 @@
 #include "ActionDialog.hpp"
 
 #include "AudioFileValidator.hpp"
-#include "Controls.hpp"
+#include "Windowing/Controls.hpp"
 #include "Core/Hotkeys/HotkeyCapture.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
 #include "DialogControls.hpp"
-#include "Platform/WindowCatalog.hpp"
+#include "Platform/Windowing/WindowCatalog.hpp"
 #include "Resources/Resource.h"
 #include "Str.hpp"
 #include "Tokens.hpp"

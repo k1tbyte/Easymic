@@ -11,7 +11,7 @@
 
 #include "KeyChord.hpp"
 #include "Dispatcher.hpp"
-#include "Foreground.hpp"
+#include "Windowing/Foreground.hpp"
 #include "Input/Input.hpp"
 
 namespace HotkeyService {

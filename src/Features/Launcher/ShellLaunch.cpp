@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-#include "WindowCatalog.hpp"
+#include "Windowing/WindowCatalog.hpp"
 #include "definitions.h"
 
 namespace ShellLaunch {

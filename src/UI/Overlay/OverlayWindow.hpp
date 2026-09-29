@@ -4,7 +4,7 @@
 #include <windows.h>
 
 #include "BaseWindow.hpp"
-#include "LayeredWindow.hpp"
+#include "Gfx/LayeredWindow.hpp"
 #include "UIAccess/UIAccess.hpp"
 
 /// The overlay's window: the frame's own, or one made inside a UIAccess process to sit above everything.

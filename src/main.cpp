@@ -1,6 +1,6 @@
 #include "definitions.h"
 #include "AppConfig.hpp"
-#include "CrashHandler.hpp"
+#include "Diagnostics/CrashHandler.hpp"
 #include "MainWindow.hpp"
 #include "Settings/SettingsPages.hpp"
 #include "Core/Dispatcher.hpp"
@@ -9,13 +9,13 @@
 #include "Core/Hotkeys/HotkeyCapture.hpp"
 #include "Core/Hotkeys/HotkeyService.hpp"
 #include "Core/Input/Input.hpp"
-#include "Foreground.hpp"
+#include "Windowing/Foreground.hpp"
 #include "Features/Desktops/Desktops.hpp"
 #include "Features/Keyboard/Keyboard.hpp"
 #include "Features/Launcher/Launcher.hpp"
 #include "Features/Microphone/Microphone.hpp"
 #include "UpdateManager.hpp"
-#include "UACService.hpp"
+#include "System/UACService.hpp"
 
 #include <algorithm>
 #include <gdiplus.h>

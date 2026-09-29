@@ -7,7 +7,7 @@
 #include "Core/Dispatcher.hpp"
 #include "Core/Lifecycle.hpp"
 #include "Core/Overlay.hpp"
-#include "Gdi.hpp"
+#include "Gfx/Gdi.hpp"
 #include "InputLanguage.hpp"
 #include "Platform/Str.hpp"
 

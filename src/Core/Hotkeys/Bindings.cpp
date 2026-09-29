@@ -6,7 +6,7 @@
 
 #include "ActionRegistry.hpp"
 #include "Feedback.hpp"
-#include "Foreground.hpp"
+#include "Windowing/Foreground.hpp"
 #include "HotkeyService.hpp"
 #include "KeyNames.hpp"
 

@@ -5,7 +5,7 @@
 #include "Features/Keyboard/Convert/Detector.hpp"
 #include "Features/Keyboard/Convert/LayoutTable.hpp"
 #include "Features/Keyboard/Convert/Pack.hpp"
-#include "Features/Keyboard/InputLanguage.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
 #include "Platform/File.hpp"
 #include "Platform/Str.hpp"
 

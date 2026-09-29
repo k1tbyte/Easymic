@@ -7,8 +7,8 @@
 
 #include "Autocorrect.hpp"
 #include "Core/Input/Input.hpp"
-#include "../InputLanguage.hpp"
-#include "Learning.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/Learning.hpp"
 
 namespace Judge {
 

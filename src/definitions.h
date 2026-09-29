@@ -2,7 +2,7 @@
 
 #include <windows.h>
 #include <wrl/client.h>
-#include "Logger.hpp"
+#include "Diagnostics/Logger.hpp"
 
 using Microsoft::WRL::ComPtr;
 

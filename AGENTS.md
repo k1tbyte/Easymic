@@ -9,7 +9,7 @@ idle footprint (it runs all day), binary size, simplicity.
 ```powershell
 .\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/EasyLauncher.exe
 .\build.ps1 -Config Debug -Run   # Debug binds no hotkeys (APP_NO_GLOBAL_HOOKS): check hooks on MinSizeRel
-.\build.ps1 -Test                # tests/: router and hold, keyboard config, autocorrect, user rules, keyboard UI
+.\build.ps1 -Test                # unit_tests via ctest: router and hold, keyboard config, autocorrect, user rules, typed word, packs, launcher command line, desktops, keyboard UI
 .\build.ps1 -Tools               # tools/Keyboard/langpack
 ```
 
@@ -20,15 +20,17 @@ violation (`scripts/check-architecture.ps1`).
 
 - `src/Core/` - the kernel, knows no feature: `ActionRegistry`, `Dispatcher` (action worker, `ToUi`),
   `Feedback`, `SettingsHost`, `Overlay`, `Tray`, `Lifecycle`, `AppConfig`, `Input/`, `Hotkeys/`.
-- `src/Platform/` - thin Win32 wrappers used by more than one owner (a single owner keeps its own);
-  includes none of `Core/`, `Features/`, `UI/`.
+- `src/Platform/` - thin Win32 wrappers used by more than one owner (a single owner keeps its own):
+  `Diagnostics/`, `Gfx/`, `Windowing/`, `System/`, and the flat `Event`, `File`, `Str`.
+  Includes none of `Core/`, `Features/`, `UI/`.
 - `src/Features/<Slice>/` - `Microphone`, `Keyboard`, `Launcher`, `Desktops`. Includes only `Core/`
   and `Platform/`; what two slices share goes to `Core/`.
 - `src/UI/` - `MainWindow` (frame: overlay window, tray, settings session), settings (row tables ->
   controls; the frame's pages in `SettingsPages`), the overlay surface and `UIAccess/`, `UpdateManager`.
 - A new feature: one folder plus one line in `Modules[]` in `src/main.cpp`; `Register(Host&)` adds
   its `ActionDesc`s, settings page, overlay layer, tray provider.
-- `tests/<Area>/`, `tools/<Area>/` - tests and dev tools, grouped like the slices (`Input`, `Keyboard`).
+- `tests/<Area>/`, `tools/<Area>/` - tests and dev tools, grouped like the slices (`Input`, `Keyboard`,
+  `Launcher`, `Desktops`); `tests/Check.hpp` is the one `Check`.
 
 ## Rules
 

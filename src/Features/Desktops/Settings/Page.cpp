@@ -1,15 +1,15 @@
 #include "Page.hpp"
 
 #include "AppConfig.hpp"
-#include "Controls.hpp"
+#include "Windowing/Controls.hpp"
 #include "Core/SettingsHost.hpp"
-#include "Editor/Editor.hpp"
-#include "Placer.hpp"
+#include "Features/Desktops/Editor/Editor.hpp"
+#include "Features/Desktops/Placement/Placer.hpp"
 #include "Preview.hpp"
 #include "Str.hpp"
-#include "VirtualDesktops.hpp"
-#include "WindowCatalog.hpp"
-#include "WindowList.hpp"
+#include "Features/Desktops/VirtualDesktops.hpp"
+#include "Windowing/WindowCatalog.hpp"
+#include "Features/Desktops/Placement/WindowList.hpp"
 
 #include <algorithm>
 #include <commctrl.h>

@@ -13,7 +13,7 @@ add_executable(langpack EXCLUDE_FROM_ALL
         Main.cpp Console.cpp PackBuilder.cpp
         "${ENGINE}/Pack.cpp" "${ENGINE}/Alphabet.cpp"
         "${ENGINE}/Detector.cpp" "${ENGINE}/LayoutTable.cpp" "${ENGINE}/Rules.cpp"
-        "${KEYBOARD}/InputLanguage.cpp")
+        "${KEYBOARD}/Layout/InputLanguage.cpp")
 target_include_directories(langpack PRIVATE "${LANGPACK_ROOT}/src")
 target_compile_definitions(langpack PRIVATE NOMINMAX UNICODE _UNICODE)
 if(MSVC)

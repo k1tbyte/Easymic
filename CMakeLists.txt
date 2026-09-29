@@ -30,14 +30,6 @@ set(ARCHITECTURE_CHECK_COMMAND
         -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-architecture.ps1"
         -Root "${CMAKE_CURRENT_SOURCE_DIR}")
 
-execute_process(
-        COMMAND ${ARCHITECTURE_CHECK_COMMAND}
-        RESULT_VARIABLE ARCHITECTURE_CHECK_RESULT
-)
-if(NOT ARCHITECTURE_CHECK_RESULT EQUAL 0)
-    message(FATAL_ERROR "architecture check failed")
-endif()
-
 add_custom_target(EasyLauncherArchitectureCheck ALL
         COMMAND ${ARCHITECTURE_CHECK_COMMAND}
         VERBATIM)
@@ -59,6 +51,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
         ole32
         uuid
+        oleacc
+        delayimp
         winmm
         gdiplus
         comctl32
@@ -102,8 +96,9 @@ target_compile_options(${PROJECT_NAME} PRIVATE
         /GR-                     # disable RTTI
 )
 
-# Resource.rc carries the manifest
-target_link_options(${PROJECT_NAME} PRIVATE /MANIFEST:NO)
+# Resource.rc carries the manifest; wininet and version are used once, oleacc only for password checks
+target_link_options(${PROJECT_NAME} PRIVATE /MANIFEST:NO
+        /DELAYLOAD:wininet.dll /DELAYLOAD:version.dll /DELAYLOAD:oleacc.dll)
 
 if(IS_RELEASE)
     # /Gw + /OPT:REF drop unreferenced data and code, /OPT:ICF folds the identical
@@ -113,44 +108,79 @@ if(IS_RELEASE)
     target_link_options(${PROJECT_NAME} PRIVATE /OPT:REF /OPT:ICF)
 endif()
 
-# The input router's rules without a hook: .\build.ps1 -Test
-add_executable(RouterTest EXCLUDE_FROM_ALL tests/Input/RouterTest.cpp src/Core/Input/Router.cpp
-               src/Core/Input/Hold.cpp)
-target_include_directories(RouterTest PRIVATE src/Core)
-target_compile_definitions(RouterTest PRIVATE NOMINMAX UNICODE _UNICODE)
+# .\build.ps1 -Test builds unit_tests and runs them with ctest
+enable_testing()
+add_custom_target(unit_tests)
 
-add_executable(KeyboardConfigTest EXCLUDE_FROM_ALL tests/Keyboard/KeyboardConfigTest.cpp)
-target_include_directories(KeyboardConfigTest PRIVATE src src/Core src/Platform)
-target_compile_definitions(KeyboardConfigTest PRIVATE NOMINMAX UNICODE _UNICODE)
-target_link_libraries(KeyboardConfigTest PRIVATE glaze::glaze)
+function(add_unit_test name)
+    cmake_parse_arguments(TEST "" "" "SOURCES;INCLUDES;LIBS;LINK_OPTIONS" ${ARGN})
+    add_executable(${name} EXCLUDE_FROM_ALL ${TEST_SOURCES})
+    target_include_directories(${name} PRIVATE ${TEST_INCLUDES})
+    target_compile_definitions(${name} PRIVATE NOMINMAX UNICODE _UNICODE)
+    target_compile_options(${name} PRIVATE /utf-8)
+    if(TEST_LIBS)
+        target_link_libraries(${name} PRIVATE ${TEST_LIBS})
+    endif()
+    if(TEST_LINK_OPTIONS)
+        target_link_options(${name} PRIVATE ${TEST_LINK_OPTIONS})
+    endif()
+    add_dependencies(unit_tests ${name})
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
 
-add_executable(AutocorrectTest EXCLUDE_FROM_ALL tests/Keyboard/AutocorrectTest.cpp
-               src/Features/Keyboard/Convert/Rules.cpp src/Features/Keyboard/Convert/Detector.cpp
-               src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/LayoutTable.cpp
-               src/Features/Keyboard/Convert/Alphabet.cpp
-               tools/Keyboard/langpack/PackBuilder.cpp tools/Keyboard/langpack/Console.cpp)
-target_include_directories(AutocorrectTest PRIVATE src tools/Keyboard)
-target_compile_definitions(AutocorrectTest PRIVATE NOMINMAX UNICODE _UNICODE)
-target_compile_options(AutocorrectTest PRIVATE /utf-8)
+add_unit_test(RouterTest
+    SOURCES tests/Input/RouterTest.cpp src/Core/Input/Router.cpp src/Core/Input/Hold.cpp
+    INCLUDES src/Core)
 
-add_executable(UserRulesTest EXCLUDE_FROM_ALL tests/Keyboard/UserRulesTest.cpp
-               src/Features/Keyboard/Autocorrect/UserRules.cpp)
-target_include_directories(UserRulesTest PRIVATE src)
-target_compile_definitions(UserRulesTest PRIVATE NOMINMAX UNICODE _UNICODE)
-target_compile_options(UserRulesTest PRIVATE /utf-8)
+add_unit_test(KeyboardConfigTest
+    SOURCES tests/Keyboard/KeyboardConfigTest.cpp
+    INCLUDES src src/Core src/Platform
+    LIBS glaze::glaze)
+
+add_unit_test(AutocorrectTest
+    SOURCES tests/Keyboard/AutocorrectTest.cpp
+            src/Features/Keyboard/Convert/Rules.cpp src/Features/Keyboard/Convert/Detector.cpp
+            src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/LayoutTable.cpp
+            src/Features/Keyboard/Convert/Alphabet.cpp tools/Keyboard/langpack/PackBuilder.cpp
+    INCLUDES src tools/Keyboard)
+
+add_unit_test(UserRulesTest
+    SOURCES tests/Keyboard/UserRulesTest.cpp src/Features/Keyboard/Autocorrect/Rules/UserRules.cpp
+    INCLUDES src)
+
+add_unit_test(TypedWordTest
+    SOURCES tests/Keyboard/TypedWordTest.cpp
+    INCLUDES src)
+
+add_unit_test(PackTest
+    SOURCES tests/Keyboard/PackTest.cpp src/Features/Keyboard/Convert/Pack.cpp
+            src/Features/Keyboard/Convert/Alphabet.cpp
+    INCLUDES src src/Core src/Platform)
+
+add_unit_test(CommandLineTest
+    SOURCES tests/Launcher/CommandLineTest.cpp src/Features/Launcher/CommandLine.cpp
+    INCLUDES src)
+
+add_unit_test(TargetTest
+    SOURCES tests/Desktops/TargetTest.cpp src/Features/Desktops/Placement/Target.cpp
+    INCLUDES src)
+
+add_unit_test(TilesTest
+    SOURCES tests/Desktops/TilesTest.cpp src/Features/Desktops/Editor/Tiles.cpp
+    INCLUDES src)
 
 file(GLOB KEYBOARD_SETTINGS_FILES CONFIGURE_DEPENDS "${SRC_DIR}/Features/Keyboard/Settings/*.cpp")
-add_executable(KeyboardUiTest EXCLUDE_FROM_ALL tests/Keyboard/KeyboardUiTest.cpp ${RESOURCE}
-               src/UI/Settings/SettingsWindow.cpp src/UI/Settings/SettingsRows.cpp
-               src/Features/Keyboard/KeyboardPage.cpp ${KEYBOARD_SETTINGS_FILES}
-               src/Features/Keyboard/Autocorrect/UserRules.cpp src/Features/Keyboard/InputLanguage.cpp
-               src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/Alphabet.cpp
-               src/Platform/Foreground.cpp src/Platform/WindowCatalog.cpp src/Platform/Version.cpp)
-target_include_directories(KeyboardUiTest PRIVATE src src/Core src/Platform src/UI)
-target_compile_definitions(KeyboardUiTest PRIVATE NOMINMAX UNICODE _UNICODE)
-target_compile_options(KeyboardUiTest PRIVATE /utf-8)
-target_link_options(KeyboardUiTest PRIVATE /MANIFEST:NO)
-target_link_libraries(KeyboardUiTest PRIVATE comctl32 comdlg32 dwmapi gdiplus)
+add_unit_test(KeyboardUiTest
+    SOURCES tests/Keyboard/KeyboardUiTest.cpp ${RESOURCE}
+            src/UI/Settings/SettingsWindow.cpp src/UI/Settings/SettingsRows.cpp
+            ${KEYBOARD_SETTINGS_FILES}
+            src/Features/Keyboard/Autocorrect/Rules/UserRules.cpp src/Features/Keyboard/Layout/InputLanguage.cpp
+            src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/Alphabet.cpp
+            src/Platform/Windowing/Foreground.cpp src/Platform/Windowing/WindowCatalog.cpp src/Platform/System/Version.cpp
+            src/Platform/Diagnostics/Logger.cpp
+    INCLUDES src src/Core src/Platform src/UI
+    LIBS comctl32 comdlg32 dwmapi gdiplus
+    LINK_OPTIONS /MANIFEST:NO)
 
 # Pack builder and detection console: .\build.ps1 -Tools
 add_subdirectory(tools/Keyboard/langpack)

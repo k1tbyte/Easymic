@@ -2,8 +2,8 @@
 
 #include "AppConfig.hpp"
 #include "Str.hpp"
-#include "VirtualDesktops.hpp"
-#include "WindowCatalog.hpp"
+#include "Features/Desktops/VirtualDesktops.hpp"
+#include "Windowing/WindowCatalog.hpp"
 #include "WindowList.hpp"
 
 #include <algorithm>

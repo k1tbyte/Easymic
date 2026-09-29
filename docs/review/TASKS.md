@@ -1,50 +1,52 @@
 # Review tasks
 
-Ordered by value over cost. Size: S under 30 lines, M under 150, L more. IDs point into the area reports.
+Status after the fix pass. Everything below was checked with a mingw syntax pass over the whole tree, a mingw
+link of every source set (app and tests), native runs of the Win32-free tests (`RouterTest`, `TypedWordTest`,
+`UserRulesTest`, `hold_fuzz`), and equivalence programs where a table or a function was rewritten. Nothing was
+built with MSVC or run on Windows: see "Needs a Windows run".
 
-## Now: bugs, data, idle
+## Done
 
-- [ ] **UP-1** S - `OverlaySurface.hpp:112`: drop `slot.Width > 0 ||`; `MicLayer::_measure` returns `.WantsTick = _listening() || _peakPhase`. Done when a muted pill leaves no `WM_TIMER` (Spy++ or wakeup count).
-- [ ] **IN-1** S - router-wide delivered bitset, `Consume` on an already delivered down takes no ownership. Add the two `router_stuck` scenarios to `RouterTest.cpp`.
-- [ ] **UP-2** S - `File::Write` to `.tmp` then `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)`; on parse failure rename the old file to `.bad`.
-- [ ] **UP-3** S - no `Save` on declined elevation; save only right before elevating; defer `SkipVersion` while settings are open.
-- [ ] **FT-3** S - drop the `ShellExecuteExW` fallback in `CommandRunner.cpp:248-261`, log instead.
-- [ ] **FT-4** S - quote on any of `` &()^%!,;= `` or space in `_quote`; test.
-- [ ] **FT-5** S - keep draining after 4 KB, cut on a code-point boundary, make docs say 10 s.
-- [ ] **FT-2** S - one mutex around `Switch`.
-- [ ] **KE-4** S - clear `_kept` in `Judge::Use` or own the locale string in `Verdict`.
-- [ ] **FT-13, FT-14** S - clear `_reinitPending` before `_initDevice`; register the session notification before enumerating.
+- [x] **UP-1** layer timer only while a layer asks (mic: listening or a peak phase left).
+- [x] **IN-1** delivered-key bitset per level; `router_stuck` scenarios and a send-back case are in `RouterTest`.
+- [x] **UP-2** config saved through `.tmp` and `MoveFileExW`; an unparseable file is renamed `.bad`.
+- [x] **UP-3** Cancel never saves; `SkipVersion` writes only its own field.
+- [x] **FT-3, FT-4, FT-5** no own-token fallback; `_quote` quotes `&()^%!,;=`; capture drains past the display limit and cuts on a code point (`CommandLine.{hpp,cpp}`, `CommandLineTest`).
+- [x] **FT-1, FT-2** `vd.*` on their own pool lane; one mutex around the animated switch.
+- [x] **FT-13, FT-14** re-init flag cleared first; session notification registered before enumerating.
+- [x] **KE-1, KE-2, KE-4** pack errors logged; restore skips an unchanged resolve; `Judge::Use` clears the kept verdict.
+- [x] **UP-6, UP-7** `/DELAYLOAD` for wininet, version and oleacc; version read on first use; overlay font validated at the first non-empty slot; GDI+ without its background thread.
+- [x] **UP-4, UP-5, UP-8, UP-9, UP-10, UP-11** `IsDialogMessage` for settings; rename-swap update; shutdown order; `OverlayWindow.hpp` split out of `BaseWindow`; shadow HWND reused; one `NIM_MODIFY`.
+- [x] **UP-12, UP-13, UP-14 (local), UP-15, UP-16** dialog edits a `Binding`; `DialogProc` split; `Controls::Text` and `Controls::Panel`; `WinMain` split; `OrderedInsert.hpp`; text layer caches its font.
+- [x] **FT-6, FT-7, FT-9, FT-10, FT-12, FT-16, FT-18 (part), FT-20** guarded volume write; drag limits once; settle loop; `WindowCatalog::AppWindows`; one axis code path in `Tiles`; stale comments gone.
+- [x] **AC-2, AC-3, AC-5, AC-6, AC-8, AC-10 to AC-18, KE-6** `WordTracker`/`WordHold`/`WordState`, `Runtime`/`Decide`/`AutocorrectLog`, `AppFilter`, honest skips in `AutocorrectTest`, `--bench` gone.
+- [x] **AC-4, KE-14, FT-11** `TypedWordTest`, `PackTest`, `TargetTest`, `TilesTest`, `CommandLineTest`.
+- [x] **KE-5, KE-7 to KE-11, KE-13, KE-15, KE-16 (part), KE-17** `PackSide`, `Iso639`, `Detector` split, `wstring_view`, langpack command table, layout ring cached.
+- [x] **IN-3, IN-4, IN-5 (per-app), IN-7 (types), IN-8, IN-10, IN-11, IN-12** `_onDown` split, mask helpers in `KeyChord`, `Hold::Flush`, `.cpp` bodies, generated `KeyNames` table (identical to the old one over 5.2M comparisons), message ids apart.
+- [x] **IN-13 (part)** `tests/Check.hpp`, `add_unit_test()` and `ctest` (`build.ps1 -Test` is 6 lines shorter), one architecture check per build.
+- [x] **UP-19** architecture script also guards Core to UI/Features and UI to Features; `Core/Overlay.hpp` forward-declares GDI+.
+- [x] **UP-20, comments** comment lines 2017 to 619 (11.0% to 3.4%).
+- [x] **Folders** `Platform/{Diagnostics,Gfx,Windowing,System}`, `Desktops/{Settings,Placement}`, `Keyboard/{Layout,Settings}`, `Autocorrect/{Tracker,Rules}`.
 
-## Next: footprint and latency
+## Not done, with the reason
 
-- [ ] **UP-6, UP-7** S - `/DELAYLOAD:wininet.dll;version.dll`; validate the overlay font at the first non-empty slot; GDI+ `SuppressBackgroundThread`. Measure private bytes before and after.
-- [ ] **KE-3** S - count `EVENT_OBJECT_CREATE` callbacks per second in Chromium and Electron; drop the hook if high (foreground event plus `Requested()`).
-- [ ] **KE-2, KE-1** S - skip `Autocorrect::Resolve` when settings and layouts are unchanged; pass `&error` into `Pack::Load` and log it.
-- [ ] **FT-1** S - run `vd.*` bodies on the pool like `Placer::_submit`, or coalesce `Switch`.
-- [ ] **FT-6, FT-7, FT-8** S - guard `_adjustVolume`; build editor `Limits` once per drag; `GetAdjacentDesktop`, one id fetch per loop.
-- [ ] **UP-4** S - `IsDialogMessage` on the settings handle in the message loop.
-- [ ] **UP-5** M - rename-swap update instead of PowerShell; verify a hash.
-- [ ] **UP-11** S - one `NIM_MODIFY` per refresh, skipped when unchanged.
-- [ ] **AC-1** M - judge writes the verdict into a slot; post only for `Early.WrongLayout`.
-- [ ] **IN-2** S - 256-bit "vk ends a mask" guard in `Publish`, only if an end-to-end measurement asks for it.
+- [ ] **IN-2** hotkey lookup guard: 13-26 ns per key, measure end to end first.
+- [ ] **IN-6, UP-17** shared `ActionFn` per press: allocation is allowed for hand-off, measure first.
+- [ ] **IN-9** tap-only keeps the mouse hook up: measure input-thread wakeups first.
+- [ ] **KE-3** `EVENT_OBJECT_CREATE` hook: count events per second in Chromium and Electron first.
+- [ ] **KE-16** FNV basis: changes every hash, needs a `PackVersion` bump.
+- [ ] **UP-18** WAV resampling: quality call, no code.
+- [ ] **AC-1** verdict slot: needs a lock or an allocation on the input thread, the Post hand-off was chosen for that.
+- [ ] **AC-9** kept-verdict log through the hold: would change the behavior the log observes.
+- [ ] **FT-8 (part)** adjacent-desktop call saves nothing without new step variants.
+- [ ] **FT-15 (mutex)** contended only at startup. **FT-19** every smaller correct option races or adds an ACL surface.
+- [ ] **UP-14 (slice move)** `UpdateManager` depends on UI code. **UP-10** shellcode copy and `Sleep(100)` untouched.
+- [ ] **UP-5** hash check. **IN-13** probe P/Invoke dedupe and a Linux job for `RouterTest` (no PowerShell here).
+- [ ] **Core/** regroup: 15 kernel files, named in the docs, left flat.
 
-## Next: simplify and decompose
+## Needs a Windows run
 
-- [ ] **AC-2, AC-3, AC-7** M - split `WordTracker::_onKey` and `_apply`; `struct Held`, `struct Erased`; hold lifecycle to its own file (the file is at 497 of 500 lines).
-- [ ] **UP-12** M - `ActionDialog` edits a `Binding` copy; `DialogProc` (194 lines) into Fill and Read: about -50 lines.
-- [ ] **KE-5** M - `PackSide _sides[2]` in `KeyboardPage.cpp`: about -40 lines, `optional` for "not found".
-- [ ] **IN-3, IN-4** M - `KeyChord` owns mask helpers; split `_raiseAction`.
-- [ ] **KE-7, KE-9, UP-13** M - one `Iso639(HKL)`, `Controls::Text`, `Controls::Panel`; delete the `Console` copies of `Str` helpers.
-- [ ] **UP-9** M - move geometry and shadow window out of `BaseWindow` into `OverlaySurface`: -80 lines.
-- [ ] **KE-6** S - move `KeyboardExclusions::Filter` next to `WordTracker`; break the root/`Autocorrect` include cycle.
-- [ ] **KE-8, FT-9, FT-12** M - split `Detector::Detect`; one settle helper in `_placeNew`; transpose in `Tiles`.
-- [ ] **IN-5, IN-7, IN-8, IN-10, IN-11, IN-12** S each - per-app vector, one `move_only_function`, `Hold::Flush`, headers to `.cpp`, `KeyNames` table, message ids.
-
-## Later: structure and tests
-
-- [ ] Folder moves listed in `README.md` (Platform, Desktops, Keyboard root, Autocorrect, Core).
-- [ ] **UP-19** extend `check-architecture.ps1` to Core, UI and the `Hotkeys/X` include rule; run it once per build.
-- [ ] **AC-4, AC-5, KE-14, FT-11** tests: Win32-free tracker transitions; count a skipped detection or UI test as a failure; `Pack::Load` rejections; `_quote`, `_flatten`, `Tiles::HitTest`.
-- [ ] **IN-13** `add_unit_test()`, shared `Check`, `-Test` loop, shared probe P/Invoke file, optional Linux job for `RouterTest`.
-- [ ] **UP-20, FT-16** trim comments that restate code (densest files in `README.md`); fix the stale claims listed in FT-16.
-- [ ] **KE-16** fix the FNV basis at the next `PackVersion` bump.
+`.\build.ps1 -Test`; then by hand: hotkeys and hold under real typing; autocorrect fix, undo and the password guard;
+config save and `.bad`; settings Tab, Enter, Esc and Cancel; elevation prompt decline; update swap (plain and
+elevated); overlay drag and click-through; UIAccess overlay after settings close; `vd.*` and `Placer` on real
+desktops; a `{stdout}` command with `R&D` in a folder name; tray digit icons above 12; delay-loaded DLLs start.

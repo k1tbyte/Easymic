@@ -10,17 +10,20 @@ paths:
 ## Files
 
 - `Autocorrect/` - the text stage:
-  - `WordTracker` - stage `kbd.text`: the word as key positions (never characters), Space, mid-word
-    fixes, convert, undo, learning signals.
+  - `Tracker/` - stage `kbd.text`: `WordTracker` (the word as key positions, never characters: Space,
+    mid-word fixes, learning signals), `WordHold` (the hold: verdict, fix, convert, undo), `TypedWord`
+    (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `AppFilter`,
+    `Accessibility` (password field over MSAA).
   - `Judge` - `Autocorrect::Decide`/`Early` on the threadpool while the word is typed. Never on the input
     thread: a page fault in the mapped pack would stall desktop input.
-  - `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
-  - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`,
-    `UserRules` (the user's rules, compiled for the judge), `Accessibility` (password field over MSAA).
-- `Settings/` - the Keyboard page's Excluded apps and Rules tabs, the rule dialog.
+  - `Runtime` (tables, packs, rules, settings), built on Restore and reused while the settings it reads and
+    the installed layouts are unchanged; `Decide`, `AutocorrectLog`, `Autocorrect` (verdicts, feedback).
+  - `Rules/` - `UserRules` (the user's rules, compiled for the judge), `Learning`.
+- `Settings/` - the Keyboard page, its Excluded apps and Rules tabs, the rule dialog.
 - `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack` (with its
   `Alphabet`), `Rules`, `Detector`.
-- Root: `Keyboard` (module), `KeyboardPage`, `KeyboardPacks`, `KeyboardExclusions`, `InputLanguage`, `LayoutLayer`.
+- `Layout/` - `InputLanguage`, `LayoutLayer`.
+- Root: `Keyboard` (module), `KeyboardPacks`, `KeyboardExclusions`.
 
 ## Flow
 
@@ -58,6 +61,7 @@ paths:
 
 - `<iso 639-1>.pack`: alphabet (up to 64 symbols), a bloom of words and of every 2-4 letter start,
   bigrams, trigrams, threshold. "Auto" is the layout's language.
+- A changed file in `packs/` is read again after a restart, or when the settings or the installed layouts change.
 - `*.rules`: UTF-8 `[_FLAGS ]pattern`, written as typed (`_B ghb` = при). `P` whole word, `B` begin,
   none or `A` anywhere, `E` never switch, `C` case-sensitive, `D` skipped; a space at an edge anchors.
 - `langpack pack <words.txt> <iso> <out.pack>`: one word per line; common words beat a huge list.

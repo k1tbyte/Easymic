@@ -4,7 +4,7 @@
 #include <gdiplus.h>
 #include <windows.h>
 
-#include "TrayIconTheme.hpp"
+#include "Gfx/TrayIconTheme.hpp"
 #include "Resources/Resource.h"
 
 /// The pill draws the bright originals on its own dark background; only a light taskbar tray needs darkened copies.

@@ -5,7 +5,7 @@
 #include <gdiplus.h>
 
 #include "Core/Overlay.hpp"
-#include "Gdi.hpp"
+#include "Gfx/Gdi.hpp"
 
 /// The overlay's own pill: what an action says when it fires. UI thread only.
 namespace TextLayer {

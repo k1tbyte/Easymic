@@ -6,7 +6,7 @@
 #include <gdiplus.h>
 
 #include "Core/Overlay.hpp"
-#include "Gdi.hpp"
+#include "Gfx/Gdi.hpp"
 
 /// The one description of the strip's geometry, so a measured width and a drawn glyph cannot disagree.
 struct OverlaySlots {

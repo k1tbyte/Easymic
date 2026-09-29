@@ -4,8 +4,8 @@
 #include <utility>
 #include <vector>
 
-#include "../LayoutLayer.hpp"
-#include "Learning.hpp"
+#include "Features/Keyboard/Layout/LayoutLayer.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/Learning.hpp"
 #include "WordEdit.hpp"
 #include "WordState.hpp"
 #include "WordTracker.hpp"

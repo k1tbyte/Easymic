@@ -4,10 +4,10 @@
 #include "Core/ActionRegistry.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Lifecycle.hpp"
-#include "Page.hpp"
-#include "Placer.hpp"
+#include "Features/Desktops/Settings/Page.hpp"
+#include "Features/Desktops/Placement/Placer.hpp"
 #include "Str.hpp"
-#include "Target.hpp"
+#include "Features/Desktops/Placement/Target.hpp"
 #include "Tracker.hpp"
 #include "VirtualDesktops.hpp"
 

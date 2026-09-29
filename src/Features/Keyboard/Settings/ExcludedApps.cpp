@@ -6,10 +6,10 @@
 
 #include "../KeyboardExclusions.hpp"
 #include "Core/AppConfig.hpp"
-#include "Platform/Controls.hpp"
-#include "Platform/Foreground.hpp"
+#include "Platform/Windowing/Controls.hpp"
+#include "Platform/Windowing/Foreground.hpp"
 #include "Platform/Str.hpp"
-#include "Platform/WindowCatalog.hpp"
+#include "Platform/Windowing/WindowCatalog.hpp"
 
 namespace {
 

@@ -8,15 +8,15 @@
 
 #include "AppConfig.hpp"
 #include "Autocorrect/Autocorrect.hpp"
-#include "Autocorrect/Learning.hpp"
-#include "Autocorrect/WordTracker.hpp"
+#include "Features/Keyboard/Autocorrect/Rules/Learning.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/WordTracker.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
 #include "Core/Input/Input.hpp"
 #include "Core/Lifecycle.hpp"
-#include "InputLanguage.hpp"
-#include "KeyboardPage.hpp"
-#include "LayoutLayer.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
+#include "Features/Keyboard/Settings/KeyboardPage.hpp"
+#include "Features/Keyboard/Layout/LayoutLayer.hpp"
 #include "definitions.h"
 
 namespace {

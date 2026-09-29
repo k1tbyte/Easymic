@@ -5,7 +5,7 @@
 
 #include "Core/AppConfig.hpp"
 #include "Platform/Str.hpp"
-#include "TypedWord.hpp"
+#include "Features/Keyboard/Autocorrect/Tracker/TypedWord.hpp"
 
 namespace UserRules {
 

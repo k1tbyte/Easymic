@@ -5,7 +5,7 @@
 #include <cwchar>
 #include <mutex>
 
-#include "Str.hpp"
+#include "Platform/Str.hpp"
 #include "WindowCatalog.hpp"
 
 namespace Foreground {

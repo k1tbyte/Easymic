@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "Platform/Foreground.hpp"
+#include "Platform/Windowing/Foreground.hpp"
 
 namespace KeyboardExclusions {
 

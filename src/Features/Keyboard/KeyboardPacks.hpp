@@ -8,7 +8,7 @@
 
 #include "Convert/Pack.hpp"
 #include "Convert/Rules.hpp"
-#include "InputLanguage.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
 #include "Platform/File.hpp"
 #include "Platform/Str.hpp"
 #include "definitions.h"

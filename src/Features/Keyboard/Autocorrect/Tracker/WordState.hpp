@@ -2,10 +2,10 @@
 
 #include <memory>
 
-#include "../InputLanguage.hpp"
+#include "Features/Keyboard/Layout/InputLanguage.hpp"
 #include "AppFilter.hpp"
 #include "Core/Input/Input.hpp"
-#include "Judge.hpp"
+#include "Features/Keyboard/Autocorrect/Judge.hpp"
 #include "TypedWord.hpp"
 
 /// Input-thread state shared by WordTracker.cpp (keys) and WordHold.cpp (holds).

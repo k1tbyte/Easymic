@@ -4,7 +4,7 @@
 
 #include <dwmapi.h>
 
-#include "Str.hpp"
+#include "Platform/Str.hpp"
 
 namespace WindowCatalog {
     bool IsAppWindow(const HWND window) {
