@@ -15,15 +15,11 @@ namespace Input {
 
 namespace {
 
-    using Work = std::move_only_function<void()>;
-
-    /// A thread message: the input thread has no window for it to collide with.
     constexpr UINT WM_INPUT_RUN = WM_APP;
 
-    /// Our events carry this above the low byte, and the sender's level in it.
+    /// Our events carry it above the low byte, and the sender's level in the low byte.
     constexpr ULONG_PTR Signature = 0x454C'4C41'554E'4300ull;
     static_assert(sizeof(ULONG_PTR) == 8, "the signature needs a 64-bit dwExtraInfo");
-    /// Edits and what a hold replays: past every stage.
     constexpr uint8_t EditLevel = 0xFF;
     constexpr UINT HoldTickMs = 50;
 
@@ -33,7 +29,7 @@ namespace {
     HHOOK _mouse = nullptr;
 
     UINT_PTR _holdTimer = 0;
-    /// Outgoing swaps buffers with the hold, so it reserves what the hold may fill
+    /// Swapped with the hold's outbox, so it reserves the same.
     std::vector<INPUT> _outgoing = [] {
         std::vector<INPUT> outgoing;
         outgoing.reserve(Hold::Capacity * 4);
@@ -43,14 +39,13 @@ namespace {
 
     struct EditJob {
         HoldId Id;
-        std::function<void()> Work;
+        Work Run;
     };
     /// Lane callbacks still running. Stop waits for them: they read state main destroys next.
     std::atomic<int> _edits{0};
     thread_local HoldId _currentHold = 0;
-    /// Input thread: what runs once the hold's edit is sent. One hold at a time, so one slot.
     HoldId _landedHold = 0;
-    std::function<void()> _landed;
+    Work _landed;
 
     uint8_t _level(const ULONG_PTR extra) {
         return (extra & ~ULONG_PTR{0xFF}) == Signature ? static_cast<uint8_t>(extra) : 0;
@@ -73,13 +68,13 @@ namespace {
         return sent;
     }
 
-    /// Sends what the hold has due, and keeps its timer running exactly while it is up.
-    void _flush() {
+    void _flush(const bool abandonEchoes = false) {
         // Our SendInput re-enters the hook; the loop here picks up whatever that made due
         if (!_flushing) {
             _flushing = true;
             while (Hold::Outgoing(_outgoing)) {
-                Hold::Unsent(_outgoing.size() - _send(_outgoing, EditLevel));
+                const UINT sent = _send(_outgoing, EditLevel);
+                Hold::Unsent(abandonEchoes ? _outgoing.size() : _outgoing.size() - sent);
             }
             _flushing = false;
         }
@@ -93,18 +88,14 @@ namespace {
         }
     }
 
-    /// Our own event came back through the hook. Only the events a hold sends carry EditLevel.
     void _arrived() {
         Hold::Arrived();
         _flush();
     }
 
-    /// What the hold keeps goes out now, edit or not: one tick expires it, the next stops waiting for its echo.
     void _release() {
-        for (int phase = 0; phase < 2; ++phase) {
-            Hold::Tick(UINT64_MAX);
-            _flush();
-        }
+        Hold::Flush();
+        _flush(true);
     }
 
     void _hold(const INPUT& event) {
@@ -113,7 +104,7 @@ namespace {
     }
 
     INPUT _keyInput(const KBDLLHOOKSTRUCT& info, const bool down) {
-        // Someone else's Unicode injection: the character rides in the scan code
+        // Foreign Unicode injection carries the character in the scan code
         const bool unicode = info.vkCode == VK_PACKET;
         INPUT input{.type = INPUT_KEYBOARD};
         input.ki = {.wVk = static_cast<WORD>(unicode ? 0 : info.vkCode),
@@ -142,7 +133,7 @@ namespace {
     LRESULT CALLBACK _keyboardProc(const int code, const WPARAM wParam, const LPARAM lParam) {
         if (code == HC_ACTION) {
             const auto* info = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
-            // The struct carries a raw DWORD, and injected input is free to put anything in it
+            // vkCode is a raw DWORD; injected input can put anything in it
             const bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
             const uint8_t level = _level(info->dwExtraInfo);
             if (level == EditLevel) {
@@ -163,8 +154,6 @@ namespace {
             const auto* info = reinterpret_cast<const MSLLHOOKSTRUCT*>(lParam);
             uint8_t vk = 0;
             bool down = false;
-            // WM_*BUTTON* and VK_*BUTTON do not line up, so this switch is the table. A move falls
-            // through to the default: it is most of the traffic and nobody wants it
             switch (wParam) {
                 case WM_LBUTTONDOWN: down = true; [[fallthrough]];
                 case WM_LBUTTONUP: vk = VK_LBUTTON; break;
@@ -180,7 +169,6 @@ namespace {
                 }
                 default: break;
             }
-            // Moves and the wheel: never held, and never sent by us
             if (!vk) {
                 return CallNextHookEx(nullptr, code, wParam, lParam);
             }
@@ -196,7 +184,6 @@ namespace {
         return CallNextHookEx(nullptr, code, wParam, lParam);
     }
 
-    /// Puts the hook up or down to match what the stages want. True when that changed anything.
     bool _sync(HHOOK& hook, const bool wanted, const int id, const HOOKPROC proc) {
         if (wanted == (hook != nullptr)) {
             return false;
@@ -223,11 +210,9 @@ namespace {
         }
     }
 
-    /// Lock, Ctrl+Alt+Del and the UAC prompt run on the secure desktop, which no hook sees - the
-    /// ups of whatever was held when it came up are gone.
+    /// The secure desktop (lock, UAC) hides input from hooks: the ups of held keys are lost.
     void CALLBACK _onDesktopSwitch(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
         Router::Reset();
-        // The secure desktop would only eat what is held
         _release();
     }
 
@@ -236,21 +221,21 @@ namespace {
             const std::unique_ptr<EditJob> job(static_cast<EditJob*>(context));
             _currentHold = job->Id;
             try {
-                job->Work();
+                job->Run();
             } catch (const std::exception& e) {
                 LOG_ERROR("Input: edit threw: %s", e.what());
             } catch (...) {
                 LOG_ERROR("Input: edit threw an unknown exception");
             }
             _currentHold = 0;
-            // Queued behind the work's own Commit, if it posted one - that one takes the hold first
+            // Queued behind the work's own Commit, which takes the hold first
             Post([id = job->Id] { Commit(id, {}); });
         }
         --_edits;
         _edits.notify_all();
     }
 
-    void _startEdit(std::function<void()> work, std::function<void()> landed) {
+    void _startEdit(Work work, Work landed) {
         const HoldId id = Hold::Begin(GetTickCount64());
         if (!id) {
             return;
@@ -294,7 +279,6 @@ namespace {
         if (desktopSwitch) {
             UnhookWinEvent(desktopSwitch);
         }
-        // Rather than lost, since the hooks go down next
         _release();
         for (HHOOK* hook : {&_keyboard, &_mouse}) {
             if (*hook) {
@@ -362,7 +346,7 @@ void Post(Work work) {
     if (!thread || !work) {
         return;
     }
-    // Heap allocated to travel through the queue; the loop owns it from there
+    // The loop owns the heap copy once posted
     auto* posted = new Work(std::move(work));
     if (!PostThreadMessageW(thread, WM_INPUT_RUN, 0, reinterpret_cast<LPARAM>(posted))) {
         delete posted;
@@ -377,7 +361,7 @@ UINT Send(const std::span<INPUT> inputs, const std::string_view from) {
     return _send(inputs, static_cast<uint8_t>(stage + 1));
 }
 
-void Edit(std::function<void()> work, std::function<void()> landed) {
+void Edit(Work work, Work landed) {
     if (!work) {
         return;
     }
@@ -400,7 +384,7 @@ bool Commit(const HoldId id, const std::span<const INPUT> edit) {
     _flush();
     if (id == _landedHold) {
         _landedHold = 0;
-        if (const auto landed = std::exchange(_landed, {}); landed && taken && !edit.empty()) {
+        if (auto landed = std::exchange(_landed, {}); landed && taken && !edit.empty()) {
             landed();
         }
     }

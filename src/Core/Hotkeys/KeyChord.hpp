@@ -2,10 +2,10 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
-/// A modifier key, its bit in a mask's low byte and its names, in the order names are printed.
 struct Modifier {
     uint8_t Vk;
     uint8_t Bit;
@@ -31,10 +31,45 @@ inline constexpr std::array<uint8_t, 256> ModifierBits = [] {
     return bits;
 }();
 
-/// Whether any key byte of a mask is a mouse button.
-constexpr bool HasMouseButton(uint64_t mask) {
-    for (mask >>= 8; mask; mask >>= 8) {
-        switch (static_cast<uint8_t>(mask)) {
+/// A mask keeps modifier bits in byte 0 and up to seven keys above it, the newest in byte 1.
+constexpr uint64_t SingleKey(const uint8_t vk) {
+    return uint64_t{vk} << 8;
+}
+
+struct KeyList {
+    std::array<uint8_t, 7> Vk{};
+    size_t Count = 0;
+
+    const uint8_t* begin() const { return Vk.data(); }
+    const uint8_t* end() const { return Vk.data() + Count; }
+};
+
+/// The keys of a mask in the order they were pressed.
+constexpr KeyList KeysOf(uint64_t mask) {
+    KeyList keys;
+    for (mask >>= 8; mask & 0xFF; mask >>= 8) {
+        keys.Vk[keys.Count++] = static_cast<uint8_t>(mask);
+    }
+    std::reverse(keys.Vk.begin(), keys.Vk.begin() + keys.Count);
+    return keys;
+}
+
+/// A modifier VK is held when its bit is set; any other VK when it is among the keys.
+constexpr bool Contains(const uint64_t mask, const uint8_t vk) {
+    if (const uint8_t bit = ModifierBits[vk]) {
+        return (mask & bit) != 0;
+    }
+    for (const uint8_t key : KeysOf(mask)) {
+        if (key == vk) {
+            return true;
+        }
+    }
+    return false;
+}
+
+constexpr bool HasMouseButton(const uint64_t mask) {
+    for (const uint8_t vk : KeysOf(mask)) {
+        switch (vk) {
             case VK_LBUTTON: case VK_RBUTTON: case VK_MBUTTON: case VK_XBUTTON1: case VK_XBUTTON2:
                 return true;
             default:
@@ -44,8 +79,6 @@ constexpr bool HasMouseButton(uint64_t mask) {
     return false;
 }
 
-/// The combination a stream of downs and ups spells: modifier bits in byte 0, up to seven keys
-/// above it, the newest in byte 1.
 struct KeyChord {
     uint64_t Mask = 0;
 
@@ -54,7 +87,7 @@ struct KeyChord {
             Mask |= bit;
             return;
         }
-        Mask = ((Mask & ~uint64_t{0xFF}) << 8) | (uint64_t{vk} << 8) | (Mask & 0xFF);
+        Push(vk);
     }
 
     void Release(const uint8_t vk) {
@@ -62,9 +95,12 @@ struct KeyChord {
             Mask &= ~uint64_t{bit};
             return;
         }
-        // Releasing the newest key drops its byte: shift bytes 2-7 down one, keep the modifier
-        // byte. Releasing anything else leaves modifiers only.
+        // Only the newest key's release keeps the keys below it; any other ends the combination
         const uint64_t modifiers = Mask & 0xFF;
         Mask = ((Mask >> 8) & 0xFF) == vk ? (((Mask >> 16) << 8) | modifiers) : modifiers;
+    }
+
+    void Push(const uint8_t vk) {
+        Mask = ((Mask & ~uint64_t{0xFF}) << 8) | SingleKey(vk) | (Mask & 0xFF);
     }
 };

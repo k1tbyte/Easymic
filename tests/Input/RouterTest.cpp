@@ -1,23 +1,15 @@
-// The router's and the hold's rules, driven with made-up events. Run with .\build.ps1 -Test
 #include <cstdio>
 #include <string>
 #include <vector>
 
+#include "../Check.hpp"
 #include "Input/Hold.hpp"
 #include "Input/Router.hpp"
 
 using namespace Input;
+using Test::Check;
 
 namespace {
-
-    int _failures = 0;
-
-    void Check(const bool condition, const char* what) {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++_failures;
-        }
-    }
 
     struct Probe {
         char Name;
@@ -197,6 +189,44 @@ namespace {
         Check(Router::Needed() == 0, "nothing enabled wants nothing");
     }
 
+    void ConsumedRepeatOfADeliveredDownLeavesTheUp() {
+        Fresh();
+        Router::Disable(b);
+        Check(!Press(A), "the app sees the down before the stage is on");
+        _b.Answer = Verdict::Consume;
+        Router::Enable(b, WantKeys);
+        Check(Press(A), "the repeat is swallowed");
+        Check(Press(A), "and every repeat after it");
+        Check(!Release(A), "but the up reaches the app, or the key would stay down");
+        _b.Answer = Verdict::Next;
+        Check(!Press(A) && !Release(A), "and nothing is owned afterwards");
+    }
+
+    void ResetKeepsWhatTheAppSaw() {
+        Fresh();
+        Check(!Press(A), "the app sees the down");
+        Router::Reset();
+        _b.Answer = Verdict::Consume;
+        Check(Press(A), "the repeat after the reset is swallowed");
+        _b.Answer = Verdict::Next;
+        Check(!Release(A), "and the up reaches the app");
+        Check(_trace == "a+A b+A c+A a+A b+A a-A b-A", "the stage that consumed still gets its up");
+    }
+
+    void SentBackKeyDoesNotHideTheEatenOne() {
+        Fresh();
+        _a.Answer = Verdict::Consume;
+        _a.During = [](const KeyEvent& event) {
+            if (event.Down && !event.Repeat) {
+                Check(!Router::Key(A, true, false, 1), "the key a sends back is delivered");
+            }
+        };
+        Check(Press(A), "the eaten key is swallowed");
+        _a.During = nullptr;
+        Check(Release(A), "and its up still is, as the app never saw its down");
+        Router::Key(A, false, false, 1);
+    }
+
     void HoldReachesEnabledStages() {
         Fresh();
         Router::Disable(b);
@@ -334,6 +364,27 @@ namespace {
         Check(Drain() == "b" && !Hold::Active(), "until the timeout, then what is held goes out");
     }
 
+    void FlushSendsWhatIsHeld() {
+        const HoldId id = Hold::Begin(0);
+        Hold::Take(Ev('a'), 0);
+        Hold::Flush();
+        const INPUT edit[] = {Ev('X')};
+        Check(!Hold::Commit(id, edit, 0), "a flushed hold takes no edit");
+        Check(Drain() == "a" && !Hold::Active(), "what it held goes out");
+    }
+
+    void FlushForgetsWhatIsOut() {
+        const INPUT edit[] = {Ev('X')};
+        Hold::Commit(Hold::Begin(0), edit, 0);
+        std::vector<INPUT> out;
+        Hold::Outgoing(out);
+        Hold::Take(Ev('b'), 0);
+        Hold::Flush();
+        Check(Hold::Outgoing(out) && Keys(out) == "b", "what is held is due at once, the batch out is not waited for");
+        Hold::Unsent(out.size());
+        Check(!Hold::Active(), "and once that is sent the hold is over");
+    }
+
 } // anonymous namespace
 
 int main() {
@@ -356,6 +407,9 @@ int main() {
     OwnershipIsPerLevel();
     DisabledOwnerStillSwallows();
     ResetForgetsEverything();
+    ConsumedRepeatOfADeliveredDownLeavesTheUp();
+    ResetKeepsWhatTheAppSaw();
+    SentBackKeyDoesNotHideTheEatenOne();
     SendReentersInsideTheSender();
     NeededIsTheUnion();
     HoldReachesEnabledStages();
@@ -368,7 +422,9 @@ int main() {
     FullRingGoesOutWhileInFlight();
     UnsentIsNotWaitedFor();
     StuckEventsAreGivenUp();
+    FlushSendsWhatIsHeld();
+    FlushForgetsWhatIsOut();
 
-    std::printf(_failures ? "%d check(s) failed\n" : "all router and hold checks passed\n", _failures);
-    return _failures ? 1 : 0;
+    std::printf(Test::Failures ? "%d check(s) failed\n" : "all router and hold checks passed\n", Test::Failures);
+    return Test::Failures ? 1 : 0;
 }

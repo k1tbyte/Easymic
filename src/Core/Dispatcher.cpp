@@ -19,9 +19,7 @@ namespace {
     std::deque<std::function<void()>> _queue;
     bool _stop = false;
 
-    /// An action is user code and may throw. Both places one runs sit under something that
-    /// cannot take an exception - the worker thread's root, where one escaping calls
-    /// std::terminate, and a window procedure, which would unwind through Win32.
+    /// Actions are user code: an exception must not reach the worker's root (terminate) or a window procedure.
     void _run(const std::function<void()>& action) {
         try {
             action();
@@ -36,7 +34,6 @@ namespace {
         std::unique_lock lock(_mutex);
         while (true) {
             _cv.wait(lock, [] { return _stop || !_queue.empty(); });
-            // Stop dropped the queue
             if (_stop) {
                 return;
             }
@@ -58,7 +55,7 @@ bool Start() {
     }
 
     {
-        // A hook can still post between Stop and its stage going quiet; that press is stale now
+        // A hook can post between Stop and its stage going quiet; that press is stale
         std::lock_guard lock(_mutex);
         _stop = false;
         _queue.clear();
@@ -100,8 +97,7 @@ void ToUi(std::function<void()> action) {
         return;
     }
 
-    // Heap allocated because the action has to outlive this call and travel through the message
-    // queue. RunPosted owns it from there; a post that fails frees it here instead.
+    // RunPosted owns the heap copy once posted; a failed post frees it here
     auto* posted = new std::function<void()>(std::move(action));
     if (!PostMessageW(_uiTarget, WM_DISPATCH_RUN, 0, reinterpret_cast<LPARAM>(posted))) {
         delete posted;

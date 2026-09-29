@@ -14,17 +14,14 @@ namespace {
     struct StageState {
         bool Enabled = false;
         Wants Wanted = 0;
-        /// Keys this stage saw go down and not come up - the only ups it is given.
         std::bitset<256> Down;
     };
 
-    /// Per level, because a remap that eats a key may send the same key back, and that one is
-    /// not a repeat of what it ate.
+    /// Per level: a remap may send back the key it ate, and that is no repeat of it.
     using Owners = std::array<std::array<uint8_t, 256>, MaxStages + 1>;
 
     std::vector<Stage> _stages;
     std::array<StageState, MaxStages> _state;
-    /// The stage that consumed a key's down; its repeats and its up go there alone.
     Owners _owners = [] {
         Owners owners;
         for (auto& level : owners) {
@@ -32,12 +29,37 @@ namespace {
         }
         return owners;
     }();
+    /// Survives Enable and Reset: a consumed repeat of a down the app saw must not take the up.
+    std::array<std::bitset<256>, MaxStages + 1> _delivered;
 
     Verdict _call(const size_t stage, const uint8_t vk, const bool down) {
         StageState& state = _state[stage];
         const bool repeat = down && state.Down[vk];
         state.Down[vk] = down;
         return _stages[stage].OnKey({.Vk = vk, .Down = down, .Repeat = repeat});
+    }
+
+    bool _offer(const uint8_t vk, const bool down, const bool button, const uint8_t level) {
+        const Wants kind = button ? WantButtons : WantKeys;
+        for (size_t i = level; i < _stages.size(); ++i) {
+            const StageState& state = _state[i];
+            if (!state.Enabled || !(state.Wanted & kind) || (!down && !state.Down[vk])) {
+                continue;
+            }
+
+            const bool repeat = down && state.Down[vk];
+            const Verdict verdict = _call(i, vk, down);
+            if (verdict == Verdict::Deliver) {
+                return false;
+            }
+            if (verdict == Verdict::Consume && down) {
+                if (!repeat && !_delivered[level][vk]) {
+                    _owners[level][vk] = static_cast<uint8_t>(i);
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
 } // anonymous namespace
@@ -105,12 +127,14 @@ bool Key(const uint8_t vk, const bool down, const bool button, const uint8_t lev
         return false;
     }
 
+    if (!down) {
+        _delivered[level][vk] = false;
+    }
     if (const uint8_t owner = _owners[level][vk]; owner != NoOwner) {
         if (!down) {
             _owners[level][vk] = NoOwner;
         }
-        // Everyone up to the owner saw the down, so everyone there gets the rest; a disabled
-        // stage is not called, but the app never saw the down, so the rest stays eaten
+        // A disabled owner is skipped, yet the app never saw the down: the rest stays eaten
         for (size_t i = level; i <= owner; ++i) {
             if (_state[i].Enabled && _state[i].Down[vk]) {
                 _call(i, vk, down);
@@ -119,26 +143,11 @@ bool Key(const uint8_t vk, const bool down, const bool button, const uint8_t lev
         return true;
     }
 
-    const Wants kind = button ? WantButtons : WantKeys;
-    for (size_t i = level; i < _stages.size(); ++i) {
-        const StageState& state = _state[i];
-        if (!state.Enabled || !(state.Wanted & kind) || (!down && !state.Down[vk])) {
-            continue;
-        }
-
-        const bool repeat = down && state.Down[vk];
-        const Verdict verdict = _call(i, vk, down);
-        if (verdict == Verdict::Deliver) {
-            return false;
-        }
-        if (verdict == Verdict::Consume && down) {
-            if (!repeat) {
-                _owners[level][vk] = static_cast<uint8_t>(i);
-            }
-            return true;
-        }
+    const bool swallowed = _offer(vk, down, button, level);
+    if (down && !swallowed) {
+        _delivered[level][vk] = true;
     }
-    return false;
+    return swallowed;
 }
 
 }

@@ -1,6 +1,7 @@
 #include "HotkeyService.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -19,25 +20,21 @@ namespace {
 
     constexpr std::string_view StageId = "hotkeys";
 
-    using MaskBindings = std::vector<HotkeyBinding>;
-
     struct Scope {
-        MaskBindings bindings;
-        /// Whether a match resolved in this scope blocks, set once by Publish.
+        std::vector<HotkeyBinding> bindings;
         bool block = false;
     };
 
-    struct AppHash {
-        using is_transparent = void;
-        size_t operator()(const std::string_view app) const {
-            return std::hash<std::string_view>{}(app);
-        }
-    };
+    using AppScope = std::pair<std::string, Scope>;
 
     struct MaskEntry {
         Scope global;
-        std::unordered_map<std::string, Scope, AppHash, std::equal_to<>> apps;
+        std::vector<AppScope> apps;
     };
+
+    bool _bound(const HotkeyBinding& binding) {
+        return binding.onPress || binding.onRelease || binding.onEdit;
+    }
 
     struct Match {
         const Scope* global = nullptr;
@@ -45,21 +42,30 @@ namespace {
         size_t count = 0;
         bool block = false;
 
-        const HotkeyBinding* At(const size_t index) const {
+        /// The app's binding for that press count, else the global one.
+        const HotkeyBinding* ForPress(const size_t index) const {
             const auto bound = [index](const Scope* scope) -> const HotkeyBinding* {
-                if (!scope || index >= scope->bindings.size()) {
+                if (!scope || index >= scope->bindings.size() || !_bound(scope->bindings[index])) {
                     return nullptr;
                 }
-                const auto& binding = scope->bindings[index];
-                return binding.onPress || binding.onRelease || binding.onEdit ? &binding : nullptr;
+                return &scope->bindings[index];
             };
-            if (const auto* binding = bound(app)) {
-                return binding;
-            }
-            return bound(global);
+            const auto* binding = bound(app);
+            return binding ? binding : bound(global);
         }
 
         explicit operator bool() const { return count != 0; }
+    };
+
+    struct Candidate {
+        Match match;
+        uint64_t mask;
+    };
+
+    struct Focus {
+        HWND window = nullptr;
+        std::shared_ptr<const Foreground::Snapshot> snapshot;
+        std::string_view exe;
     };
 
     struct ReleaseClaim {
@@ -67,39 +73,32 @@ namespace {
         const HotkeyBinding* binding;
     };
 
-    /// Everything Publish hands over, in one piece.
     struct Table {
         std::unordered_map<uint64_t, MaskEntry> Hotkeys;
-        /// How long a combination waits for another press before it resolves. Only a mask with
-        /// more than one bound count ever waits - everything else fires on the press.
         std::chrono::milliseconds MultiPressWindow{200};
         size_t ReleaseBindings = 0;
-        /// A mask names a mouse button, or a tap has to notice a click in between. Without either
-        /// the mouse hook can stay down.
+        /// A mask names a mouse button, or a tap must notice a click in between: else the mouse hook stays down.
         bool WantsButtons = false;
     };
 
-    /// UI thread.
+    // UI thread
     std::unique_ptr<Table> _building = std::make_unique<Table>();
 
     // Input thread, from here down
     std::unique_ptr<Table> _active;
     KeyChord _chord;
     std::vector<ReleaseClaim> _releases;
-    /// The last key that went down. A key still holding this slot when it is released was tapped
-    /// by itself; anything else means it was held while another key was pressed.
+    /// A key still last down when released was tapped alone.
     uint8_t _lastDownVk = 0;
 
     uint64_t _pendingMask = 0;
     uint8_t _pendingCount = 0;
     HWND _pendingWindow = nullptr;
     std::chrono::steady_clock::time_point _pendingDeadline{};
-    /// What the press waiting out the window fires. It resolves on the input thread, never on the
-    /// action worker, which COM or WASAPI can keep busy past an edit's hold timeout.
+    /// Fires on the input thread: the action worker can be busy past an edit's hold timeout.
     const HotkeyBinding* _pendingPress = nullptr;
     PTP_TIMER _timer = nullptr;
 
-    /// Drops the waiting press unfired.
     void _clearPending() {
         _pendingMask = 0;
         _pendingCount = 0;
@@ -108,24 +107,19 @@ namespace {
         SetThreadpoolTimer(_timer, nullptr, 0, 0);
     }
 
-    /// The edit under a hold; its sound and notification wait for it to land.
-    void _edit(const HotkeyBinding& binding) {
-        Input::Edit(binding.onEdit, binding.onPress ? [press = binding.onPress] { Dispatcher::Post(press); }
-                                                    : std::function<void()>{});
-    }
-
-    /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
-    /// that fired it can be delivered.
+    /// In-proc: an edit's hold must start before the key that fired it is delivered.
     void _press(const HotkeyBinding& binding) {
-        if (binding.onEdit) {
-            _edit(binding);
-        } else {
+        if (!binding.onEdit) {
             Dispatcher::Post(binding.onPress);
+            return;
         }
+        Input::Work landed;
+        if (binding.onPress) {
+            landed = [press = binding.onPress] { Dispatcher::Post(press); };
+        }
+        Input::Edit(binding.onEdit, std::move(landed));
     }
 
-    /// The window closed: the waiting press fires. In-proc when a key closed it, so an edit's hold
-    /// catches that key.
     void _firePending() {
         const HotkeyBinding* binding = _pendingPress;
         _clearPending();
@@ -141,7 +135,6 @@ namespace {
         SetThreadpoolTimer(_timer, &at, 0, 0);
     }
 
-    /// A fire armed for an earlier window re-arms for what is left of this one.
     void _due() {
         if (!_pendingMask) {
             return;
@@ -169,37 +162,24 @@ namespace {
         if (!entry) {
             return {};
         }
-        const auto found = entry->apps.find(exe);
+        const auto found = std::ranges::find(entry->apps, exe, &AppScope::first);
         return _match(entry->global, found == entry->apps.end() ? nullptr : &found->second);
     }
 
-    /// Over every count the match resolves: a count the app leaves unbound falls to the global one.
     bool _blocks(const Match& match) {
         for (size_t i = 0; i < match.count; ++i) {
-            if (const auto* binding = match.At(i); binding && binding->block) {
+            if (const auto* binding = match.ForPress(i); binding && binding->block) {
                 return true;
             }
         }
         return false;
     }
 
-    bool _contains(const uint64_t mask, const uint8_t vkCode) {
-        if (const auto bit = ModifierBits[vkCode]) {
-            return (mask & bit) != 0;
-        }
-        for (int i = 1; i < 8; ++i) {
-            if (((mask >> (i * 8)) & 0xFF) == vkCode) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void _releaseClaims(const uint8_t vkCode) {
-        const bool alone = _lastDownVk == vkCode;
+    void _releaseClaims(const uint8_t vk) {
+        const bool alone = _lastDownVk == vk;
         size_t kept = 0;
         for (const ReleaseClaim& claim : _releases) {
-            if (!_contains(claim.mask, vkCode)) {
+            if (!Contains(claim.mask, vk)) {
                 _releases[kept++] = claim;
             } else if (alone || !claim.binding->tapOnly) {
                 Dispatcher::Post(claim.binding->onRelease);
@@ -208,22 +188,21 @@ namespace {
         _releases.resize(kept);
     }
 
-    void _fireOnce(const Match& entry) {
-        const auto* binding = entry.At(0);
-        if (binding && (entry.count == 1 || binding->onRelease)) {
+    void _fireOnce(const Match& match) {
+        const auto* binding = match.ForPress(0);
+        if (binding && (match.count == 1 || binding->onRelease)) {
             _press(*binding);
         }
     }
 
-    void _count(const Match& entry, const uint64_t mask, const HWND window) {
+    void _count(const Match& match, const uint64_t mask, const HWND window) {
         _pendingMask = mask;
         _pendingWindow = window;
         ++_pendingCount;
-        const auto* binding = entry.At(_pendingCount - 1);
+        const auto* binding = match.ForPress(_pendingCount - 1);
 
-        if (_pendingCount >= entry.count) {
+        if (_pendingCount >= match.count) {
             _clearPending();
-            // In-proc, like _fireOnce: an edit's hold has to catch the key that fired it
             if (binding) {
                 _press(*binding);
             }
@@ -241,58 +220,75 @@ namespace {
         }
     }
 
-    bool _raiseAction(const uint8_t vkCode) {
-        const uint64_t singleMask = static_cast<uint64_t>(vkCode) << 8;
-        const uint64_t sequenceMask = _chord.Mask;
-        const auto* singleEntry = _entry(singleMask);
-        const auto* sequenceEntry = singleMask == sequenceMask ? nullptr : _entry(sequenceMask);
+    Focus _focus(const MaskEntry* single, const MaskEntry* sequence) {
         const auto perApp = [](const MaskEntry* entry) { return entry && !entry->apps.empty(); };
         const auto counts = [](const MaskEntry* entry) { return entry && entry->global.bindings.size() > 1; };
-        const bool apps = perApp(singleEntry) || perApp(sequenceEntry);
-        HWND window = nullptr;
-        if (apps || _pendingMask || counts(singleEntry) || counts(sequenceEntry)) {
-            window = GetForegroundWindow();
+        const bool apps = perApp(single) || perApp(sequence);
+
+        Focus focus;
+        if (!apps && !_pendingMask && !counts(single) && !counts(sequence)) {
+            return focus;
         }
-        // Held for the lookups below: exe points into it. Only a per-app binding reads it - the
-        // atomic shared_ptr behind it takes a lock
-        std::shared_ptr<const Foreground::Snapshot> foreground;
-        std::string_view exe;
-        if (apps) {
-            foreground = Foreground::Current();
-            if (foreground && foreground->Window == window) {
-                exe = foreground->Exe;
-            }
+        focus.window = GetForegroundWindow();
+        if (!apps) {
+            return focus;
+        }
+        // Current() takes a lock, so only a per-app binding reads it
+        focus.snapshot = Foreground::Current();
+        if (focus.snapshot && focus.snapshot->Window == focus.window) {
+            focus.exe = focus.snapshot->Exe;
+        }
+        return focus;
+    }
+
+    void _settlePending(const uint8_t vk, const HWND window, const uint64_t countingMask) {
+        if (!_pendingMask) {
+            return;
+        }
+        const bool otherCombination = _pendingMask != countingMask;
+        const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
+        // A modifier pressed on the way to another combination keeps the wait
+        if (window != _pendingWindow || expired || (otherCombination && !ModifierBits[vk])) {
+            _firePending();
+        }
+    }
+
+    bool _dispatch(const Candidate& candidate, const bool counting, const HWND window) {
+        const Match& match = candidate.match;
+        if (!match) {
+            return false;
+        }
+        const bool firstPress = !counting || _pendingCount == 0;
+        if (counting) {
+            _count(match, candidate.mask, window);
+        } else {
+            _fireOnce(match);
+        }
+        if (const auto* binding = match.ForPress(0); firstPress && binding && binding->onRelease) {
+            _releases.push_back({candidate.mask, binding});
+        }
+        return match.block;
+    }
+
+    bool _onDown(const uint8_t vk) {
+        const uint64_t singleMask = SingleKey(vk);
+        const MaskEntry* singleEntry = _entry(singleMask);
+        const MaskEntry* sequenceEntry = singleMask == _chord.Mask ? nullptr : _entry(_chord.Mask);
+        if (!singleEntry && !sequenceEntry && !_pendingMask) {
+            return false;
         }
 
-        const Match single = _lookup(singleEntry, exe);
-        const Match sequence = _lookup(sequenceEntry, exe);
-        const Match* counting = sequence.count > 1 ? &sequence : single.count > 1 ? &single : nullptr;
-        const uint64_t countingMask = counting == &sequence ? sequenceMask : singleMask;
-
-        if (_pendingMask) {
-            const bool changed = window != _pendingWindow;
-            const bool modifier = ModifierBits[vkCode] && _pendingMask != countingMask;
-            const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
-            if (changed || expired || (!modifier && _pendingMask != countingMask)) {
-                _firePending();
-            }
-        }
+        const Focus focus = _focus(singleEntry, sequenceEntry);
+        const std::array<Candidate, 2> candidates{{{_lookup(singleEntry, focus.exe), singleMask},
+                                                   {_lookup(sequenceEntry, focus.exe), _chord.Mask}}};
+        const Candidate* counting = candidates[1].match.count > 1   ? &candidates[1]
+                                    : candidates[0].match.count > 1 ? &candidates[0]
+                                                                    : nullptr;
+        _settlePending(vk, focus.window, counting ? counting->mask : singleMask);
 
         bool blocked = false;
-        for (const Match* entry : {&single, &sequence}) {
-            if (!*entry) {
-                continue;
-            }
-            const bool firstPress = entry != counting || _pendingCount == 0;
-            if (entry == counting) {
-                _count(*entry, countingMask, window);
-            } else {
-                _fireOnce(*entry);
-            }
-            if (const auto* binding = entry->At(0); firstPress && binding && binding->onRelease) {
-                _releases.push_back({entry == &single ? singleMask : sequenceMask, binding});
-            }
-            blocked |= entry->block;
+        for (const Candidate& candidate : candidates) {
+            blocked |= _dispatch(candidate, &candidate == counting, focus.window);
         }
         return blocked;
     }
@@ -305,7 +301,7 @@ namespace {
         if (event.Down) {
             _lastDownVk = event.Vk;
             _chord.Press(event.Vk);
-            return _raiseAction(event.Vk) ? Input::Verdict::Consume : Input::Verdict::Next;
+            return _onDown(event.Vk) ? Input::Verdict::Consume : Input::Verdict::Next;
         }
 
         _releaseClaims(event.Vk);
@@ -314,7 +310,6 @@ namespace {
     }
 
     void _reset() {
-        // The waiting press and the claims belong to presses this stage no longer knows about
         _clearPending();
         _releases.clear();
         _chord = {};
@@ -326,6 +321,16 @@ namespace {
         // Claims are pushed from inside the hook, so their room is made here
         _releases.reserve(table->ReleaseBindings);
         _active = std::move(table);
+    }
+
+    Scope& _scope(MaskEntry& entry, const std::string_view app) {
+        if (app.empty()) {
+            return entry.global;
+        }
+        if (const auto found = std::ranges::find(entry.apps, app, &AppScope::first); found != entry.apps.end()) {
+            return found->second;
+        }
+        return entry.apps.emplace_back(std::string{app}, Scope{}).second;
     }
 
 } // anonymous namespace
@@ -343,14 +348,9 @@ namespace {
             return false;
         }
 
-        MaskEntry& entry = _building->Hotkeys[keysMask];
-        Scope& scope = app.empty() ? entry.global : entry.apps[std::string{app}];
-        MaskBindings& bindings = scope.bindings;
-        if (presses <= bindings.size()) {
-            const auto& previous = bindings[presses - 1];
-            if (previous.onPress || previous.onRelease || previous.onEdit) {
-                return false;
-            }
+        auto& bindings = _scope(_building->Hotkeys[keysMask], app).bindings;
+        if (presses <= bindings.size() && _bound(bindings[presses - 1])) {
+            return false;
         }
 
         if (bindings.size() < presses) {
