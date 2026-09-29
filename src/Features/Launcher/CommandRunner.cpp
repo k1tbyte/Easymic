@@ -8,7 +8,6 @@
 #include "ShellContext.hpp"
 #include "ShellLaunch.hpp"
 #include "Str.hpp"
-#include "Tokens.hpp"
 #include "definitions.h"
 
 namespace CommandRunner {
@@ -72,7 +71,7 @@ namespace {
      * A token the user already wrapped in quotes is substituted bare so they do not double.
      */
     std::string _expandDir(std::string command, const HWND context) {
-        if (!command.contains(Tokens::Dir)) {
+        if (!command.contains(DirToken)) {
             return command;
         }
 
@@ -84,11 +83,11 @@ namespace {
             }
         }
 
-        const size_t span = std::string_view(Tokens::Dir).size();
-        for (size_t at = command.find(Tokens::Dir); at != std::string::npos;) {
+        const size_t span = std::string_view(DirToken).size();
+        for (size_t at = command.find(DirToken); at != std::string::npos;) {
             const std::string value = _quote(folder, at > 0 && command[at - 1] == '"');
             command.replace(at, span, value);
-            at = command.find(Tokens::Dir, at + value.size());
+            at = command.find(DirToken, at + value.size());
         }
 
         return command;

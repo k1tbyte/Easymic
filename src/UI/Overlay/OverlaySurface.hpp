@@ -6,8 +6,9 @@
 #include <windows.h>
 
 #include "AppConfig.hpp"
+#include "BaseWindow.hpp"
 #include "Core/Overlay.hpp"
-#include "MainWindow.hpp"
+#include "LayeredWindow.hpp"
 #include "OverlaySlots.hpp"
 #include "TextLayer.hpp"
 #include "Str.hpp"
@@ -22,6 +23,12 @@
  * the UI thread through, and there is no second answer to that.
  */
 class OverlaySurface {
+public:
+    /// Click-through and never activated; the settings window lifts that while it is open.
+    static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
+    static constexpr auto Style = WS_POPUP | WS_DISABLED;
+
+private:
     static constexpr UINT_PTR ID_TEXT_TIMER = WM_USER + 101;
     /// One timer per layer that asks for one, offset by the layer's index - two layers can poll
     /// at different rates without agreeing on a common interval.
@@ -31,7 +38,7 @@ class OverlaySurface {
     /// it would orphan the one a running instance already made.
     static constexpr const char* ShadowWindowKey = "EasyLauncherIndicator";
 
-    MainWindow* _view;
+    BaseWindow* _view;
     OverlaySettings& _cfg;
     std::string _fontSource;
     std::wstring _fontFamily = L"Segoe UI";
@@ -135,7 +142,7 @@ class OverlaySurface {
     }
 
 public:
-    OverlaySurface(MainWindow* view, OverlaySettings& config) : _view(view), _cfg(config) {
+    OverlaySurface(BaseWindow* view, OverlaySettings& config) : _view(view), _cfg(config) {
         // Before the window exists, so it is created where the user left it - the frame reads no config
         const int size = OverlaySlots::PillHeight(config.Size);
         _view->SetPositionX(config.PosX)->SetPositionY(config.PosY)->SetWidth(size)->SetHeight(size);
@@ -146,9 +153,6 @@ public:
                       .Measure = &TextLayer::Measure,
                       .Render = &TextLayer::Render});
     }
-
-    /// Once the window exists - the same hand-off Feedback takes for its PostFn.
-    void Bind() { Overlay::Invalidate = &MainWindow::PostRelayout; }
 
     /// The one place that decides whether the overlay is on screen and how wide it is.
     void Relayout() {
@@ -194,14 +198,6 @@ public:
     void Render(RenderContext& context) const {
         context.alpha = static_cast<BYTE>(std::min<int>(_cfg.Opacity, 100) * 255 / 100);
         _slots.Render(*context.graphics);
-    }
-
-    void PreviewFont() {
-        if (_preview) {
-            // MSVC's source codepage cannot reliably decode Cyrillic literals.
-            TextLayer::Text = {L'A', L'a', L' ', 0x042F, 0x044F};
-            Relayout();
-        }
     }
 
     void OnTimer(const UINT_PTR timerId) {
@@ -259,7 +255,7 @@ public:
         if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
             _view->Hide();
             _view->SetShadowHwnd(UIAccess::GetOrCreateWindow(
-                ShadowWindowKey, MainWindow::StyleEx, MainWindow::Style));
+                ShadowWindowKey, StyleEx, Style));
             _view->RefreshPos(HWND_TOPMOST);
         }
 

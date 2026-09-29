@@ -18,6 +18,8 @@ namespace {
      * This action announces itself rather than letting the kernel do it: with {stdout} there is
      * nothing to announce until the command has finished, which can be minutes later.
      */
+    constexpr char StdoutToken[] = "{stdout}";
+
     ActionFn MakeRun(const ActionContext& context) {
         const std::string command = context.Args;
         if (command.empty()) {
@@ -29,7 +31,7 @@ namespace {
         Feedback* const feedback = &context.Fb;
         const std::string text = context.Notification;
 
-        if (!text.contains(Tokens::Stdout)) {
+        if (!text.contains(StdoutToken)) {
             return [feedback, command, text] {
                 CommandRunner::Run(command, GetForegroundWindow());
                 feedback->Notify(text);
@@ -43,7 +45,7 @@ namespace {
 
             CommandRunner::RunCaptured(command, GetForegroundWindow(),
                 [post = feedback->Poster(), resolved](const std::string& output) {
-                    post(Str::Replace(resolved, Tokens::Stdout, output));
+                    post(Str::Replace(resolved, StdoutToken, output));
                 });
         };
     }
@@ -65,5 +67,7 @@ namespace Launcher {
         for (const auto& desc : Actions) {
             ActionRegistry::Add(desc);
         }
+        Tokens::Add({StdoutToken, "Command output - waits for it to finish", Tokens::Notification, true});
+        Tokens::Add({CommandRunner::DirToken, "Folder the active Explorer tab shows", Tokens::Command, true});
     }
 }

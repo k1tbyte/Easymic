@@ -1,14 +1,24 @@
 #include "MainWindow.hpp"
 
 #include "Core/Dispatcher.hpp"
+#include "Core/Hotkeys/Bindings.hpp"
+#include "Core/Hotkeys/HotkeyService.hpp"
+#include "Core/Lifecycle.hpp"
 #include "Core/Tray.hpp"
+#include "Foreground.hpp"
+#include "Logger.hpp"
 #include "TrayIconTheme.hpp"
 
 #include "Resources/Resource.h"
 
-MainWindow::MainWindow(HINSTANCE hInstance)
-    : BaseWindow(hInstance)
+MainWindow::MainWindow(HINSTANCE hInstance, AppConfig& config, Feedback& feedback)
+    : BaseWindow(hInstance), _cfg(config), _feedback(feedback), _overlay(this, config.Overlay)
 {
+    // Last, so it closes the radio and is what a choice nobody registered falls back to
+    Tray::Add({.Id = "tray.app",
+               .Title = L"App icon",
+               .Order = Tray::Last,
+               .Icon = [] { return LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP)); }});
 }
 
 bool MainWindow::Initialize(WindowConfig config) {
@@ -21,10 +31,10 @@ bool MainWindow::Initialize(WindowConfig config) {
 
     // Placed and sized before this, by the surface that owns the overlay's settings
     _hwnd = CreateWindowExW(
-        StyleEx,
+        OverlaySurface::StyleEx,
         config.className,
         config.windowTitle,
-        Style,
+        OverlaySurface::Style,
         GetPositionX(),
         GetPositionY(),
         GetWidth(),
@@ -42,12 +52,19 @@ bool MainWindow::Initialize(WindowConfig config) {
     RegisterWindow(_hwnd);
 
     // This window owns the message loop, so it is the one the worker reaches the UI thread
-    // through. Bound before the view model, which may post from its own Init.
+    // through. Bound first: everything below may post.
     Dispatcher::BindUi(_hwnd);
     _postTarget = _hwnd;
 
-    _viewModel->Init();
+    if (!Foreground::Start(&Dispatcher::ToUi)) {
+        LOG_ERROR("Foreground tracking unavailable; app-specific hotkeys will use global bindings");
+    }
+    Overlay::Invalidate = &PostRelayout;
+    Tray::Refresh = &PostTrayRefresh;
+    _feedback.Bind(_hInstance, &PostNotification);
+    CreateTrayIcon(nullptr, L"");
 
+    RestoreConfig();
     return true;
 }
 
@@ -114,9 +131,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return OnTrayIconMessage(lParam);
 
         case WM_TIMER:
-            if (OnTimer) {
-                OnTimer(wParam);
-            }
+            _overlay.OnTimer(wParam);
             return 0;
 
         case WM_COMMAND: {
@@ -124,34 +139,40 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             if (command >= TrayMenuFirst && command - TrayMenuFirst < Tray::Providers.size()
                 && Tray::Providers[command - TrayMenuFirst].MenuInvoke) {
                 Tray::Providers[command - TrayMenuFirst].MenuInvoke();
-            } else if (OnTrayMenu) {
-                OnTrayMenu(wParam);
+            } else if (command == ID_APP_EXIT) {
+                PostQuitMessage(0);
+            } else if (command == ID_APP_SETTINGS) {
+                OpenSettings();
+            } else if (command == ID_APP_SETTINGS_CLOSED && _settings && !_settings->GetHandle()) {
+                // Checked: a window opened before this arrived is not the one that closed
+                _settings.reset();
             }
             return 0;
         }
 
         // Broadcast to every top-level window when the light/dark theme is switched
         case WM_SETTINGCHANGE:
-            if (OnThemeChanged && TrayIconTheme::IsColorSetChange(lParam)) {
-                OnThemeChanged();
+            if (TrayIconTheme::IsColorSetChange(lParam)) {
+                for (const TrayProvider& provider : Tray::Providers) {
+                    if (provider.ThemeChanged) {
+                        provider.ThemeChanged();
+                    }
+                }
+                RefreshTray();
             }
             return 0;
 
         case WM_OVERLAY_RELAYOUT:
-            Relayout();
+            _overlay.Relayout();
             return 0;
 
         case WM_TRAY_REFRESH:
-            if (OnTrayRefresh) {
-                OnTrayRefresh();
-            }
+            RefreshTray();
             return 0;
 
         case WM_SHOW_NOTIFICATION: {
             const std::unique_ptr<std::wstring> payload(reinterpret_cast<std::wstring*>(lParam));
-            if (OnNotification) {
-                OnNotification(std::move(*payload));
-            }
+            _overlay.ShowText(std::move(*payload));
             return 0;
         }
 
@@ -187,10 +208,9 @@ LRESULT MainWindow::OnPaint() {
         BeginPaint(hwnd, &paintStruct);
     }
 
-    if (OnRender) {
-        const POINT windowPos{GetPositionX(), GetPositionY()};
-        LayeredWindow::Render(hwnd, _surface, _size.x, _size.y, windowPos, OnRender);
-    }
+    const POINT windowPos{GetPositionX(), GetPositionY()};
+    LayeredWindow::Render(hwnd, _surface, _size.x, _size.y, windowPos,
+                          [this](RenderContext& context) { _overlay.Render(context); });
 
     if (paintsOwnedWindow) {
         EndPaint(hwnd, &paintStruct);
@@ -219,14 +239,18 @@ bool MainWindow::CreateTrayIcon(HICON icon, const std::wstring& tooltip) {
     return _trayIcon.Create(_hwnd, 1, icon, tooltip, WM_TRAYICON);
 }
 
-void MainWindow::UpdateTrayIcon(HICON icon) {
-    _currentIcon = icon;
-    _trayIcon.UpdateIcon(icon);
-}
+void MainWindow::RefreshTray() {
+    const TrayProvider* owner = Tray::Owner(_cfg.Tray.Provider);
+    if (!owner) {
+        return;
+    }
 
-void MainWindow::UpdateTrayTooltip(const std::wstring &tooltip) {
-    _currentTooltip = tooltip;
-    _trayIcon.UpdateTooltip(tooltip);
+    if (const HICON icon = owner->Icon()) {
+        _currentIcon = icon;
+        _trayIcon.UpdateIcon(icon);
+    }
+    _currentTooltip = owner->Tooltip ? owner->Tooltip() : std::wstring{APP_NAME};
+    _trayIcon.UpdateTooltip(_currentTooltip);
 }
 
 void MainWindow::ShowTrayContextMenu() {
@@ -266,4 +290,66 @@ void MainWindow::ShowTrayContextMenu() {
     );
 
     DestroyMenu(menu);
+}
+
+void MainWindow::SuspendActivity() {
+    _overlay.Suspend();
+    Lifecycle::Suspend();
+    HotkeyService::ClearHotkeys();
+    // Actions read and save the config the settings window is about to edit
+    Dispatcher::Stop();
+}
+
+void MainWindow::RestoreConfig() {
+    Dispatcher::Start();
+    HotkeyService::SetMultiPressWindow(_cfg.Core.MultiPressWindowMs);
+
+#ifndef APP_NO_GLOBAL_HOOKS
+    Bindings::Apply(_cfg.Bindings, _feedback);
+#endif // APP_NO_GLOBAL_HOOKS - Debug builds skip the desktop-wide hooks for bindings
+
+    // Ahead of the overlay: a layer may measure what a module only knows again once it resumes
+    Lifecycle::Restore();
+    _overlay.Restore();
+    RefreshTray();
+}
+
+void MainWindow::OpenSettings() {
+    if (_settings && _settings->GetHandle()) {
+        SetForegroundWindow(_settings->GetHandle());
+        return;
+    }
+
+    SuspendActivity();
+    // Not shown from here: SuspendActivity already put the overlay into preview, and whether it
+    // is on screen is the surface's decision alone
+    ToggleInteractivity(true);
+
+    _settings = std::make_unique<SettingsWindow>(_hInstance, _hwnd, _cfg);
+    _settings->OnApply += [this] { _overlay.CommitPosition(); };
+    _settings->OnExit += [this] {
+        ToggleInteractivity(false);
+        RestoreConfig();
+        // Never from here: this fires inside the window's own WM_DESTROY, so dropping the
+        // last reference would unwind the object still running the callback
+        PostMessageW(_hwnd, WM_COMMAND, ID_APP_SETTINGS_CLOSED, 0);
+    };
+    _settings->Show();
+}
+
+void MainWindow::ToggleInteractivity(const bool interactive) const {
+    const HWND hwnd = GetEffectiveHandle();
+
+    LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    if (interactive) {
+        exStyle &= ~WS_EX_TRANSPARENT;
+        style &= ~WS_DISABLED;
+    } else {
+        exStyle |= WS_EX_TRANSPARENT;
+        style |= WS_DISABLED;
+    }
+
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, style);
 }

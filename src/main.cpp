@@ -2,7 +2,7 @@
 #include "AppConfig.hpp"
 #include "CrashHandler.hpp"
 #include "MainWindow.hpp"
-#include "MainWindowViewModel.hpp"
+#include "Settings/SettingsPages.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Feedback.hpp"
 #include "Core/Host.hpp"
@@ -84,7 +84,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // empty one would drop them all without saying so
     // Before the modules, so a page a module contributes lands after the frame's own middle
     // pages and still ahead of About, which pins itself last
-    SettingsWindowViewModel::RegisterPages();
+    SettingsPages::Register(config);
 
     HotkeyCapture::Register();
     HotkeyService::Register();
@@ -98,11 +98,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         Input::Stop();
         Dispatcher::Stop();
     };
-    // The dispatcher starts in the view model's RestoreConfig, as after every settings session
+    // The dispatcher starts in the frame's RestoreConfig, as after every settings session
     Input::Start();
 
-    static MainWindow mainWindow(hInstance);
-    mainWindow.AttachViewModel<MainWindowViewModel>(config, feedback);
+    static MainWindow mainWindow(hInstance, config, feedback);
 
     if (!mainWindow.Initialize({})) {
         LOG_ERROR("Failed to initialize MainWindow");
@@ -118,11 +117,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         UpdateManager* const manager = updateManager.get();
         manager->CheckForUpdatesAsync([manager](bool hasUpdate, const std::string& error) {
             if (!error.empty()) {
-                if (error.find("is skipped") != std::string::npos) {
-                    LOG_INFO("Update check: %s", error.c_str());
-                } else {
-                    LOG_WARNING("Update check failed: %s", error.c_str());
-                }
+                LOG_WARNING("Update check failed: %s", error.c_str());
                 return;
             }
 

@@ -1,22 +1,15 @@
 #pragma once
 
 #include <algorithm>
-#include <memory>
-#include <type_traits>
 #include <windows.h>
 
 #include "definitions.h"
-#include "ViewModel.hpp"
-
-template<typename T>
-concept IViewModelType = std::is_base_of_v<IViewModel, T>;
 
 /**
  * @brief Base class for all application windows.
  *
- * Owns its view model; the view model points back with a raw pointer, so the pair is destroyed
- * with the window. Message dispatch is a virtual override in the derived window - a table of
- * std::function would be consulted on every message the desktop sends.
+ * Message dispatch is a virtual override in the derived window - a table of std::function would
+ * be consulted on every message the desktop sends.
  */
 class BaseWindow {
 public:
@@ -40,7 +33,6 @@ public:
     HWND GetHandle() const { return _hwnd; }
     HINSTANCE GetHInstance() const { return _hInstance; }
     bool IsVisible() const { return _isVisible; }
-    BaseWindow* GetParent() const { return _parent; }
 
     HWND GetEffectiveHandle() const { return _shadowHwnd ? _shadowHwnd : _hwnd; }
     bool IsOvershadowed() const { return _shadowHwnd != nullptr; }
@@ -75,14 +67,6 @@ public:
 
     virtual BaseWindow* UpdateRect() { return _updateRect(GetEffectiveHandle()); }
     virtual BaseWindow* RefreshPos(HWND insertAfter) { return _refreshPos(GetEffectiveHandle(), insertAfter); }
-
-    template <IViewModelType T, typename... Args>
-    T* AttachViewModel(Args &&... args) {
-        auto viewModel = std::make_unique<T>(this, std::forward<Args>(args)...);
-        T* attached = viewModel.get();
-        _viewModel = std::move(viewModel);
-        return attached;
-    }
 
 protected:
     explicit BaseWindow(HINSTANCE hInstance) : _hInstance(hInstance) {}
@@ -195,8 +179,6 @@ protected:
     POINT _pos{};
     HWND _hwnd = nullptr;
     HWND _shadowHwnd = nullptr;
-    BaseWindow* _parent = nullptr;
-    std::unique_ptr<IViewModel> _viewModel;
     HINSTANCE _hInstance = nullptr;
     bool _isVisible = false;
 };

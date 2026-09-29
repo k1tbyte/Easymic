@@ -17,6 +17,8 @@
  */
 namespace CommandRunner {
 
+    inline constexpr char DirToken[] = "{dir}";
+
     /**
      * @brief Launches the command without blocking the caller.
      *

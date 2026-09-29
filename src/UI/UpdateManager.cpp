@@ -134,13 +134,8 @@ void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::str
             }
 
             _latestRelease = std::move(release);
-            if (IsVersionSkipped(_latestRelease.tag_name)) {
-                _hasUpdate = false;
-                callback(false, "Version " + _latestRelease.tag_name + " is skipped");
-                return;
-            }
-
-            _hasUpdate = hasUpdate;
+            // A skipped version is no update, and no error either
+            _hasUpdate = hasUpdate && !IsVersionSkipped(_latestRelease.tag_name);
             callback(_hasUpdate, "");
         });
     });

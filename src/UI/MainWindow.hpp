@@ -1,32 +1,30 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 
+#include "AppConfig.hpp"
 #include "BaseWindow.hpp"
-#include "TrayIcon.hpp"
+#include "Core/Feedback.hpp"
 #include "LayeredWindow.hpp"
+#include "Overlay/OverlaySurface.hpp"
+#include "Settings/SettingsWindow.hpp"
+#include "TrayIcon.hpp"
 
+/// The frame: the overlay's window, the tray icon, the settings window, and putting the config back
+/// into effect when that window closes. What the overlay and the tray show belongs to whoever
+/// registered into them - this only asks.
 class MainWindow final : public BaseWindow {
 public:
-    static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
-    static constexpr auto Style = WS_POPUP | WS_DISABLED;
-
     struct WindowConfig {
         LPCWSTR windowTitle = L"MainWindow";
         LPCWSTR className = L"MainWindowClass";
     };
 
-    explicit MainWindow(HINSTANCE hInstance);
+    MainWindow(HINSTANCE hInstance, AppConfig& config, Feedback& feedback);
     ~MainWindow() override = default;
 
     bool Initialize(WindowConfig config);
-
-    // Tray icon management
-    bool CreateTrayIcon(HICON icon, const std::wstring& tooltip);
-    void UpdateTrayIcon(HICON icon);
-    void UpdateTrayTooltip(const std::wstring& tooltip);
 
     /**
      * @brief Hands a notification text to the window from any thread.
@@ -44,40 +42,6 @@ public:
     /// Asks for the tray icon and tooltip to be read again, from any thread.
     static void PostTrayRefresh();
 
-    // View model delegation - single subscriber each, assigned once during Init
-    std::function<void(UINT_PTR commandId)> OnTrayMenu;
-    std::function<void()> OnTrayRefresh;
-    std::function<void(UINT_PTR timerId)> OnTimer;
-    std::function<void()> OnThemeChanged;
-    std::function<void()> OnRelayout;
-    std::function<void(std::wstring text)> OnNotification;
-    LayeredWindow::RenderCallback OnRender;
-
-    /// Anything that changes what the overlay should look like. Callers say what happened; the
-    /// surface is what decides how wide the strip is and whether it is on screen at all.
-    void Relayout() const {
-        if (OnRelayout) {
-            OnRelayout();
-        }
-    }
-
-    void ToggleInteractivity(bool interactive) const {
-        HWND hwnd = GetEffectiveHandle();
-
-        LONG_PTR dwExStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-        LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-        if (interactive) {
-            dwExStyle &= ~WS_EX_TRANSPARENT; // Remove transparent
-            style &= ~WS_DISABLED;
-        } else {
-            dwExStyle |= WS_EX_TRANSPARENT;
-            style |= WS_DISABLED;
-        }
-
-        SetWindowLongPtr(hwnd, GWL_EXSTYLE, dwExStyle);
-        SetWindowLongPtr(hwnd, GWL_STYLE, style);
-    }
-
 private:
     bool RegisterWindowClass(const WindowConfig& config) const;
 
@@ -87,11 +51,24 @@ private:
     LRESULT OnTrayIconMessage(LPARAM lParam);
 
     void ShowTrayContextMenu();
+    bool CreateTrayIcon(HICON icon, const std::wstring& tooltip);
+    /// The provider the config names paints the icon, and says the tooltip.
+    void RefreshTray();
+
+    void SuspendActivity();
+    void RestoreConfig();
+    void OpenSettings();
+    void ToggleInteractivity(bool interactive) const;
+
+    AppConfig& _cfg;
+    Feedback& _feedback;
+    OverlaySurface _overlay;
+    std::unique_ptr<SettingsWindow> _settings;
 
     TrayIcon _trayIcon;
     LayeredWindow::Surface _surface;
 
-    // Not owned: LoadIcon returns shared icons, the view model keeps them alive
+    // Not owned: LoadIcon returns shared icons, the tray provider keeps them alive
     HICON _currentIcon = nullptr;
     std::wstring _currentTooltip;
 
@@ -111,4 +88,3 @@ private:
     /// A menu contribution's command id is this plus its provider's index - not a resource id.
     static constexpr UINT TrayMenuFirst = 41000;
 };
-

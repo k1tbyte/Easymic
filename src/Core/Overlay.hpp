@@ -66,8 +66,8 @@ namespace Overlay {
         Layers.insert(std::ranges::upper_bound(Layers, layer.Order, {}, &OverlayLayer::Order), layer);
     }
 
-    /// Set by the surface at bind time, the way Feedback takes its PostFn - the kernel has no
-    /// business knowing which window draws. Callable from any thread: the UI side posts.
+    /// Set by the frame once its window exists, the way Feedback takes its PostFn - the kernel
+    /// has no business knowing which window draws. Callable from any thread: the UI side posts.
     inline void (*Invalidate)() = nullptr;
 
     /// What a layer calls when it has something new to show. Safe before the surface exists,

@@ -34,10 +34,14 @@ namespace {
     std::atomic<bool> _shownMuted = false;
     std::atomic<bool> _shownBell = true;
 
+    constexpr char VolumeToken[] = "{volume}";
+    constexpr char MicToken[] = "{mic}";
+    constexpr char BellToken[] = "{bell}";
+
     std::string _expand(std::string text) {
-        text = Str::Replace(std::move(text), Tokens::Volume, std::to_string(_shownVolume.load()));
-        text = Str::Replace(std::move(text), Tokens::Mic, _shownMuted ? "off" : "on");
-        return Str::Replace(std::move(text), Tokens::Bell, _shownBell ? "on" : "off");
+        text = Str::Replace(std::move(text), VolumeToken, std::to_string(_shownVolume.load()));
+        text = Str::Replace(std::move(text), MicToken, _shownMuted ? "off" : "on");
+        return Str::Replace(std::move(text), BellToken, _shownBell ? "on" : "off");
     }
 
     // Written from the WASAPI notification thread, read from the hotkey worker and the UI
@@ -249,6 +253,9 @@ namespace Mic {
         _config = &host.Config;
         _instance = host.Instance;
         host.Fb.AddResolver(&_expand);
+        Tokens::Add({VolumeToken, "Microphone volume, 0-100", Tokens::Notification, false});
+        Tokens::Add({MicToken, "Microphone, on or off", Tokens::Notification, false});
+        Tokens::Add({BellToken, "Bell sound, on or off", Tokens::Notification, false});
 
         if (!Mic::Audio().Init()) {
             LOG_ERROR("AudioManager failed to initialize - continuing without microphone control");

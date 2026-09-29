@@ -88,8 +88,9 @@ namespace {
             return;
         }
 
-        for (int i = 0; i < Tokens::Count; i++) {
-            const auto& token = Tokens::All[i];
+        const auto tokens = Tokens::All();
+        for (size_t i = 0; i < tokens.size(); i++) {
+            const auto& token = tokens[i];
             if (!(token.Fields & field) || (token.CustomOnly && !isCustom)) {
                 continue;
             }
@@ -113,7 +114,7 @@ namespace {
         const HWND edit = GetDlgItem(dialog, editId);
         SetFocus(edit);
         SendMessageW(edit, EM_REPLACESEL, TRUE,
-                     reinterpret_cast<LPARAM>(Str::Utf8ToWide(Tokens::All[chosen - 1].Text).c_str()));
+                     reinterpret_cast<LPARAM>(Str::Utf8ToWide(tokens[chosen - 1].Text).c_str()));
     }
 
     /// The counts a combination can be bound to. More than a handful is not pressable.
