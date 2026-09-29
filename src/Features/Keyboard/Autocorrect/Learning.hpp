@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 
 #include "UserRules.hpp"
 
@@ -15,6 +14,6 @@ namespace Learning {
     /// Any thread: the words a verdict is decided with.
     std::shared_ptr<const UserRules::Compiled> Current();
 
-    /// Input thread: saves on the UI thread; an undone early fix teaches a refused prefix.
-    void Teach(std::wstring text, bool always, bool prefix = false);
+    /// Input thread: saves on the UI thread.
+    void Teach(WordRule rule);
 }

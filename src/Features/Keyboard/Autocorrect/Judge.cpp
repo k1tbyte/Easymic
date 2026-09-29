@@ -17,7 +17,7 @@ namespace {
     struct Snapshot {
         std::array<Convert::Key, TypedWord::MaxKeys> Keys{};
         uint8_t Count = 0;
-        HKL Layout = nullptr;
+        bool EarlyTried = false;
         uint32_t Gen = 0;
     };
 
@@ -25,7 +25,6 @@ namespace {
         uint32_t Gen = 0;
         HKL Layout = nullptr;
         Convert::Verdict Verdict;
-        /// On the word so far: whether it switches before its end.
         Convert::Verdict Early;
     };
 
@@ -38,11 +37,10 @@ namespace {
     /// Coalesces a burst of keys into one run on the latest word.
     std::atomic<bool> _pending{false};
     PTP_WORK _work = nullptr;
-    /// A kept verdict on its way to the log, swapped in by the input thread.
     Convert::Verdict _kept;
     PTP_WORK _logWork = nullptr;
 
-    // Input thread
+    // Input thread only
     Result _ready;
 
     void CALLBACK _log(PTP_CALLBACK_INSTANCE, void*, PTP_WORK) {
@@ -64,7 +62,7 @@ namespace {
         if (!runtime || !runtime->Auto || !word.Count) {
             return;
         }
-        const HKL layout = word.Layout ? word.Layout : InputLanguage::LayoutOf(InputLanguage::FocusedWindow());
+        const HKL layout = InputLanguage::LayoutOf(InputLanguage::FocusedWindow());
         if (!runtime->Reads(layout)) {
             return;
         }
@@ -72,12 +70,11 @@ namespace {
         const auto learned = Learning::Current();
         const std::span<const Convert::Key> keys{word.Keys.data(), word.Count};
         Result result{word.Gen, layout, Autocorrect::Decide(*runtime, *learned, keys, from)};
-        // A pinned word was converted already
-        if (runtime->MidWord && !word.Layout) {
+        if (runtime->MidWord && !word.EarlyTried) {
             result.Early = Autocorrect::Early(*runtime, *learned, keys, from);
         }
         Input::Post([result = std::move(result)]() mutable {
-            // Two runs may finish out of order: an older word never replaces a newer one
+            // Runs may finish out of order: an older word never replaces a newer one
             if (static_cast<int32_t>(result.Gen - _ready.Gen) > 0) {
                 _ready = std::move(result);
                 if (_ready.Early.WrongLayout) {
@@ -107,6 +104,7 @@ namespace {
     void Use(std::shared_ptr<const Autocorrect::Runtime> runtime) {
         AcquireSRWLockExclusive(&_lock);
         std::swap(_runtime, runtime);
+        _kept = {};
         ReleaseSRWLockExclusive(&_lock);
         _ready = {};
     }
@@ -118,7 +116,7 @@ namespace {
         AcquireSRWLockExclusive(&_lock);
         std::copy_n(word.Keys.begin(), word.Count, _slot.Keys.begin());
         _slot.Count = word.Count;
-        _slot.Layout = word.Layout;
+        _slot.EarlyTried = word.EarlyAt != 0;
         _slot.Gen = gen;
         ReleaseSRWLockExclusive(&_lock);
         if (!_pending.exchange(true)) {
@@ -134,7 +132,7 @@ namespace {
         if (!_logWork || !_runtime || !_runtime->LogDecisions) {
             return;
         }
-        // A swap moves no characters: nothing is allocated or freed here
+        // A swap allocates nothing on the input thread
         AcquireSRWLockExclusive(&_lock);
         std::swap(_kept, _ready.Verdict);
         ReleaseSRWLockExclusive(&_lock);

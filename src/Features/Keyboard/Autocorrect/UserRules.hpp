@@ -14,7 +14,7 @@ namespace UserRules {
 
     /// Trims outer whitespace; one token of up to TypedWord::MaxKeys, signs kept (`,he[` is брух).
     bool Normalize(WordRule& rule);
-    /// Adds or updates by text, condition and case; `replacing` is the row being edited. False when nothing changed.
+    /// `replacing` is the row being edited. False when nothing changed.
     bool Put(LearnedWords& words, WordRule rule, size_t replacing = static_cast<size_t>(-1));
 
     /// Immutable snapshot for the judge: whole words binary-searched, never before always.
@@ -33,11 +33,10 @@ namespace UserRules {
             std::wstring Text;
             bool Contains;
             bool CaseSensitive;
-            bool Always;
         };
-        /// [always][case-sensitive], sorted.
+        /// Indexed [always] and [case-sensitive]; words sorted.
         std::vector<std::wstring> _words[2][2];
-        std::vector<Pattern> _patterns;
+        std::vector<Pattern> _patterns[2];
         bool _containsNever = false;
     };
 }

@@ -4,7 +4,6 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "../Convert/Detector.hpp"
@@ -23,7 +22,7 @@ namespace Autocorrect {
         std::array<size_t, 2> Pair{};
         std::unique_ptr<std::array<Convert::Pack, 2>> Packs;
         Convert::Rules Rules;
-        std::unordered_set<std::string> Excluded;
+        std::vector<std::string> Excluded;
         uint16_t Threshold = 0;
         bool Frequency = true;
         bool Auto = false;
@@ -32,7 +31,6 @@ namespace Autocorrect {
         bool SkipFullscreen = true;
         bool LogDecisions = false;
 
-        /// The pair's table, the language its pack speaks.
         const Convert::LayoutTable& Table(const int side) const { return Layouts[Pair[side]]; }
         const Convert::LayoutTable* Find(HKL layout) const;
         /// The pair side `layout` types for, itself or by script; -1 when none.
@@ -41,7 +39,7 @@ namespace Autocorrect {
         bool Reads(HKL layout) const { return Table(0).Layout() == layout || Table(1).Layout() == layout; }
     };
 
-    /// Once, from Keyboard::Register: what a fix plays and says, and through whom.
+    /// Once, from Keyboard::Register; both outlive every fix.
     void Register(const KeyboardSettings& settings, const Feedback& feedback);
 
     /// UI thread. Null when the pair is not two installed layouts.
@@ -62,12 +60,10 @@ namespace Autocorrect {
     /// Edit lane, for a fix only: `focus` is a password field the fix must leave alone. Asks across processes.
     bool Guarded(const Runtime& runtime, HWND focus);
 
-    // Any thread: a line in the log when asked, written by the action worker so the hook never waits on the file
+    /// Any thread: a line in the log when asked, written by the action worker so the hook never waits on the file.
     void Log(const Runtime& runtime, const Convert::Verdict& verdict);
     void LogSkip(const Runtime& runtime, const char* why, uint64_t detail);
-    /// A fix held the typing from its Space until it landed or was dropped (a hold that timed out drops it).
     void LogFix(const Runtime& runtime, const Convert::Verdict& verdict, bool landed, uint64_t spaceAt);
-    /// The undecided words a fix carried along.
     void LogRun(const Runtime& runtime, const TypedWord::Word& run);
 
     /// Input thread: an automatic fix landed; its sound and notification go to the action worker.

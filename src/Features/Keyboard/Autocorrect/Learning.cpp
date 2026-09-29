@@ -7,7 +7,6 @@
 #include "Core/AppConfig.hpp"
 #include "Core/Dispatcher.hpp"
 #include "Core/Lifecycle.hpp"
-#include "Platform/Str.hpp"
 #include "definitions.h"
 
 namespace Learning {
@@ -16,12 +15,7 @@ namespace {
 
     AppConfig* _config = nullptr;
     bool _suspended = false;
-    struct Teaching {
-        std::wstring Text;
-        bool Always;
-        bool Prefix;
-    };
-    std::vector<Teaching> _deferred;
+    std::vector<WordRule> _deferred;
 
     std::atomic<std::shared_ptr<const UserRules::Compiled>> _current = std::make_shared<const UserRules::Compiled>();
 
@@ -29,20 +23,19 @@ namespace {
         _current = std::make_shared<const UserRules::Compiled>(_config->Keyboard.Learned);
     }
 
-    void _file(Teaching teaching) {
+    void _file(WordRule rule) {
         if (_suspended) {
-            _deferred.push_back(std::move(teaching));
+            _deferred.push_back(std::move(rule));
             return;
         }
-        const WordRule rule{.Text = Str::WideToUtf8(teaching.Text),
-                            .Match = teaching.Prefix ? WordMatch::StartsWith : WordMatch::Exact, .Always = teaching.Always};
-        if (UserRules::Put(_config->Keyboard.Learned, rule)) {
-            if (_config->Keyboard.LogDecisions) {
-                Logger::Log(Logger::Level::Info, "Keyboard: learned %s %s", teaching.Always ? "always" : "never", rule.Text.c_str());
-            }
-            _config->Save();
-            _publish();
+        if (!UserRules::Put(_config->Keyboard.Learned, rule)) {
+            return;
         }
+        if (_config->Keyboard.LogDecisions) {
+            Logger::Log(Logger::Level::Info, "Keyboard: learned %s %s", rule.Always ? "always" : "never", rule.Text.c_str());
+        }
+        _config->Save();
+        _publish();
     }
 
 } // anonymous namespace
@@ -52,8 +45,8 @@ namespace {
         Lifecycle::Suspend += [] { _suspended = true; };
         Lifecycle::Restore += [] {
             _suspended = false;
-            for (auto& teaching : std::exchange(_deferred, {})) {
-                _file(std::move(teaching));
+            for (auto& rule : std::exchange(_deferred, {})) {
+                _file(std::move(rule));
             }
             _publish();
         };
@@ -63,7 +56,7 @@ namespace {
         return _current.load();
     }
 
-    void Teach(std::wstring text, const bool always, const bool prefix) {
-        Dispatcher::ToUi([teaching = Teaching{std::move(text), always, prefix}]() mutable { _file(std::move(teaching)); });
+    void Teach(WordRule rule) {
+        Dispatcher::ToUi([rule = std::move(rule)]() mutable { _file(std::move(rule)); });
     }
 }

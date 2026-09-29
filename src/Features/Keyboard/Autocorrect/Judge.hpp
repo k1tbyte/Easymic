@@ -10,25 +10,23 @@ namespace Autocorrect {
     struct Runtime;
 }
 
-/// Judges the word while it is typed, on the threadpool, so its Space finds the verdict ready and a kept word
-/// never holds the typing.
+/// Judges the word while it is typed, on the threadpool, so its Space finds the verdict ready.
 namespace Judge {
 
     /// Input thread, outside OnKey: the word so far of version `gen`, read in `layout`, switches now.
     using EarlyFix = void (*)(uint32_t gen, HKL layout, const Convert::Verdict& verdict);
 
-    /// Once, before the input thread runs.
     void Register(EarlyFix early);
 
-    /// Input thread, outside OnKey: what the judge decides with; null stops it.
+    /// Input thread, outside OnKey: null stops the judge.
     void Use(std::shared_ptr<const Autocorrect::Runtime> runtime);
 
-    /// Input thread, from OnKey: the word is now `word`, version `gen`. Copies it and wakes the judge, no allocation.
+    /// Input thread, from OnKey: copies the word and wakes the judge, no allocation.
     void Typed(const TypedWord::Word& word, uint32_t gen);
 
-    /// Input thread: the verdict on version `gen` read in `layout`; null while it is not in.
+    /// Null while the verdict on version `gen` read in `layout` is not in.
     const Convert::Verdict* Ready(uint32_t gen, HKL layout);
 
-    /// Input thread, from OnKey: the ready verdict was kept; logs it off the thread when asked, taking it.
+    /// Input thread, from OnKey: takes the kept verdict to log it off the thread, when asked.
     void LogKept();
 }
