@@ -12,7 +12,6 @@
 #include "Overlay/TextLayer.hpp"
 #include "Resources/Resource.h"
 #include "Logger.hpp"
-#include "Registry.hpp"
 #include "Str.hpp"
 #include "UACService.hpp"
 #include "Version.hpp"
@@ -26,6 +25,30 @@ namespace {
     /// closing with Cancel must leave the machine exactly as it was.
     bool _autoStartWas = false;
     bool _autoStartWants = false;
+
+    constexpr auto AutoStartKey = LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Run)";
+
+    bool _isAutoStart() {
+        return RegGetValueW(HKEY_CURRENT_USER, AutoStartKey, APP_NAME, RRF_RT_REG_SZ, nullptr, nullptr, nullptr)
+               == ERROR_SUCCESS;
+    }
+
+    void _setAutoStart(const bool on) {
+        if (!on) {
+            RegDeleteKeyValueW(HKEY_CURRENT_USER, AutoStartKey, APP_NAME);
+            return;
+        }
+
+        // Quoted, or a path with spaces is a command line Windows has to guess at
+        wchar_t command[MAX_PATH + 2] = L"\"";
+        const DWORD length = GetModuleFileNameW(nullptr, command + 1, MAX_PATH);
+        if (length == 0 || length == MAX_PATH) {
+            return;
+        }
+        command[length + 1] = L'"';
+        command[length + 2] = L'\0';
+        RegSetKeyValueW(HKEY_CURRENT_USER, AutoStartKey, APP_NAME, REG_SZ, command, (length + 3) * sizeof(wchar_t));
+    }
 
     std::vector<std::wstring> _fontNames;
     std::vector<const wchar_t*> _fontItems;
@@ -149,7 +172,7 @@ namespace {
                    .Set = [](AppConfig&, int value) { _autoStartWants = value; }},
          .Commit = [](HWND, AppConfig&, const AppConfig&) {
              if (_autoStartWants != _autoStartWas) {
-                 _autoStartWants ? Registry::AddToAutoStartup(APP_NAME) : Registry::RemoveFromAutoStartup(APP_NAME);
+                 _setAutoStart(_autoStartWants);
              }
          }},
         // Left enabled without elevation on purpose - clicking it is what offers the restart
@@ -270,7 +293,7 @@ void SettingsPages::Register(AppConfig& config) {
 }
 
 void SettingsPages::Open() {
-    _autoStartWas = Registry::IsInAutoStartup(APP_NAME);
+    _autoStartWas = _isAutoStart();
     _autoStartWants = _autoStartWas;
 }
 

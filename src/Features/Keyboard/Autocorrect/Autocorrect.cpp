@@ -8,8 +8,8 @@
 #include "../InputLanguage.hpp"
 #include "../KeyboardExclusions.hpp"
 #include "../KeyboardPacks.hpp"
+#include "Accessibility.hpp"
 #include "Learning.hpp"
-#include "Platform/Accessibility.hpp"
 #include "Platform/Str.hpp"
 #include "definitions.h"
 

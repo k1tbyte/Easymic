@@ -20,10 +20,12 @@ violation (`scripts/check-architecture.ps1`).
 
 - `src/Core/` - the kernel, knows no feature: `ActionRegistry`, `Dispatcher` (action worker, `ToUi`),
   `Feedback`, `SettingsHost`, `Overlay`, `Tray`, `Lifecycle`, `AppConfig`, `Input/`, `Hotkeys/`.
-- `src/Platform/` - thin Win32 wrappers; includes none of `Core/`, `Features/`, `UI/`.
+- `src/Platform/` - thin Win32 wrappers used by more than one owner (a single owner keeps its own);
+  includes none of `Core/`, `Features/`, `UI/`.
 - `src/Features/<Slice>/` - `Microphone`, `Keyboard`, `Launcher`, `Desktops`. Includes only `Core/`
   and `Platform/`; what two slices share goes to `Core/`.
-- `src/UI/` - windows, settings (row tables -> controls), the overlay surface, `UpdateManager`.
+- `src/UI/` - `MainWindow` (frame: overlay window, tray, settings session), settings (row tables ->
+  controls; the frame's pages in `SettingsPages`), the overlay surface and `UIAccess/`, `UpdateManager`.
 - A new feature: one folder plus one line in `Modules[]` in `src/main.cpp`; `Register(Host&)` adds
   its `ActionDesc`s, settings page, overlay layer, tray provider.
 - `tests/<Area>/`, `tools/<Area>/` - tests and dev tools, grouped like the slices (`Input`, `Keyboard`).

@@ -15,7 +15,8 @@ paths:
   - `Judge` - `Autocorrect::Decide`/`Early` on the threadpool while the word is typed. Never on the input
     thread: a page fault in the mapped pack would stall desktop input.
   - `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
-  - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`.
+  - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`,
+    `Accessibility` (password field over MSAA).
 - `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack` (with its
   `Alphabet`), `Rules`, `Detector`.
 - Root: `Keyboard` (module), `KeyboardPage`, `KeyboardPacks`, `KeyboardExclusions`, `InputLanguage`, `LayoutLayer`.
