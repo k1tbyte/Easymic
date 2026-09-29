@@ -7,24 +7,16 @@
 #include "TrayIconTheme.hpp"
 #include "Resources/Resource.h"
 
-/**
- * @brief The glyphs the microphone's overlay layer and its tray icon share, and who owns them.
- *
- * The pill always draws the bright originals - it has its own dark background. Only the tray
- * needs darkened copies, and only on a light taskbar, so they are built on the first switch to
- * one and kept from then on.
- */
+/// The pill draws the bright originals on its own dark background; only a light taskbar tray needs darkened copies.
 class MicIcons {
-    // Shared icons from LoadIcon - never DestroyIcon'd
     HICON _muted = nullptr;
     HICON _unmuted = nullptr;
 
-    // Darkened copies for a light taskbar - owned, unlike the shared originals above
+    // Owned, unlike the shared LoadIcon originals above
     HICON _mutedDark = nullptr;
     HICON _unmutedDark = nullptr;
     bool _isTaskbarLight = false;
 
-    // The HICON -> Bitmap conversion is expensive, and only these three are ever drawn
     std::unique_ptr<Gdiplus::Bitmap> _mutedBitmap;
     std::unique_ptr<Gdiplus::Bitmap> _unmutedBitmap;
     std::unique_ptr<Gdiplus::Bitmap> _activeBitmap;
@@ -43,7 +35,6 @@ public:
     }
 
     ~MicIcons() {
-        // Only the darkened copies are ours - the originals come from LoadIcon and are shared
         if (_mutedDark) {
             DestroyIcon(_mutedDark);
         }
@@ -55,7 +46,6 @@ public:
     MicIcons(const MicIcons&) = delete;
     MicIcons& operator=(const MicIcons&) = delete;
 
-    /// Darkened copies are built once, on the first switch to a light taskbar.
     void RefreshTheme() {
         _isTaskbarLight = TrayIconTheme::IsLightTaskbar();
 
@@ -65,7 +55,6 @@ public:
         }
     }
 
-    /// What the tray should show, already themed for the current taskbar.
     HICON Tray(const bool muted) const {
         if (_isTaskbarLight) {
             if (HICON darkened = muted ? _mutedDark : _unmutedDark) {

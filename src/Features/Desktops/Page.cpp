@@ -19,12 +19,28 @@ namespace {
     enum : int { IdTabs = 100, IdName, IdDelete, IdPreview, IdList, IdAdd, IdRemove, IdCapture, IdArrange, IdCustomize };
 
     constexpr wchar_t PanelClass[] = L"EasyLauncher.DesktopsPanel";
-    constexpr int PanelHeight = 134; // dialog units
+
+    // Dialog units
+    constexpr int PanelHeight = 134;
+    constexpr int TabsHeight = 14;
+    constexpr int BodyTop = 36;
+    constexpr int ButtonsTop = 120;
+    constexpr int BodyBottom = ButtonsTop - 4;
+    constexpr int PreviewRight = 140;
+    constexpr int ButtonGap = 4;
+
+    struct RowButton {
+        const wchar_t* Text;
+        int Id;
+        int Width;
+    };
+    constexpr RowButton RowButtons[] = {{L"Add window", IdAdd, 56}, {L"Remove", IdRemove, 44},
+                                        {L"Capture", IdCapture, 44}, {L"Customize", IdCustomize, 48}};
+    constexpr int ArrangeWidth = 56;
 
     AppConfig* _config = nullptr;
     HWND _panel = nullptr;
     int _selected = 0;
-    /// What the shell calls each real desktop, read once per visit.
     std::vector<std::wstring> _shellNames;
     /// Set while the page writes the name box itself, so its EN_CHANGE is not taken for typing.
     bool _filling = false;
@@ -37,12 +53,17 @@ namespace {
         return static_cast<size_t>(_selected) < _presets().size() ? &_presets()[_selected] : nullptr;
     }
 
-    /// The selected desktop's preset, made on the first write to it.
-    DesktopPreset& _preset() {
+    DesktopPreset& _presetOrNew() {
         if (!_existing()) {
             _presets().resize(_selected + 1);
         }
         return _presets()[_selected];
+    }
+
+    const std::vector<WindowRule>& _windows() {
+        static const std::vector<WindowRule> none;
+        const DesktopPreset* preset = _existing();
+        return preset ? preset->Windows : none;
     }
 
     int _desktopCount() {
@@ -50,8 +71,7 @@ namespace {
     }
 
     std::wstring _shellName(const int index) {
-        return index < static_cast<int>(_shellNames.size()) ? _shellNames[index]
-                                                           : L"Desktop " + std::to_wstring(index + 1);
+        return index < static_cast<int>(_shellNames.size()) ? _shellNames[index] : VirtualDesktops::DefaultName(index);
     }
 
     std::wstring _label(const int index) {
@@ -81,9 +101,7 @@ namespace {
     void _fillList() {
         HWND list = _item(IdList);
         ListView_DeleteAllItems(list);
-        static const std::vector<WindowRule> none;
-        const DesktopPreset* preset = _existing();
-        const std::vector<WindowRule>& windows = preset ? preset->Windows : none;
+        const std::vector<WindowRule>& windows = _windows();
 
         for (int i = 0; i < static_cast<int>(windows.size()); ++i) {
             const WindowRule& rule = windows[i];
@@ -109,7 +127,7 @@ namespace {
         _filling = true;
         SetWindowTextW(_item(IdName), preset ? Str::Utf8ToWide(preset->Name).c_str() : L"");
         _filling = false;
-        // The shell's name shows through an empty box, which is what leaving it alone looks like
+        // An empty box shows the shell's name, which is what leaving it alone looks like
         SendMessageW(_item(IdName), EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(_shellName(_selected).c_str()));
 
         EnableWindow(_item(IdDelete), preset != nullptr);
@@ -130,20 +148,8 @@ namespace {
         _fillDesktop();
     }
 
-    std::vector<HWND> _foreignWindows() {
-        std::vector<HWND> windows;
-        for (const HWND window : WindowCatalog::AppWindows()) {
-            DWORD process = 0;
-            GetWindowThreadProcessId(window, &process);
-            if (process != GetCurrentProcessId()) {
-                windows.push_back(window);
-            }
-        }
-        return windows;
-    }
-
     void _addWindow() {
-        const std::vector<HWND> windows = _foreignWindows();
+        const std::vector<HWND> windows = WindowCatalog::ForeignAppWindows();
         const HMENU menu = CreatePopupMenu();
         for (size_t i = 0; i < windows.size(); ++i) {
             wchar_t title[80]{};
@@ -157,7 +163,7 @@ namespace {
                                           _panel, nullptr);
         DestroyMenu(menu);
         if (chosen > 0) {
-            _preset().Windows.push_back(WindowList::Capture(windows[chosen - 1]));
+            _presetOrNew().Windows.push_back(WindowList::Capture(windows[chosen - 1]));
             _fillDesktop();
         }
     }
@@ -165,20 +171,21 @@ namespace {
     void _removeWindow() {
         const int row = ListView_GetNextItem(_item(IdList), -1, LVNI_SELECTED);
         if (const DesktopPreset* preset = _existing(); preset && row >= 0 && row < static_cast<int>(preset->Windows.size())) {
-            _preset().Windows.erase(_preset().Windows.begin() + row);
+            _presetOrNew().Windows.erase(_presetOrNew().Windows.begin() + row);
             _fillDesktop();
         }
     }
 
-    /// Asks the shell per window - fine here: the hooks are down while settings are open.
     void _capture() {
+        const std::vector<HWND> windows = WindowCatalog::ForeignAppWindows();
+        const std::vector<int> desktops = VirtualDesktops::DesktopsOf(windows);
         std::vector<WindowRule> captured;
-        for (const HWND window : _foreignWindows()) {
-            if (VirtualDesktops::DesktopOf(window) == _selected) {
-                captured.push_back(WindowList::Capture(window));
+        for (size_t i = 0; i < windows.size(); ++i) {
+            if (desktops[i] == _selected) {
+                captured.push_back(WindowList::Capture(windows[i]));
             }
         }
-        _preset().Windows = std::move(captured);
+        _presetOrNew().Windows = std::move(captured);
         _fillDesktop();
     }
 
@@ -199,9 +206,7 @@ namespace {
     void _command(const int id, const int code) {
         if (id == IdName) {
             if (code == EN_CHANGE && !_filling) {
-                wchar_t name[256];
-                GetWindowTextW(_item(IdName), name, static_cast<int>(std::size(name)));
-                _preset().Name = Str::WideToUtf8(name);
+                _presetOrNew().Name = Str::WideToUtf8(Controls::Text(_item(IdName)));
                 _setTab(_selected, _label(_selected), false);
                 EnableWindow(_item(IdDelete), TRUE);
             }
@@ -218,7 +223,7 @@ namespace {
             case IdCapture: _capture(); break;
             case IdCustomize:
                 if (_existing()) {
-                    Editor::Run(_preset());
+                    Editor::Run(_presetOrNew());
                     _fillDesktop();
                 }
                 break;
@@ -244,11 +249,8 @@ namespace {
                 return 0;
 
             case WM_DRAWITEM: {
-                static const std::vector<WindowRule> none;
                 const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
-                const DesktopPreset* preset = _existing();
-                Preview::Paint(draw->hDC, draw->rcItem, preset ? preset->Windows : none,
-                               9.f * GetDpiForWindow(hwnd) / 96);
+                Preview::Paint(draw->hDC, draw->rcItem, _windows(), 9.f * GetDpiForWindow(hwnd) / 96);
                 return TRUE;
             }
 
@@ -263,38 +265,31 @@ namespace {
     }
 
     void _create(const HWND page, const RECT& cell, const int id) {
-        static const bool registered = [] {
-            const WNDCLASSW windowClass{.lpfnWndProc = _proc,
-                                        .hInstance = GetModuleHandleW(nullptr),
-                                        .hCursor = LoadCursorW(nullptr, IDC_ARROW),
-                                        .hbrBackground = GetSysColorBrush(COLOR_BTNFACE),
-                                        .lpszClassName = PanelClass};
-            return RegisterClassW(&windowClass) != 0;
-        }();
-        if (!registered) {
+        _panel = Controls::Panel(page, cell, id, PanelClass, _proc);
+        if (!_panel) {
             return;
         }
 
-        // CONTROLPARENT: the dialog manager has to walk into the panel, or tabbing stops at it
-        _panel = Controls::Create(page, page, PanelClass, L"", WS_CLIPCHILDREN, cell, id, WS_EX_CONTROLPARENT);
         const int width = cell.right - cell.left;
         const auto add = [&](const wchar_t* cls, const wchar_t* text, const DWORD style, const RECT& at,
                              const int childId, const DWORD exStyle = 0) {
             return Controls::Create(page, _panel, cls, text, style, at, childId, exStyle);
         };
 
-        add(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, {0, 0, width, 14}, IdTabs);
+        add(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, {0, 0, width, TabsHeight}, IdTabs);
         add(WC_STATICW, L"Name", SS_LEFT, {0, 21, 28, 29}, -1);
         add(WC_EDITW, L"", ES_AUTOHSCROLL | WS_TABSTOP, {30, 19, width - 50, 31}, IdName, WS_EX_CLIENTEDGE);
         add(WC_BUTTONW, L"Delete", BS_PUSHBUTTON | WS_TABSTOP, {width - 46, 18, width, 32}, IdDelete);
-        add(WC_STATICW, L"", SS_OWNERDRAW, {0, 36, 140, 116}, IdPreview);
+        add(WC_STATICW, L"", SS_OWNERDRAW, {0, BodyTop, PreviewRight, BodyBottom}, IdPreview);
         const HWND list = add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_TABSTOP,
-                              {144, 36, width, 116}, IdList, WS_EX_CLIENTEDGE);
-        add(WC_BUTTONW, L"Add window", BS_PUSHBUTTON | WS_TABSTOP, {0, 120, 56, 134}, IdAdd);
-        add(WC_BUTTONW, L"Remove", BS_PUSHBUTTON | WS_TABSTOP, {60, 120, 104, 134}, IdRemove);
-        add(WC_BUTTONW, L"Capture", BS_PUSHBUTTON | WS_TABSTOP, {108, 120, 152, 134}, IdCapture);
-        add(WC_BUTTONW, L"Customize", BS_PUSHBUTTON | WS_TABSTOP, {156, 120, 204, 134}, IdCustomize);
-        add(WC_BUTTONW, L"Arrange now", BS_PUSHBUTTON | WS_TABSTOP, {width - 56, 120, width, 134}, IdArrange);
+                              {PreviewRight + ButtonGap, BodyTop, width, BodyBottom}, IdList, WS_EX_CLIENTEDGE);
+
+        int left = 0;
+        for (const RowButton& button : RowButtons) {
+            add(WC_BUTTONW, button.Text, BS_PUSHBUTTON | WS_TABSTOP, {left, ButtonsTop, left + button.Width, PanelHeight}, button.Id);
+            left += button.Width + ButtonGap;
+        }
+        add(WC_BUTTONW, L"Arrange now", BS_PUSHBUTTON | WS_TABSTOP, {width - ArrangeWidth, ButtonsTop, width, PanelHeight}, IdArrange);
 
         ListView_SetExtendedListViewStyle(list, LVS_EX_FULLROWSELECT);
         LVCOLUMNW column{.mask = LVCF_TEXT, .pszText = const_cast<wchar_t*>(L"App")};

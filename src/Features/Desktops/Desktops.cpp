@@ -7,58 +7,77 @@
 #include "Page.hpp"
 #include "Placer.hpp"
 #include "Str.hpp"
+#include "Target.hpp"
 #include "Tracker.hpp"
 #include "VirtualDesktops.hpp"
-#include "WindowCatalog.hpp"
-#include "WindowList.hpp"
 
-#include <charconv>
-#include <climits>
-#include <cstdlib>
-#include <optional>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <utility>
 
 namespace {
 
     AppConfig* _config = nullptr;
 
-    /// The desktop an action points at: a number from 1, a name, or a step from the current one.
-    struct Target {
-        int Index = -1;
-        int Step = 0;
-        std::wstring Name;
+    /// Explorer calls and the switch animation run here in press order, off the action worker that mute and volume share:
+    /// a step or a name resolves against what the last press left.
+    struct Lane {
+        std::mutex Lock;
+        std::deque<std::function<void()>> Jobs;
+        bool Draining = false;
     };
 
-    std::optional<Target> _parse(const std::string& args) {
-        if (args.empty()) {
-            return std::nullopt;
-        }
-        if (args == "next") {
-            return Target{.Step = 1};
-        }
-        if (args == "prev") {
-            return Target{.Step = -1};
-        }
+    // Never destroyed: a job can still run while statics tear down at exit
+    Lane& _lane = *new Lane;
 
-        int number = 0;
-        const char* const end = args.data() + args.size();
-        if (const auto [at, error] = std::from_chars(args.data(), end, number); at == end && error == std::errc{}) {
-            return number >= 1 ? std::optional(Target{.Index = number - 1}) : std::nullopt;
+    void _drain(PTP_CALLBACK_INSTANCE instance, void*) {
+        CallbackMayRunLong(instance);
+        for (;;) {
+            std::function<void()> job;
+            {
+                std::lock_guard lock(_lane.Lock);
+                if (_lane.Jobs.empty()) {
+                    _lane.Draining = false;
+                    return;
+                }
+                job = std::move(_lane.Jobs.front());
+                _lane.Jobs.pop_front();
+            }
+            job();
         }
-        return Target{.Name = Str::Utf8ToWide(args)};
     }
 
-    /// At fire time: names and steps follow whatever the desktops are by then.
-    int _resolve(const Target& target) {
+    void _enqueue(std::function<void()> job) {
+        {
+            std::lock_guard lock(_lane.Lock);
+            _lane.Jobs.push_back(std::move(job));
+            if (std::exchange(_lane.Draining, true)) {
+                return;
+            }
+        }
+        if (!TrySubmitThreadpoolCallback(_drain, nullptr, nullptr)) {
+            std::lock_guard lock(_lane.Lock);
+            _lane.Draining = false;
+        }
+    }
+
+    /// The foreground window is read at the press: by the time the lane runs, focus may have moved.
+    ActionFn _queued(std::function<void(HWND foreground)> job) {
+        return [job = std::move(job)] { _enqueue([job, foreground = GetForegroundWindow()] { job(foreground); }); };
+    }
+
+    int _resolve(const Desktops::Target& target) {
         if (target.Step != 0) {
             const int current = VirtualDesktops::Current();
             const int to = current + target.Step;
             return current >= 0 && to >= 0 && to < VirtualDesktops::Count() ? to : -1;
         }
         if (!target.Name.empty()) {
+            const std::wstring name = Str::Utf8ToWide(target.Name);
             const std::vector<std::wstring> names = VirtualDesktops::Names();
             for (size_t i = 0; i < names.size(); ++i) {
-                if (CompareStringOrdinal(names[i].c_str(), -1, target.Name.c_str(), -1, TRUE) == CSTR_EQUAL) {
+                if (CompareStringOrdinal(names[i].c_str(), -1, name.c_str(), -1, TRUE) == CSTR_EQUAL) {
                     return static_cast<int>(i);
                 }
             }
@@ -67,67 +86,16 @@ namespace {
         return target.Index;
     }
 
-    ActionFn _bind(const ActionContext& context, void (*run)(int index)) {
-        const auto target = _parse(context.Args);
+    ActionFn _bind(const ActionContext& context, void (*run)(int index, HWND foreground)) {
+        const auto target = Desktops::ParseTarget(context.Args);
         if (!target) {
             return {};
         }
-        return [target = *target, run] {
+        return _queued([target = *target, run](const HWND foreground) {
             if (const int index = _resolve(target); index >= 0) {
-                run(index);
+                run(index, foreground);
             }
-        };
-    }
-
-    /**
-     * @brief UI thread - the config is its.
-     *
-     * A window has no identity that outlives it, so which of the app's rules it owns is a guess:
-     * with fewer rules on the desktop than the app has windows there, it gets one of its own,
-     * otherwise it takes over the one nearest to where it sits.
-     */
-    void _remember(const HWND window, const int desktop) {
-        const std::wstring exe = WindowCatalog::ExeName(window);
-        if (exe.empty() || !WindowCatalog::IsAppWindow(window)) {
-            return;
-        }
-        const WindowRule captured = WindowList::Capture(window);
-
-        size_t open = 0;
-        for (const HWND other : WindowCatalog::AppWindows()) {
-            open += WindowList::IsOnCurrentDesktop(other) && WindowCatalog::ExeName(other) == exe;
-        }
-
-        auto& presets = _config->Desktops.Presets;
-        if (presets.size() <= static_cast<size_t>(desktop)) {
-            presets.resize(desktop + 1);
-        }
-        auto& windows = presets[desktop].Windows;
-
-        WindowRule* nearest = nullptr;
-        size_t owned = 0;
-        long best = LONG_MAX;
-        for (WindowRule& rule : windows) {
-            if (rule.Exe != captured.Exe) {
-                continue;
-            }
-            ++owned;
-            const long distance = std::abs(rule.X + rule.Width / 2 - captured.X - captured.Width / 2)
-                                  + std::abs(rule.Y + rule.Height / 2 - captured.Y - captured.Height / 2);
-            if (distance < best) {
-                best = distance;
-                nearest = &rule;
-            }
-        }
-
-        if (nearest && owned >= open) {
-            *nearest = captured;
-        } else {
-            windows.push_back(captured);
-        }
-
-        _config->Save();
-        Placer::Load(_config->Desktops);
+        });
     }
 
     constexpr std::string_view TargetLabel = "Desktop";
@@ -140,7 +108,7 @@ namespace {
          .ArgsLabel = TargetLabel,
          .ArgsHint = TargetHint,
          .Make = [](const ActionContext& context) {
-             return _bind(context, [](const int index) { VirtualDesktops::Switch(index); });
+             return _bind(context, [](const int index, HWND) { VirtualDesktops::Switch(index); });
          }},
 
         {.Id = "vd.move_window",
@@ -149,8 +117,8 @@ namespace {
          .ArgsLabel = TargetLabel,
          .ArgsHint = TargetHint,
          .Make = [](const ActionContext& context) {
-             return _bind(context, [](const int index) {
-                 VirtualDesktops::MoveWindow(GetForegroundWindow(), index);
+             return _bind(context, [](const int index, const HWND window) {
+                 VirtualDesktops::MoveWindow(window, index);
              });
          }},
 
@@ -160,8 +128,8 @@ namespace {
          .ArgsLabel = TargetLabel,
          .ArgsHint = TargetHint,
          .Make = [](const ActionContext& context) {
-             return _bind(context, [](const int index) {
-                 if (VirtualDesktops::MoveWindow(GetForegroundWindow(), index)) {
+             return _bind(context, [](const int index, const HWND window) {
+                 if (VirtualDesktops::MoveWindow(window, index)) {
                      VirtualDesktops::Switch(index);
                  }
              });
@@ -171,7 +139,7 @@ namespace {
          .Title = "Show window on all desktops",
          .Group = "Desktops",
          .Make = [](const ActionContext&) -> ActionFn {
-             return [] { VirtualDesktops::TogglePinned(GetForegroundWindow()); };
+             return _queued([](const HWND window) { VirtualDesktops::TogglePinned(window); });
          }},
 
         {.Id = "vd.apply",
@@ -181,18 +149,20 @@ namespace {
              return [] { Dispatcher::ToUi(&Placer::PlaceAll); };
          }},
 
-        // Read here, when the key goes down: by the time the UI thread runs, focus may have moved
         {.Id = "vd.remember_window",
          .Title = "Remember window place",
          .Group = "Desktops",
          .DefaultNotification = ActionRegistry::DefaultNotification,
          .Make = [](const ActionContext&) -> ActionFn {
-             return [] {
-                 const HWND window = GetForegroundWindow();
+             return _queued([](const HWND window) {
                  if (const int desktop = VirtualDesktops::Current(); desktop >= 0) {
-                     Dispatcher::ToUi([window, desktop] { _remember(window, desktop); });
+                     Dispatcher::ToUi([window, desktop] {
+                         if (Placer::Remember(_config->Desktops, window, desktop)) {
+                             _config->Save();
+                         }
+                     });
                  }
-             };
+             });
          }},
     };
 

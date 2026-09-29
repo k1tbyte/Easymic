@@ -1,20 +1,15 @@
 #pragma once
 
 #include <mutex>
+#include <utility>
 
 #include "AudioDeviceController.hpp"
 
-/**
- * @brief The capture endpoint and everything that can replace it under us.
- *
- * Only capture: the bell plays through waveOut, so a second WASAPI endpoint would cost five COM
- * activations at startup and answer nothing anyone asks.
- */
 class AudioManager {
 
     std::shared_ptr<AudioDeviceController> _device = std::make_shared<AudioDeviceController>();
     Event<> _defaultChanged;
-    Event<bool, float> _stateChanged;
+    Event<bool> _stateChanged;
     Event<> _sessionsChanged;
     std::atomic<bool> _reinitPending = false;
     /// Orders a device swap against the watch turning on or off.
@@ -24,9 +19,10 @@ class AudioManager {
         auto* self = static_cast<AudioManager*>(context);
         // Windows announces the new default before it can actually be activated
         Sleep(100);
+        // Cleared first: a default that changes during the swap must queue another one
+        self->_reinitPending = false;
         self->_initDevice();
         self->_defaultChanged();
-        self->_reinitPending = false;
     }, this, nullptr);
 
     ComPtr<IMMDeviceEnumerator> _deviceEnumerator;
@@ -37,10 +33,9 @@ class AudioManager {
 public:
 
     IEvent<>& OnDefaultCaptureChanged = _defaultChanged;
-    IEvent<bool, float>& OnCaptureStateChanged = _stateChanged;
+    IEvent<bool>& OnCaptureStateChanged = _stateChanged;
     IEvent<>& OnCaptureSessionsChanged = _sessionsChanged;
 
-    /// False when COM refused to hand out the enumerator - the app then runs without audio control.
     bool Init() {
         if (_deviceEnumerator) {
             return true;
@@ -53,8 +48,6 @@ public:
         );
         CHECK_HR(result, "Failed to create IMMDeviceEnumerator instance");
 
-        // Attach, not assign: the handler is born with one reference and ComPtr would AddRef a
-        // second one that nothing ever releases
         _deviceHandler.Attach(new DefaultDeviceCallback());
         _deviceHandler->Changed = _handleDeviceChanged;
         result = _deviceEnumerator->RegisterEndpointNotificationCallback(_deviceHandler.Get());
@@ -67,8 +60,6 @@ public:
     void WatchForCaptureSessions() { _setWatching(true); }
     void StopWatchingForCaptureSessions() { _setWatching(false); }
 
-    /// By value: the device-change task can swap the controller out at any moment, so a caller
-    /// that keeps the pointer alive is the only one holding a valid one.
     std::shared_ptr<AudioDeviceController> CaptureDevice() const {
         std::lock_guard lock(_deviceMutex);
         return _device;
@@ -78,12 +69,10 @@ public:
         if (_deviceEnumerator && _deviceHandler) {
             _deviceEnumerator->UnregisterEndpointNotificationCallback(_deviceHandler.Get());
         }
-        // A reinit in flight still reaches the enumerator
         if (_reinit) {
             WaitForThreadpoolWorkCallbacks(_reinit, FALSE);
             CloseThreadpoolWork(_reinit);
         }
-        // A session job or a holder may outlive us with the device: detached, it no longer raises our events
         _device->Detach();
     }
 
@@ -104,7 +93,6 @@ private:
             std::lock_guard lock(_deviceMutex);
             old = std::exchange(_device, std::move(newDevice));
         }
-        // Someone may still hold it, and its volume and session callbacks would go on raising our events
         old->Detach();
     }
 

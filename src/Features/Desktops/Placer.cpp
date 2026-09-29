@@ -7,10 +7,17 @@
 #include "WindowList.hpp"
 
 #include <algorithm>
+#include <climits>
+#include <cstdlib>
 #include <functional>
 #include <memory>
+#include <mutex>
 
 namespace {
+
+    constexpr int AppWindowWaitMs = 3000;
+    constexpr int AppWindowStepMs = 100;
+    constexpr int SettleDelaysMs[] = {0, 300, 700};
 
     struct Placement {
         int Desktop = 0;
@@ -37,6 +44,15 @@ namespace {
         }
     };
 
+    /// Windows still to count their siblings: siblings skip them, or two that appear together each count the other and share a slot.
+    struct Arrivals {
+        std::mutex Lock;
+        std::vector<HWND> Uncounted;
+    };
+
+    // Never destroyed: a placement can still run while statics tear down at exit
+    Arrivals& _arrivals = *new Arrivals;
+
     std::shared_ptr<const Rules> _rules = std::make_shared<Rules>();
     HWND _listener = nullptr;
     UINT _shellMessage = 0;
@@ -60,7 +76,6 @@ namespace {
         }
     }
 
-    /// The preset's missing desktops up to count, named as it says.
     void _grow(const Rules& rules, const int count) {
         const int had = VirtualDesktops::Count();
         if (had >= count || !VirtualDesktops::Grow(count)) {
@@ -72,54 +87,70 @@ namespace {
         }
     }
 
-    void _placeNew(const Rules& rules, const HWND window) {
+    /// Qt apps keep a new window cloaked while they set it up - Telegram for about a second.
+    bool _becomesAppWindow(const HWND window) {
+        for (int waited = 0; waited <= AppWindowWaitMs; waited += AppWindowStepMs) {
+            if (WindowCatalog::IsAppWindow(window)) {
+                return true;
+            }
+            Sleep(AppWindowStepMs);
+        }
+        return false;
+    }
+
+    const Placement* _claimPlacement(const Rules& rules, const HWND window) {
         const std::wstring exe = WindowCatalog::ExeName(window);
         const App* app = rules.Find(exe);
-        if (!app) {
-            return;
-        }
-        // Qt apps keep a new window cloaked while they set it up - Telegram for about a second
-        for (int waited = 0; !WindowCatalog::IsAppWindow(window); ++waited) {
-            if (waited == 30) {
-                return;
-            }
-            Sleep(100);
+        const bool real = app && _becomesAppWindow(window);
+
+        std::lock_guard lock(_arrivals.Lock);
+        std::erase(_arrivals.Uncounted, window);
+        if (!real) {
+            return nullptr;
         }
 
-        // Counted so a second window of the app does not stack on the first one
         size_t open = 0;
         for (const HWND other : WindowCatalog::AppWindows()) {
-            open += other != window && WindowCatalog::ExeName(other) == exe;
+            open += other != window && WindowCatalog::ExeName(other) == exe
+                    && std::ranges::find(_arrivals.Uncounted, other) == _arrivals.Uncounted.end();
         }
-        if (open >= app->Places.size()) {
+        return open < app->Places.size() ? &app->Places[open] : nullptr;
+    }
+
+    void _placeNew(const Rules& rules, const HWND window) {
+        const Placement* where = _claimPlacement(rules, window);
+        if (!where) {
             return;
         }
-        const Placement& where = app->Places[open];
 
-        _place(window, where);
-        _grow(rules, where.Desktop + 1);
-        const bool follow = rules.Follow && GetForegroundWindow() == window;
-        // Give a newly opened window time to take focus before moving it away when Follow is on.
-        const bool moved = (!rules.Follow || follow) && VirtualDesktops::MoveWindow(window, where.Desktop);
-        const bool followed = moved && follow && VirtualDesktops::Switch(where.Desktop);
+        _grow(rules, where->Desktop + 1);
+        bool followed = false;
+        for (const int delayMs : SettleDelaysMs) {
+            Sleep(delayMs);
+            if (!IsWindow(window)) {
+                return;
+            }
 
-        Sleep(300);
-        _place(window, where);
-        if (VirtualDesktops::MoveWindow(window, where.Desktop)
-            && !followed && rules.Follow && GetForegroundWindow() == window) {
-            VirtualDesktops::Switch(where.Desktop);
-        }
-
-        Sleep(700);
-        if (IsWindow(window)) {
-            _place(window, where);
-            VirtualDesktops::MoveWindow(window, where.Desktop);
+            _place(window, *where);
+            // Follow needs the window in front, which a new one takes a moment to get
+            if (delayMs == 0 && rules.Follow && GetForegroundWindow() != window) {
+                continue;
+            }
+            const bool moved = VirtualDesktops::MoveWindow(window, where->Desktop);
+            if (moved && rules.Follow && !followed && GetForegroundWindow() == window) {
+                followed = VirtualDesktops::Switch(where->Desktop);
+            }
         }
     }
 
     LRESULT CALLBACK _listen(const HWND hwnd, const UINT message, const WPARAM wParam, const LPARAM lParam) {
         if (message == _shellMessage && wParam == HSHELL_WINDOWCREATED) {
-            _submit([rules = _rules, window = reinterpret_cast<HWND>(lParam)] { _placeNew(*rules, window); });
+            const auto window = reinterpret_cast<HWND>(lParam);
+            {
+                std::lock_guard lock(_arrivals.Lock);
+                _arrivals.Uncounted.push_back(window);
+            }
+            _submit([rules = _rules, window] { _placeNew(*rules, window); });
             return 0;
         }
         return DefWindowProcW(hwnd, message, wParam, lParam);
@@ -203,5 +234,49 @@ namespace Placer {
                 _place(window, *where);
             }
         });
+    }
+
+    bool Remember(DesktopSettings& settings, const HWND window, const int desktop) {
+        const std::wstring exe = WindowCatalog::ExeName(window);
+        if (exe.empty() || !WindowCatalog::IsAppWindow(window)) {
+            return false;
+        }
+        const WindowRule captured = WindowList::Capture(window);
+
+        size_t open = 0;
+        for (const HWND other : WindowCatalog::AppWindows()) {
+            open += WindowList::IsOnCurrentDesktop(other) && WindowCatalog::ExeName(other) == exe;
+        }
+
+        auto& presets = settings.Presets;
+        if (presets.size() <= static_cast<size_t>(desktop)) {
+            presets.resize(desktop + 1);
+        }
+        auto& windows = presets[desktop].Windows;
+
+        WindowRule* nearest = nullptr;
+        size_t owned = 0;
+        long best = LONG_MAX;
+        for (WindowRule& rule : windows) {
+            if (rule.Exe != captured.Exe) {
+                continue;
+            }
+            ++owned;
+            const long distance = std::abs(rule.X + rule.Width / 2 - captured.X - captured.Width / 2)
+                                  + std::abs(rule.Y + rule.Height / 2 - captured.Y - captured.Height / 2);
+            if (distance < best) {
+                best = distance;
+                nearest = &rule;
+            }
+        }
+
+        if (nearest && owned >= open) {
+            *nearest = captured;
+        } else {
+            windows.push_back(captured);
+        }
+
+        Load(settings);
+        return true;
     }
 }

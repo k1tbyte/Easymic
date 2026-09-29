@@ -34,6 +34,16 @@ namespace WindowCatalog {
         return windows;
     }
 
+    std::vector<HWND> ForeignAppWindows() {
+        std::vector<HWND> windows = AppWindows();
+        std::erase_if(windows, [self = GetCurrentProcessId()](const HWND window) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            return pid == self;
+        });
+        return windows;
+    }
+
     std::wstring ExeName(const HWND window) {
         DWORD pid = 0;
         GetWindowThreadProcessId(window, &pid);
@@ -51,15 +61,10 @@ namespace WindowCatalog {
     }
 
     std::vector<std::wstring> AppNames() {
-        const DWORD self = GetCurrentProcessId();
         std::set<std::wstring> unique;
-        for (const HWND window : AppWindows()) {
-            DWORD pid = 0;
-            GetWindowThreadProcessId(window, &pid);
-            if (pid != self) {
-                if (auto name = ExeName(window); !name.empty()) {
-                    unique.insert(std::move(name));
-                }
+        for (const HWND window : ForeignAppWindows()) {
+            if (auto name = ExeName(window); !name.empty()) {
+                unique.insert(std::move(name));
             }
         }
         return {unique.begin(), unique.end()};

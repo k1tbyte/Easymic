@@ -1,77 +1,39 @@
 #include "CommandRunner.hpp"
 
-#include <shellapi.h>
-
+#include <algorithm>
 #include <thread>
 #include <vector>
 
+#include "CommandLine.hpp"
 #include "ShellContext.hpp"
 #include "ShellLaunch.hpp"
 #include "Str.hpp"
+#include "WindowCatalog.hpp"
 #include "definitions.h"
 
 namespace CommandRunner {
 
 namespace {
 
-    /**
-     * @brief Splits a command line into the target and its arguments.
-     *
-     * A path with spaces has to be quoted, the way the shell has always asked for. Probing
-     * every prefix for an existing file instead costs one filesystem call per space on every
-     * launch, and on a network path each of those can block for seconds.
-     */
-    void _split(const std::wstring& command, std::wstring& file, std::wstring& params) {
-        size_t end;
+    constexpr DWORD TimeoutMs = 10000;
+    constexpr size_t KeptBytes = 4096;
+    constexpr size_t DisplayBytes = 120;
+    constexpr DWORD PollMs = 20;
 
-        if (command.starts_with(L'"')) {
-            end = command.find(L'"', 1);
-            file = command.substr(1, end == std::wstring::npos ? std::wstring::npos : end - 1);
-            end = end == std::wstring::npos ? command.size() : end + 1;
-        } else if (GetFileAttributesW(command.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            // Whole line is a path - covers an unquoted "C:\Program Files\..." and folders
-            file = command;
-            end = command.size();
-        } else {
-            // A PATH lookup, a URL or "cmd /c ..." - the target is the first token
-            end = command.find(L' ');
-            file = command.substr(0, end);
-        }
+    struct Apartment {
+        Apartment() { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); }
+        ~Apartment() { CoUninitialize(); }
+        Apartment(const Apartment&) = delete;
+        Apartment& operator=(const Apartment&) = delete;
+    };
 
-        const size_t paramStart = end < command.size() ? command.find_first_not_of(L' ', end)
-                                                       : std::wstring::npos;
-        params = paramStart == std::wstring::npos ? std::wstring{} : command.substr(paramStart);
+    bool _pathExists(const std::wstring& path) {
+        return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
     }
 
-    /**
-     * @brief Puts a resolved value into the command line as a single argument.
-     *
-     * A path with a space would otherwise arrive as two, and a template that quoted the
-     * token itself must not get a second pair. Either way a trailing backslash is doubled
-     * first: sitting right before the closing quote it escapes it instead, which is how
-     * "C:\" reaches an argv parser as one unterminated argument.
-     */
-    std::string _quote(std::string value, const bool alreadyQuoted) {
-        if (!alreadyQuoted && value.find(' ') == std::string::npos) {
-            return value;
-        }
-
-        if (value.ends_with('\\')) {
-            value += '\\';
-        }
-
-        return alreadyQuoted ? value : '"' + value + '"';
-    }
-
-    /**
-     * @brief Substitutes the folder token against the window that was in front.
-     *
-     * Falls back to the profile directory rather than nothing: an empty substitution leaves
-     * a command like `wt -d ""` that only fails, and home is where a terminal opens anyway.
-     * A token the user already wrapped in quotes is substituted bare so they do not double.
-     */
+    /// Home rather than an empty folder: `wt -d ""` only fails, and home is where a terminal opens anyway.
     std::string _expandDir(std::string command, const HWND context) {
-        if (!command.contains(DirToken)) {
+        if (!command.contains(CommandLine::DirToken)) {
             return command;
         }
 
@@ -82,19 +44,10 @@ namespace {
                 folder = Str::WideToUtf8(profile);
             }
         }
-
-        const size_t span = std::string_view(DirToken).size();
-        for (size_t at = command.find(DirToken); at != std::string::npos;) {
-            const std::string value = _quote(folder, at > 0 && command[at - 1] == '"');
-            command.replace(at, span, value);
-            at = command.find(DirToken, at + value.size());
-        }
-
-        return command;
+        return CommandLine::ExpandDir(std::move(command), folder);
     }
 
     /// Console tools are split between UTF-8 and the OEM page, and nothing announces which.
-    /// Valid UTF-8 is taken at its word, anything else can only be OEM.
     std::string _toUtf8(const std::string& consoleOutput) {
         if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, consoleOutput.c_str(), -1,
                                 nullptr, 0) > 0) {
@@ -111,48 +64,17 @@ namespace {
         return Str::WideToUtf8(wide);
     }
 
-    /// A pill is one line - newlines would be drawn as boxes, so they become spaces
-    std::string _flatten(std::string text, const size_t limit) {
-        for (char& character : text) {
-            if (character == '\r' || character == '\n' || character == '\t') {
-                character = ' ';
-            }
-        }
-
-        const size_t first = text.find_first_not_of(' ');
-        const size_t last = text.find_last_not_of(' ');
-        text = first == std::string::npos ? std::string{} : text.substr(first, last - first + 1);
-
-        return text.size() > limit ? text.substr(0, limit) + "..." : text;
-    }
-
-    /**
-     * @brief Runs the command line through cmd and pipes its output back.
-     *
-     * Through the interpreter, not ShellExecute: a pipe needs CreateProcess, which cannot run a
-     * .bat, resolve a PATH name or understand a redirection on its own. cmd gives all of that
-     * back, which is also what someone writing a command to read output from expects.
-     * What it does not give back is the shell namespace - a URL or a document opens nothing.
-     *
-     * /d skips whatever AutoRun is configured to print into every shell, /s makes cmd strip
-     * exactly the wrapping quotes and take the rest verbatim.
-     */
+    /// Through cmd (/d skips AutoRun, /s strips exactly the wrapping quotes): CreateProcess cannot run a .bat or resolve a PATH name.
     std::string _capture(const std::wstring& command) {
-        constexpr DWORD TimeoutMs = 10000;
-        constexpr size_t OutputLimit = 4096;
-        constexpr DWORD PollMs = 20;
-
         SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
         HANDLE readEnd = nullptr;
         HANDLE writeEnd = nullptr;
         if (!CreatePipe(&readEnd, &writeEnd, &attributes, 0)) {
             return {};
         }
-
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
 
-        // STARTF_USESTDHANDLES means all three, and a command that reads stdin has to meet an
-        // end of file rather than an invalid handle
+        // USESTDHANDLES means all three: a command that reads stdin has to meet an end of file
         HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                  &attributes, OPEN_EXISTING, 0, nullptr);
 
@@ -163,12 +85,9 @@ namespace {
         startup.hStdError = writeEnd;
 
         std::wstring line = L"cmd.exe /d /s /c \"" + command + L"\"";
-
         PROCESS_INFORMATION process{};
-        // CreateProcess may write into the command line, so it cannot be a read-only buffer
         const BOOL started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
                                             CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
-        // Our own copies have to go, or the read end never sees EOF
         CloseHandle(writeEnd);
         if (nul != INVALID_HANDLE_VALUE) {
             CloseHandle(nul);
@@ -180,45 +99,38 @@ namespace {
             return {};
         }
 
+        // Polled, not a blocking read: a child that leaks the pipe to a grandchild would hold this thread forever
         std::string output;
         char buffer[512];
-        const ULONGLONG deadline = GetTickCount64() + TimeoutMs;
-
-        // Polled rather than a blocking read: a child that leaks the pipe to a grandchild would
-        // otherwise hold this thread for as long as the app lives
-        while (GetTickCount64() < deadline && output.size() < OutputLimit) {
+        for (const ULONGLONG deadline = GetTickCount64() + TimeoutMs; GetTickCount64() < deadline;) {
+            const bool exited = WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0;
             DWORD available = 0;
-            if (!PeekNamedPipe(readEnd, nullptr, 0, nullptr, &available, nullptr)) {
+            if (!PeekNamedPipe(readEnd, nullptr, 0, nullptr, &available, nullptr) || (!available && exited)) {
                 break;
             }
-
             if (!available) {
-                if (WaitForSingleObject(process.hProcess, PollMs) == WAIT_OBJECT_0) {
-                    // Exited, but whatever it wrote last is still sitting in the pipe
-                    if (!PeekNamedPipe(readEnd, nullptr, 0, nullptr, &available, nullptr) || !available) {
-                        break;
-                    }
-                } else {
-                    continue;
-                }
+                WaitForSingleObject(process.hProcess, PollMs);
+                continue;
             }
 
             DWORD read = 0;
             if (!ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) || !read) {
                 break;
             }
-            output.append(buffer, read);
+            output.append(buffer, std::min<size_t>(read, KeptBytes - output.size()));
         }
 
         if (WaitForSingleObject(process.hProcess, 0) != WAIT_OBJECT_0) {
             TerminateProcess(process.hProcess, 1);
         }
-
         CloseHandle(readEnd);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
 
-        return _flatten(_toUtf8(output), 120);
+        if (output.size() == KeptBytes) {
+            output.resize(CommandLine::WholeCodePoints(output).size());
+        }
+        return CommandLine::Flatten(_toUtf8(output), DisplayBytes);
     }
 
 } // anonymous namespace
@@ -229,39 +141,17 @@ void Run(const std::string& command, const HWND context) {
     }
 
     std::thread([command, context] {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-
+        const Apartment apartment;
         const std::string line = _expandDir(command, context);
-
-        std::wstring file, params;
-        _split(Str::Utf8ToWide(line), file, params);
-
-        // Windows only lets the process the foreground app started take the foreground, and a
-        // hotkey from a tray app is not that - so an app that is already running would only
-        // flash in the taskbar. The snapshot is what says afterwards which window the launch
-        // produced, since the shell hands nothing back.
-        const std::vector<HWND> before = ShellLaunch::Switchable();
+        const CommandLine::Parts parts = CommandLine::Split(Str::Utf8ToWide(line), _pathExists);
+        const std::vector<HWND> before = WindowCatalog::AppWindows();
         const HWND wasInFront = GetForegroundWindow();
 
-        // The shell runs it as the user rather than with our token, which is what keeps a
-        // bound app off administrator rights
-        if (!ShellLaunch::Run(file, params)) {
-            SHELLEXECUTEINFOW info{sizeof(info)};
-            // NOASYNC is required when the calling thread exits right after - this one does
-            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
-            info.lpFile = file.c_str();
-            info.lpParameters = params.empty() ? nullptr : params.c_str();
-            info.nShow = SW_SHOWNORMAL;
-
-            if (!ShellExecuteExW(&info)) {
-                LOG_ERROR("Failed to run '%s': 0x%08lX", line.c_str(), GetLastError());
-                CoUninitialize();
-                return;
-            }
+        if (!ShellLaunch::Run(parts.File, parts.Params)) {
+            LOG_ERROR("Shell out of reach, not started: '%s'", line.c_str());
+            return;
         }
-
         ShellLaunch::RaiseNew(before, wasInFront);
-        CoUninitialize();
     }).detach();
 }
 
@@ -271,13 +161,8 @@ void RunCaptured(const std::string& command, const HWND context, std::function<v
     }
 
     std::thread([command, context, onFinished = std::move(onFinished)] {
-        // Only the substitution needs an apartment, and the command it feeds can run for
-        // ten seconds - no reason to hold one for that long
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        const std::wstring line = Str::Utf8ToWide(_expandDir(command, context));
-        CoUninitialize();
-
-        onFinished(_capture(line));
+        const Apartment apartment;
+        onFinished(_capture(Str::Utf8ToWide(_expandDir(command, context))));
     }).detach();
 }
 

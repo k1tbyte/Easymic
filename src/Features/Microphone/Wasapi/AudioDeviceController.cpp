@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace {
-    /// PKEY_Device_FriendlyName, spelled out: the SDK header only declares it.
+    // PKEY_Device_FriendlyName: the SDK header only declares it
     constexpr PROPERTYKEY FriendlyNameKey{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
 }
 
@@ -13,7 +13,6 @@ bool AudioDeviceController::Init(const ComPtr<IMMDeviceEnumerator>& enumerator, 
     if (!enumerator || _isInitialized) {
         return false;
     }
-    // No such device
     if (enumerator->GetDefaultAudioEndpoint(dataFlow, role, &_device) != S_OK) {
         return false;
     }
@@ -31,8 +30,7 @@ bool AudioDeviceController::Init(const ComPtr<IMMDeviceEnumerator>& enumerator, 
     result = _device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, &_sessionManager);
     CHECK_HR(result, "Failed to activate IAudioSessionManager2 for capture device");
 
-    // Attach, not assign: the handler is born with one reference and ComPtr would AddRef a
-    // second one that nothing ever releases
+    // Attach: the handler is born with one reference, and assigning would leak a second
     _volume.Attach(new VolumeCallback());
     _volume->Changed = OnDeviceStateChanged;
     result = _endpoint->RegisterControlChangeNotify(_volume.Get());
@@ -66,7 +64,6 @@ float AudioDeviceController::GetPeak() const {
 }
 
 BYTE AudioDeviceController::GetVolumePercent() const {
-    // Rounded: ceil made 0.3f 31, a drift of +1 on every volume step
     return static_cast<BYTE>(std::clamp(std::lround(GetVolumeLevel() * 100), 0L, 100L));
 }
 
@@ -89,11 +86,18 @@ bool AudioDeviceController::AnySessionActive() const {
 
 void AudioDeviceController::WatchForSessions() {
     std::lock_guard lock(_sessionMutex);
+    if (_sessionCreated || !_sessionManager) {
+        return;
+    }
+
+    // Registered before the enumeration, so a session created in between is not missed
+    _sessionCreated.Attach(new SessionCreatedCallback(
+        [weak = weak_from_this()](IAudioSessionControl* control) { _later(weak, control, false); }));
+    _sessionManager->RegisterSessionNotification(_sessionCreated.Get());
 
     ComPtr<IAudioSessionEnumerator> sessions;
     int count = 0;
-    if (_sessionCreated || !_sessionManager || FAILED(_sessionManager->GetSessionEnumerator(&sessions))
-        || FAILED(sessions->GetCount(&count))) {
+    if (FAILED(_sessionManager->GetSessionEnumerator(&sessions)) || FAILED(sessions->GetCount(&count))) {
         return;
     }
     for (int i = 0; i < count; i++) {
@@ -102,10 +106,6 @@ void AudioDeviceController::WatchForSessions() {
             _watch(control.Get());
         }
     }
-
-    _sessionCreated.Attach(new SessionCreatedCallback(
-        [weak = weak_from_this()](IAudioSessionControl* control) { _later(weak, control, false); }));
-    _sessionManager->RegisterSessionNotification(_sessionCreated.Get());
 }
 
 void AudioDeviceController::Detach() {
@@ -136,7 +136,7 @@ AudioSessionState AudioDeviceController::_state(IAudioSessionControl* control) {
     return state;
 }
 
-/// Off the WASAPI callback, which may not register, unregister, wait or drop a last reference.
+/// Off the WASAPI callback: it may not register, unregister, wait or drop a last reference.
 void AudioDeviceController::_later(std::weak_ptr<AudioDeviceController> weak, IAudioSessionControl* control,
                                    const bool gone) {
     struct Job {
@@ -155,8 +155,7 @@ void AudioDeviceController::_later(std::weak_ptr<AudioDeviceController> weak, IA
     }
 }
 
-/// Reads the state afresh, so jobs landing out of order still leave the last one. Raises under the
-/// lock: once the watch stops, no job reaches an owner being torn down.
+/// Reads the state afresh, so out-of-order jobs leave the last; raises under the lock, so none reaches a torn-down owner.
 void AudioDeviceController::_update(IAudioSessionControl* control, const bool gone) {
     std::lock_guard lock(_sessionMutex);
     if (!_sessionCreated) {
@@ -180,7 +179,7 @@ void AudioDeviceController::_update(IAudioSessionControl* control, const bool go
     }
 }
 
-/// Under the lock.
+/// Under _sessionMutex.
 void AudioDeviceController::_watch(IAudioSessionControl* control) {
     ComPtr<SessionStateCallback> handler;
     handler.Attach(new SessionStateCallback(control,

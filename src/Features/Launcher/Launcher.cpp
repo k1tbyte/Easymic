@@ -1,5 +1,6 @@
 #include "Launcher.hpp"
 
+#include "CommandLine.hpp"
 #include "CommandRunner.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Feedback.hpp"
@@ -8,16 +9,6 @@
 
 namespace {
 
-    /**
-     * @brief Turns a configured command line into the call that launches it.
-     *
-     * {stdout} in the notification is what asks for the output, so it also picks how the command
-     * is run. The foreground window is read on the worker, when the key is pressed, because {dir}
-     * means the window the user was looking at - not the one we are about to open.
-     *
-     * This action announces itself rather than letting the kernel do it: with {stdout} there is
-     * nothing to announce until the command has finished, which can be minutes later.
-     */
     constexpr char StdoutToken[] = "{stdout}";
 
     ActionFn MakeRun(const ActionContext& context) {
@@ -26,8 +17,7 @@ namespace {
             return {};
         }
 
-        // Safe to hold for the action body itself: that runs on the Dispatcher worker, which is
-        // joined while Feedback is still alive. Nothing that outlives the worker may hold it.
+        // Only the action body holds it: the worker is joined before Feedback dies
         Feedback* const feedback = &context.Fb;
         const std::string text = context.Notification;
 
@@ -39,8 +29,7 @@ namespace {
         }
 
         return [feedback, command, text] {
-            // Resolved before launching: the state tokens have to read what the user pressed the
-            // key on, and the thread that answers later cannot be trusted with them
+            // Expanded now: the state tokens must read what the key was pressed on, not the state at the answer
             const std::string resolved = feedback->Expand(text);
 
             CommandRunner::RunCaptured(command, GetForegroundWindow(),
@@ -67,7 +56,7 @@ namespace Launcher {
         for (const auto& desc : Actions) {
             ActionRegistry::Add(desc);
         }
-        Tokens::Add({StdoutToken, "Command output - waits for it to finish", Tokens::Notification, true});
-        Tokens::Add({CommandRunner::DirToken, "Folder the active Explorer tab shows", Tokens::Command, true});
+        Tokens::Add({StdoutToken, "Command output - waits up to 10 s", Tokens::Notification, true});
+        Tokens::Add({CommandLine::DirToken, "Folder the active Explorer tab shows", Tokens::Command, true});
     }
 }

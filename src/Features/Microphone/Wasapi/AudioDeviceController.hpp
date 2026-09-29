@@ -7,36 +7,29 @@
 #include "Callbacks.hpp"
 #include "Event.hpp"
 
-/// One capture endpoint: mute, level, peak and the sessions recording from it.
 class AudioDeviceController : public std::enable_shared_from_this<AudioDeviceController> {
 public:
-    Event<bool, float>* OnDeviceStateChanged = nullptr;
-    /// A session came, went, started or stopped capturing. Threadpool.
+    Event<bool>* OnDeviceStateChanged = nullptr;
+    /// Threadpool.
     Event<>* OnSessionsChanged = nullptr;
 
     ~AudioDeviceController();
 
-    /// False when the endpoint is missing or a COM call failed - the controller then stays idle
-    /// and the app runs on without that device.
     bool Init(const ComPtr<IMMDeviceEnumerator>& enumerator, EDataFlow dataFlow, ERole role);
 
     bool IsInitialized() const { return _isInitialized; }
     float GetPeak() const;
-    /// 0-1; -1 with no device.
     float GetVolumeLevel() const { return _volume ? _volume->Level.load() : -1.0f; }
-    /// 0-100; 0 with no device.
     BYTE GetVolumePercent() const;
     void SetVolumePercent(BYTE level) const;
     bool IsMuted() const { return _volume && _volume->Muted; }
     void SetMute(bool mute) const;
-    void ToggleMute() const { SetMute(!IsMuted()); }
     [[nodiscard]] LPWSTR GetDeviceName() const { return _name.pwszVal; }
 
-    /// Anything capturing from the device right now.
     bool AnySessionActive() const;
     void WatchForSessions();
     void StopWatchingForSessions();
-    /// Replaced or orphaned: raises no manager event any more, though a holder may still use it.
+    /// Replaced: raises no manager event any more, though a holder may still use it.
     void Detach();
 
 private:

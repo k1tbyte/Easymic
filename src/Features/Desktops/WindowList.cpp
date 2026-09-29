@@ -78,8 +78,7 @@ namespace WindowList {
         placement.rcNormalPosition = frame;
         placement.flags = WPF_ASYNCWINDOWPLACEMENT | (iconic && maximized ? WPF_RESTORETOMAXIMIZED : 0);
 
-        // Restored onto the target monitor first: a maximize then lands there, and a DPI change
-        // there rescales the window before the second call fixes its size
+        // Restored onto the target monitor first: a maximize lands there, and a DPI change rescales before the second call fixes the size
         placement.showCmd = iconic ? SW_SHOWMINNOACTIVE : SW_SHOWNOACTIVATE;
         SetWindowPlacement(window, &placement);
         if (!iconic && maximized) {

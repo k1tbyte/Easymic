@@ -16,16 +16,8 @@ namespace {
                && wcscmp(className, name) == 0;
     }
 
-    /**
-     * @brief The tab the user is looking at.
-     *
-     * Every tab of a window is its own IShellWindows entry under the same HWND, and their
-     * order there does not follow the tab strip - matching on the HWND alone picks a tab at
-     * random. The tab window on top of the z-order is the active one, and
-     * IShellBrowser::GetWindow says which tab an entry belongs to.
-     *
-     * FindWindowEx does not see these despite them being direct children, hence the walk.
-     */
+    /// Every tab is its own IShellWindows entry under one HWND, in an order that does not follow the tab strip:
+    /// the topmost ShellTabWindowClass child is the active one. FindWindowEx does not see these children, hence the walk.
     HWND _activeTab(const HWND window) {
         HWND active = nullptr;
 
@@ -55,7 +47,7 @@ namespace {
             return {};
         }
 
-        // This PC and Control Panel are folders with no path - nothing a command could take
+        // This PC and Control Panel have no path
         wchar_t path[MAX_PATH];
         const bool real = SHGetPathFromIDListW(id, path) != FALSE;
         CoTaskMemFree(id);

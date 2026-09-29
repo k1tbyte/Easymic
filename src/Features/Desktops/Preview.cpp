@@ -23,7 +23,7 @@ namespace Preview {
             return;
         }
 
-        // Drawn off screen first, or every repaint flashes the background through
+        // Off screen first, or every repaint flashes the background
         Gdiplus::Bitmap buffer(width, height, PixelFormat32bppPARGB);
         Gdiplus::Graphics canvas(&buffer);
         canvas.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);

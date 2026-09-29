@@ -3,13 +3,13 @@
 #include "definitions.h"
 
 #include <mutex>
+#include <algorithm>
 #include <objectarray.h>
 #include <servprov.h>
 #include <winstring.h>
 
 namespace {
 
-    // IInspectable in the shell, but only ever handed back to it - opaque is enough
     using IApplicationView = IUnknown;
 
     class DECLSPEC_UUID("C2F03A33-21F5-47FA-B4BB-156362A2F239") ImmersiveShell;
@@ -23,7 +23,7 @@ namespace {
         virtual HRESULT STDMETHODCALLTYPE GetName(HSTRING* name) = 0;
     };
 
-    // The 24H2 layout: same IID as 23H2, SwitchDesktopAndMoveForegroundView inserted at slot 7
+    // 24H2 layout: same IID as 23H2, SwitchDesktopAndMoveForegroundView inserted at slot 7
     MIDL_INTERFACE("53F5CA0B-158F-4124-900C-057158060B27")
     IVirtualDesktopManagerInternal : IUnknown {
         virtual HRESULT STDMETHODCALLTYPE GetCount(int* count) = 0;
@@ -34,7 +34,7 @@ namespace {
         virtual HRESULT STDMETHODCALLTYPE GetAdjacentDesktop(IVirtualDesktop* from, int direction, IVirtualDesktop** desktop) = 0;
         virtual HRESULT STDMETHODCALLTYPE SwitchDesktop(IVirtualDesktop* desktop) = 0;
         virtual HRESULT STDMETHODCALLTYPE SwitchDesktopAndMoveForegroundView(IVirtualDesktop* desktop) = 0;
-        // CreateDesktop in the shell - winuser.h owns that name as a macro
+        // CreateDesktop in the shell; winuser.h owns that name as a macro
         virtual HRESULT STDMETHODCALLTYPE AddDesktop(IVirtualDesktop** desktop) = 0;
         virtual HRESULT STDMETHODCALLTYPE MoveDesktop(IVirtualDesktop* desktop, int index) = 0;
         virtual HRESULT STDMETHODCALLTYPE RemoveDesktop(IVirtualDesktop* desktop, IVirtualDesktop* fallback) = 0;
@@ -69,7 +69,7 @@ namespace {
         virtual HRESULT STDMETHODCALLTYPE UnpinView(IApplicationView* view) = 0;
     };
 
-    // The documented one - the SDK hides its declaration behind NTDDI guards this build misses
+    // The SDK hides the documented declaration behind NTDDI guards this build misses
     class DECLSPEC_UUID("AA509086-5CA9-4C25-8F95-589D3C07B48A") WindowDesktopsClass;
     MIDL_INTERFACE("A5CD92FF-29BE-454C-8D04-D82879FB3F1B")
     IWindowDesktops : IUnknown {
@@ -77,7 +77,6 @@ namespace {
         virtual HRESULT STDMETHODCALLTYPE GetWindowDesktopId(HWND window, GUID* id) = 0;
     };
 
-    /// All or none, so a caller holding a Desktops pointer can use the rest.
     struct Shell {
         ComPtr<IVirtualDesktopManagerInternal> Desktops;
         ComPtr<IApplicationViewCollection> Views;
@@ -85,9 +84,10 @@ namespace {
         ComPtr<IWindowDesktops> Windows;
     };
 
-    // Never destroyed: a threadpool placement can still be running while statics tear down at exit
+    // Never destroyed: a threadpool placement can still run while statics tear down at exit
     std::mutex& _lock = *new std::mutex;
     Shell& _shell = *new Shell;
+    std::mutex& _animation = *new std::mutex;
 
     Shell _connect() {
         ComPtr<IServiceProvider> provider;
@@ -104,7 +104,6 @@ namespace {
         return shell;
     }
 
-    /// Reconnects only if nobody replaced the stale connection already.
     Shell _acquire(const IVirtualDesktopManagerInternal* stale) {
         std::lock_guard lock(_lock);
         if (_shell.Desktops.Get() == stale) {
@@ -118,7 +117,7 @@ namespace {
                || hr == CO_E_OBJNOTCONNECTED || hr == HRESULT_FROM_WIN32(RPC_S_SERVER_UNAVAILABLE);
     }
 
-    /// The proxies die with explorer, so a call that hits a dead one reconnects and runs once more.
+    /// The proxies die with explorer: a call that hits a dead one reconnects and runs once more.
     template<typename Body>
     bool _call(Body&& body) {
         if (!VirtualDesktops::Supported()) {
@@ -149,7 +148,6 @@ namespace {
         return SUCCEEDED(hr) ? desktops->GetAt(index, IID_PPV_ARGS(desktop)) : hr;
     }
 
-    /// Empty for a desktop nobody named.
     HRESULT _nameOf(IVirtualDesktop* desktop, std::wstring& name) {
         HSTRING text = nullptr;
         const HRESULT hr = desktop->GetName(&text);
@@ -160,24 +158,25 @@ namespace {
         return hr;
     }
 
-    /// Position of the desktop with that id; index stays -1 for an id no desktop has.
-    HRESULT _indexOf(const Shell& shell, const GUID& id, int& index) {
+    HRESULT _desktopIds(const Shell& shell, std::vector<GUID>& ids) {
         ComPtr<IObjectArray> desktops;
         UINT count = 0;
         HRESULT hr = shell.Desktops->GetDesktops(&desktops);
         if (SUCCEEDED(hr)) hr = desktops->GetCount(&count);
 
+        ids.clear();
         for (UINT i = 0; SUCCEEDED(hr) && i < count; ++i) {
             ComPtr<IVirtualDesktop> desktop;
-            GUID candidate{};
+            GUID& id = ids.emplace_back();
             hr = desktops->GetAt(i, IID_PPV_ARGS(&desktop));
-            if (SUCCEEDED(hr)) hr = desktop->GetID(&candidate);
-            if (SUCCEEDED(hr) && candidate == id) {
-                index = static_cast<int>(i);
-                break;
-            }
+            if (SUCCEEDED(hr)) hr = desktop->GetID(&id);
         }
         return hr;
+    }
+
+    int _indexOf(const std::vector<GUID>& ids, const GUID& id) {
+        const auto found = std::ranges::find(ids, id);
+        return found == ids.end() ? -1 : static_cast<int>(found - ids.begin());
     }
 
 } // anonymous namespace
@@ -209,22 +208,38 @@ namespace VirtualDesktops {
         int current = -1;
         _call([&](const Shell& shell) {
             ComPtr<IVirtualDesktop> desktop;
+            std::vector<GUID> ids;
             GUID id{};
             HRESULT hr = shell.Desktops->GetCurrentDesktop(&desktop);
             if (SUCCEEDED(hr)) hr = desktop->GetID(&id);
-            return SUCCEEDED(hr) ? _indexOf(shell, id, current) : hr;
+            if (SUCCEEDED(hr)) hr = _desktopIds(shell, ids);
+            current = SUCCEEDED(hr) ? _indexOf(ids, id) : -1;
+            return hr;
         });
         return current;
     }
 
-    int DesktopOf(const HWND window) {
-        int index = -1;
+    std::vector<int> DesktopsOf(const std::span<const HWND> windows) {
+        std::vector<int> indexes;
         _call([&](const Shell& shell) {
-            GUID id{};
-            const HRESULT hr = shell.Windows->GetWindowDesktopId(window, &id);
-            return SUCCEEDED(hr) ? _indexOf(shell, id, index) : hr;
+            std::vector<GUID> ids;
+            const HRESULT listed = _desktopIds(shell, ids);
+            indexes.assign(windows.size(), -1);
+            for (size_t i = 0; SUCCEEDED(listed) && i < windows.size(); ++i) {
+                GUID id{};
+                const HRESULT hr = shell.Windows->GetWindowDesktopId(windows[i], &id);
+                if (_disconnected(hr)) {
+                    return hr;
+                }
+                indexes[i] = SUCCEEDED(hr) ? _indexOf(ids, id) : -1;
+            }
+            return listed;
         });
-        return index;
+        return indexes;
+    }
+
+    std::wstring DefaultName(const int index) {
+        return L"Desktop " + std::to_wstring(index + 1);
     }
 
     std::wstring Name(const int index) {
@@ -234,7 +249,7 @@ namespace VirtualDesktops {
             const HRESULT hr = _desktopAt(shell, index, &desktop);
             return SUCCEEDED(hr) ? _nameOf(desktop.Get(), name) : hr;
         });
-        return name.empty() ? L"Desktop " + std::to_wstring(index + 1) : name;
+        return name.empty() ? DefaultName(index) : name;
     }
 
     std::vector<std::wstring> Names() {
@@ -255,7 +270,7 @@ namespace VirtualDesktops {
         });
         for (size_t i = 0; i < names.size(); ++i) {
             if (names[i].empty()) {
-                names[i] = L"Desktop " + std::to_wstring(i + 1);
+                names[i] = DefaultName(static_cast<int>(i));
             }
         }
         return names;
@@ -295,10 +310,11 @@ namespace VirtualDesktops {
     }
 
     bool Switch(const int index) {
+        // Overlapping animated switches can crash explorer
+        std::lock_guard animation(_animation);
         return _call([&](const Shell& shell) {
             ComPtr<IVirtualDesktop> desktop;
             HRESULT hr = _desktopAt(shell, index, &desktop);
-            // Back-to-back presses queue behind the running animation
             if (SUCCEEDED(hr)) hr = shell.Desktops->WaitForAnimationToComplete();
             if (SUCCEEDED(hr)) hr = shell.Desktops->SwitchDesktopWithAnimation(desktop.Get());
             return hr;

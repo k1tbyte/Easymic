@@ -1,18 +1,18 @@
 #pragma once
 
+#include <windows.h>
+
 struct DesktopSettings;
 
-/**
- * @brief Puts windows where the preset says: every open one on request, new ones as they open.
- *
- * Both calls are UI thread. The work itself runs on the threadpool - the Dispatcher worker only
- * runs while hotkeys do, and a placement waits out the app settling its own window first.
- */
+/// UI thread only; the placing itself runs on the threadpool, waiting out an app settling its own window.
 namespace Placer {
 
-    /// Takes the preset in effect. Window creation is only watched while a rule can act on it.
     void Load(const DesktopSettings& settings);
 
     /// Also creates and names the preset's desktops.
     void PlaceAll();
+
+    /// A window has no identity that outlives it, so its rule is a guess: an app with fewer rules than
+    /// windows gets a new one, otherwise the nearest is taken over. False for a window that is not an app's.
+    bool Remember(DesktopSettings& settings, HWND window, int desktop);
 }

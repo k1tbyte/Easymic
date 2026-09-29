@@ -10,12 +10,7 @@
 #include "Event.hpp"
 #include "definitions.h"
 
-/**
- * @brief IUnknown for a WASAPI callback object, which implements exactly one interface.
- *
- * Derives from it so the IUnknown methods land in its vtable. Lifetime is the refcount: always
- * heap allocated, never deleted by hand.
- */
+/// Heap only: its lifetime is the refcount.
 template <typename Interface>
 class ComObject : public Interface {
     LONG _refCount = 1;
@@ -44,11 +39,9 @@ public:
     }
 
 protected:
-    /// Virtual so the delete above runs the handler's destructor.
     virtual ~ComObject() = default;
 };
 
-/// The default endpoint changed; the rest of the notifications are noise.
 class DefaultDeviceCallback final : public ComObject<IMMNotificationClient> {
 public:
     std::function<void(EDataFlow flow, ERole role)> Changed;
@@ -65,24 +58,19 @@ public:
     HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
 };
 
-/**
- * @brief Mute and level as the endpoint reports them.
- *
- * Keeps them itself, so the callback touches nothing but this object: locking the controller from
- * here could leave the callback holding its last reference.
- */
+/// Keeps mute and level itself: locking the controller from the callback could leave it holding the last reference.
 class VolumeCallback final : public ComObject<IAudioEndpointVolumeCallback> {
 public:
     std::atomic<bool> Muted = false;
     std::atomic<float> Level = -1.0f;
     /// Atomic: the controller detaches it from another thread once replaced.
-    std::atomic<Event<bool, float>*> Changed = nullptr;
+    std::atomic<Event<bool>*> Changed = nullptr;
 
     HRESULT STDMETHODCALLTYPE OnNotify(const PAUDIO_VOLUME_NOTIFICATION_DATA data) override {
         Muted = data->bMuted;
         Level = data->fMasterVolume;
-        if (Event<bool, float>* changed = Changed) {
-            (*changed)(data->bMuted, data->fMasterVolume);
+        if (Event<bool>* changed = Changed) {
+            (*changed)(data->bMuted);
         }
         return S_OK;
     }
@@ -101,7 +89,6 @@ public:
     }
 };
 
-/// Tells when a session starts or stops capturing, or leaves (`gone`).
 class SessionStateCallback final : public ComObject<IAudioSessionEvents> {
     const std::function<void(IAudioSessionControl*, bool gone)> _changed;
     ComPtr<IAudioSessionControl> _session;

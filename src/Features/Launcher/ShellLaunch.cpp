@@ -8,13 +8,16 @@
 
 #include <algorithm>
 
+#include "WindowCatalog.hpp"
 #include "definitions.h"
 
 namespace ShellLaunch {
 
 namespace {
 
-    /// The desktop's shell view - the part of explorer.exe that can run something for us.
+    constexpr DWORD GiveUpAfterMs = 3000;
+    constexpr DWORD StepMs = 100;
+
     ComPtr<IShellDispatch2> _desktopShell() {
         ComPtr<IShellWindows> windows;
         if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL,
@@ -51,17 +54,10 @@ namespace {
         return shell;
     }
 
-    /**
-     * @brief Raises a window this process did not create.
-     *
-     * The foreground belongs to whoever the user last dealt with, and a tray app woken by a
-     * hotkey is never that, so the request is refused on its own. Sharing the input queue of
-     * the window in front is what makes it count as coming from the foreground - and both
-     * calls are needed: with the queues shared it is BringWindowToTop that does the
-     * activating, SetForegroundWindow alone still comes back refused.
-     */
+    /// Sharing the foreground window's input queue makes the request count as coming from it. Both calls are
+    /// needed: BringWindowToTop does the activating, SetForegroundWindow alone is still refused.
     void _raise(const HWND window) {
-        // AttachThreadInput needs a message queue on this thread, and nothing has made one yet
+        // AttachThreadInput needs a message queue on this thread
         MSG message;
         PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
 
@@ -79,33 +75,15 @@ namespace {
 
 } // anonymous namespace
 
-std::vector<HWND> Switchable() {
-    std::vector<HWND> windows;
-
-    EnumWindows([](const HWND window, const LPARAM param) -> BOOL {
-        if (IsWindowVisible(window) && !GetWindow(window, GW_OWNER)
-            && !(GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW)
-            && GetWindowTextLengthW(window)) {
-            reinterpret_cast<std::vector<HWND>*>(param)->push_back(window);
-        }
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&windows));
-
-    return windows;
-}
-
 void RaiseNew(const std::vector<HWND>& before, const HWND wasInFront) {
-    constexpr int Attempts = 30;   // a cold app can take a few seconds to show a window
-    constexpr DWORD StepMs = 100;
-
-    for (int attempt = 0; attempt < Attempts; attempt++) {
+    for (DWORD waited = 0; waited < GiveUpAfterMs; waited += StepMs) {
         Sleep(StepMs);
 
         if (GetForegroundWindow() != wasInFront) {
             return;
         }
 
-        for (const HWND window : Switchable()) {
+        for (const HWND window : WindowCatalog::AppWindows()) {
             if (std::ranges::find(before, window) == before.end()) {
                 _raise(window);
                 return;
@@ -120,8 +98,6 @@ bool Run(const std::wstring& file, const std::wstring& params) {
         return false;
     }
 
-    // Empty verb and directory mean the shell's own defaults, the same ones a double click
-    // would use
     return SUCCEEDED(shell->ShellExecuteW(_bstr_t(file.c_str()),
                                           _variant_t(params.c_str()),
                                           _variant_t(),

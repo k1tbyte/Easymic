@@ -12,12 +12,13 @@
 
 #include <atomic>
 #include <mutex>
+#include <utility>
 
 namespace {
 
     constexpr auto DesktopsKey = LR"(SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops)";
 
-    // Process lifetime on purpose: the wait can still be queued while statics tear down at exit
+    // Never destroyed: the wait can still be queued while statics tear down at exit
     struct Watch {
         HKEY Key = nullptr;
         HANDLE Signal = nullptr;
@@ -32,7 +33,8 @@ namespace {
     Watch& _watch = *new Watch;
     const Feedback* _feedback = nullptr;
     const DesktopSettings* _settings = nullptr;
-    HICON _digits[12]{};
+    HICON _icon = nullptr;
+    int _iconNumber = 0;
 
     bool _readGuid(const wchar_t* value, GUID& id) {
         DWORD size = sizeof(id);
@@ -40,7 +42,7 @@ namespace {
                == ERROR_SUCCESS;
     }
 
-    /// Threadpool, under Serial. Publishes what changed, then tells whoever shows it.
+    /// Threadpool, under Serial.
     void _refresh(const bool switched) {
         const int index = VirtualDesktops::Current();
         const std::wstring name = index >= 0 ? VirtualDesktops::Name(index) : L"";
@@ -51,7 +53,7 @@ namespace {
         _watch.CurrentIndex = index;
 
         if (switched) {
-            // Both read the config, which belongs to the UI thread
+            // The config belongs to the UI thread
             Dispatcher::ToUi([name] {
                 if (_settings->AnnounceSwitch) {
                     _feedback->Post(Str::WideToUtf8(name));
@@ -76,13 +78,12 @@ namespace {
         _refresh(switched);
     }
 
-    /// The tray icon is the desktop's number drawn at runtime - a glyph per desktop beats assets.
     HICON _digitIcon(const int number) {
-        if (number < 1 || number > 12) {
+        if (number < 1) {
             return nullptr;
         }
-        if (_digits[number - 1]) {
-            return _digits[number - 1];
+        if (_icon && _iconNumber == number) {
+            return _icon;
         }
 
         Gdiplus::Bitmap bitmap(32, 32, PixelFormat32bppPARGB);
@@ -105,8 +106,9 @@ namespace {
 
         HICON icon = nullptr;
         bitmap.GetHICON(&icon);
-        _digits[number - 1] = icon;
-        return icon;
+        DestroyIcon(std::exchange(_icon, icon));
+        _iconNumber = number;
+        return _icon;
     }
 
     HICON _trayIcon() {
@@ -119,12 +121,7 @@ namespace {
     }
 
     void _themeChanged() {
-        for (HICON& icon : _digits) {
-            if (icon) {
-                DestroyIcon(icon);
-                icon = nullptr;
-            }
-        }
+        DestroyIcon(std::exchange(_icon, nullptr));
     }
 
 } // anonymous namespace
@@ -159,7 +156,6 @@ namespace Tracker {
             return;
         }
 
-        // The first fill, so the tray has a number before the first switch
         TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, void*) {
             std::lock_guard serial(_watch.Serial);
             _refresh(false);

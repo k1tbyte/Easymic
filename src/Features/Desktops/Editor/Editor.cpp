@@ -21,12 +21,24 @@ namespace {
     constexpr int PillGap = 16;
     constexpr int PillBottom = 40;
 
-    /// The whole editor's state - exactly one editor exists at a time, on the UI thread.
+    /// Nothing a drag reads changes while it runs, so it is measured once at the press.
+    struct Constraints {
+        std::vector<RECT> Obstacles;
+        std::vector<LONG> GuidesX, GuidesY;
+        RECT Bounds{};
+
+        Tiles::Limits View() const {
+            return {Obstacles, GuidesX, GuidesY, Bounds, Snap, MinSize};
+        }
+    };
+
+    // One editor at a time, on the UI thread
     std::vector<Painter::Tile> _tiles;
     int _dragging = -1;
     unsigned _grip = Tiles::None;
     RECT _startRect{};
     POINT _startMouse{};
+    Constraints _constraints;
     bool _applied = false;
     bool _done = false;
     RECT _donePill{}, _cancelPill{};
@@ -36,7 +48,6 @@ namespace {
         return {GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN)};
     }
 
-    /// Client coordinates, which are the screen's shifted by the virtual screen's corner.
     POINT _toScreen(POINT point) {
         const POINT origin = _origin();
         return {point.x + origin.x, point.y + origin.y};
@@ -48,35 +59,31 @@ namespace {
                 origin.y + GetSystemMetrics(SM_CYVIRTUALSCREEN)};
     }
 
-    Tiles::Limits _limits(const int tile) {
-        static std::vector<RECT> obstacles;
-        static std::vector<LONG> guidesX, guidesY;
-        obstacles.clear();
-        guidesX.clear();
-        guidesY.clear();
-
-        const RECT bounds = _bounds();
-        guidesX = {bounds.left, bounds.right};
-        guidesY = {bounds.top, bounds.bottom};
+    Constraints _constraintsFor(const int dragged) {
+        Constraints constraints{.Bounds = _bounds()};
+        constraints.GuidesX = {constraints.Bounds.left, constraints.Bounds.right};
+        constraints.GuidesY = {constraints.Bounds.top, constraints.Bounds.bottom};
         for (size_t i = 0; i < _tiles.size(); ++i) {
-            if (static_cast<int>(i) == tile || _tiles[i].Maximized) {
+            if (static_cast<int>(i) == dragged || _tiles[i].Maximized) {
                 continue;
             }
-            obstacles.push_back(_tiles[i].Screen);
-            guidesX.insert(guidesX.end(), {_tiles[i].Screen.left, _tiles[i].Screen.right});
-            guidesY.insert(guidesY.end(), {_tiles[i].Screen.top, _tiles[i].Screen.bottom});
+            const RECT& screen = _tiles[i].Screen;
+            constraints.Obstacles.push_back(screen);
+            constraints.GuidesX.insert(constraints.GuidesX.end(), {screen.left, screen.right});
+            constraints.GuidesY.insert(constraints.GuidesY.end(), {screen.top, screen.bottom});
         }
-        // Monitor bezels guide too: the taskbar edge is where a maximized window would stop
-        EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR monitor, HDC, LPRECT rect, LPARAM) -> BOOL {
-            guidesX.insert(guidesX.end(), {rect->left, rect->right});
-            guidesY.insert(guidesY.end(), {rect->top, rect->bottom});
+        // Monitor edges guide too, and the taskbar edge is where a maximized window would stop
+        EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR monitor, HDC, LPRECT rect, LPARAM param) -> BOOL {
+            auto& monitors = *reinterpret_cast<Constraints*>(param);
+            monitors.GuidesX.insert(monitors.GuidesX.end(), {rect->left, rect->right});
+            monitors.GuidesY.insert(monitors.GuidesY.end(), {rect->top, rect->bottom});
             MONITORINFO info{.cbSize = sizeof(info)};
             GetMonitorInfoW(monitor, &info);
-            guidesY.push_back(info.rcWork.bottom);
+            monitors.GuidesY.push_back(info.rcWork.bottom);
             return TRUE;
-        }, 0);
+        }, reinterpret_cast<LPARAM>(&constraints));
 
-        return {obstacles, guidesX, guidesY, bounds, Snap, MinSize};
+        return constraints;
     }
 
     void _paint(const HWND hwnd) {
@@ -84,8 +91,7 @@ namespace {
         const POINT at{bounds.left, bounds.top};
         LayeredWindow::Render(hwnd, _surface, bounds.right - bounds.left, bounds.bottom - bounds.top, at,
                               [&](RenderContext& context) {
-            // Not fully transparent anywhere: a layered window is hit-tested per pixel, and the
-            // dim is what keeps the click off the desktop underneath
+            // A layered window is hit-tested per pixel: the dim keeps the click off the desktop underneath
             context.graphics->Clear(Gdiplus::Color(130, 12, 12, 14));
 
             Painter::Tiles(*context.graphics, _tiles, static_cast<float>(-bounds.left),
@@ -110,7 +116,7 @@ namespace {
     }
 
     int _tileAt(const POINT screen, unsigned& grip) {
-        // The first tile is drawn last, on top
+        // The first tile is drawn on top, so it wins the hit
         for (size_t i = 0; i < _tiles.size(); ++i) {
             if (_tiles[i].Maximized) {
                 continue;
@@ -122,6 +128,18 @@ namespace {
         }
         grip = Tiles::None;
         return -1;
+    }
+
+    const wchar_t* _cursorFor(const unsigned grip) {
+        switch (grip) {
+            case Tiles::None: return IDC_ARROW;
+            case Tiles::Body: return IDC_SIZEALL;
+            case Tiles::Left | Tiles::Top:
+            case Tiles::Right | Tiles::Bottom: return IDC_SIZENWSE;
+            case Tiles::Right | Tiles::Top:
+            case Tiles::Left | Tiles::Bottom: return IDC_SIZENESW;
+            default: return grip & (Tiles::Left | Tiles::Right) ? IDC_SIZEWE : IDC_SIZENS;
+        }
     }
 
     void _end(const bool apply) {
@@ -147,6 +165,7 @@ namespace {
                 }
                 _dragging = _tileAt(screen, _grip);
                 if (_dragging >= 0) {
+                    _constraints = _constraintsFor(_dragging);
                     _startRect = _tiles[_dragging].Screen;
                     _startMouse = screen;
                     _tiles[_dragging].Active = true;
@@ -160,7 +179,7 @@ namespace {
                 const POINT screen = _toScreen({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
                 if (_dragging >= 0) {
                     const POINT delta{screen.x - _startMouse.x, screen.y - _startMouse.y};
-                    RECT moved = Tiles::Drag(_startRect, _grip, delta, _limits(_dragging));
+                    const RECT moved = Tiles::Drag(_startRect, _grip, delta, _constraints.View());
                     if (!EqualRect(&moved, &_tiles[_dragging].Screen)) {
                         _tiles[_dragging].Screen = moved;
                         _paint(hwnd);
@@ -169,15 +188,7 @@ namespace {
                 }
                 unsigned grip = Tiles::None;
                 _tileAt(screen, grip);
-                const wchar_t* shape = grip == Tiles::None ? IDC_ARROW
-                                       : grip == Tiles::Body    ? IDC_SIZEALL
-                                       : grip == (Tiles::Left | Tiles::Top) ||
-                                         grip == (Tiles::Right | Tiles::Bottom) ? IDC_SIZENWSE
-                                       : grip == (Tiles::Right | Tiles::Top) ||
-                                         grip == (Tiles::Left | Tiles::Bottom)  ? IDC_SIZENESW
-                                       : (grip & (Tiles::Left | Tiles::Right)) ? IDC_SIZEWE
-                                                                               : IDC_SIZENS;
-                SetCursor(LoadCursorW(nullptr, shape));
+                SetCursor(LoadCursorW(nullptr, _cursorFor(grip)));
                 return 0;
             }
 
@@ -219,7 +230,10 @@ namespace Editor {
                                     .hInstance = instance,
                                     .hCursor = LoadCursorW(nullptr, IDC_ARROW),
                                     .lpszClassName = EditorClass};
-        RegisterClassW(&windowClass);
+        static const bool registered = RegisterClassW(&windowClass) != 0;
+        if (!registered) {
+            return;
+        }
 
         const RECT bounds = _bounds();
         const int width = bounds.right - bounds.left;
