@@ -1,9 +1,8 @@
 # Review tasks
 
-Status after the fix pass. Everything below was checked with a mingw syntax pass over the whole tree, a mingw
-link of every source set (app and tests), native runs of the Win32-free tests (`RouterTest`, `TypedWordTest`,
-`UserRulesTest`, `hold_fuzz`), and equivalence programs where a table or a function was rewritten. Nothing was
-built with MSVC or run on Windows: see "Needs a Windows run".
+Closed on Windows, 2026-09-29: MSVC MinSizeRel and Debug build, 11/11 tests in each, no skipped groups;
+langpack and detection benchmark checks pass. The 125-case regression corpus passes with and without
+local Punto rules. Update JSON types now have external linkage, fixing MSVC C7631 in Glaze.
 
 ## Done
 
@@ -28,25 +27,53 @@ built with MSVC or run on Windows: see "Needs a Windows run".
 - [x] **UP-20, comments** comment lines 2017 to 619 (11.0% to 3.4%).
 - [x] **Folders** `Platform/{Diagnostics,Gfx,Windowing,System}`, `Desktops/{Settings,Placement}`, `Keyboard/{Layout,Settings}`, `Autocorrect/{Tracker,Rules}`.
 
-## Not done, with the reason
+## Measured decisions
 
-- [ ] **IN-2** hotkey lookup guard: 13-26 ns per key, measure end to end first.
-- [ ] **IN-6, UP-17** shared `ActionFn` per press: allocation is allowed for hand-off, measure first.
-- [ ] **IN-9** tap-only keeps the mouse hook up: measure input-thread wakeups first.
-- [ ] **KE-3** `EVENT_OBJECT_CREATE` hook: count events per second in Chromium and Electron first.
-- [ ] **KE-16** FNV basis: changes every hash, needs a `PackVersion` bump.
-- [ ] **UP-18** WAV resampling: quality call, no code.
-- [ ] **AC-1** verdict slot: needs a lock or an allocation on the input thread, the Post hand-off was chosen for that.
-- [ ] **AC-9** kept-verdict log through the hold: would change the behavior the log observes.
-- [ ] **FT-8 (part)** adjacent-desktop call saves nothing without new step variants.
-- [ ] **FT-15 (mutex)** contended only at startup. **FT-19** every smaller correct option races or adds an ACL surface.
-- [ ] **UP-14 (slice move)** `UpdateManager` depends on UI code. **UP-10** shellcode copy and `Sleep(100)` untouched.
-- [ ] **UP-5** hash check. **IN-13** probe P/Invoke dedupe and a Linux job for `RouterTest` (no PowerShell here).
-- [ ] **Core/** regroup: 15 kernel files, named in the docs, left flat.
+MSVC 19.51, x64 `/O1`, median of seven batches. Probes use the real sources; timings are warm.
+Scratch harnesses: `C:\Temp\easylauncher-perf-close-20260929` (`Build.ps1`, `*Bench.cpp`, `PassiveProbe.cpp`).
+No input injection, foreground activation, real desktop switching or microphone writes.
 
-## Needs a Windows run
+- [x] **Text layout: cache.** Layout measure 19.28 -> 3.03 us; measure + bitmap render 24.36 -> 6.17 us.
+  `Gdi::TextLayout` shares the cache between layout and notification pills, with invalidation on text,
+  font or size change and release when hidden. Pixel tests cover those changes, width and reset.
+- [x] **IN-2: keep lookup.** Actual Router + Hotkey down/up: 24.93 ns, guard 20.27 ns.
+  Queued roundtrip: 9.26 vs 9.21 us, overlapping ranges. A second lookup index is not worth this gain.
+- [x] **IN-6, UP-17: keep action ownership.** Copying a real feedback closure with two 80-byte strings:
+  78.3 ns / 3 allocations, shared wrapper 5.9 ns / none. Dispatcher roundtrip 3.79 vs 3.52 us.
+  The sub-microsecond gain per hotkey does not justify shared callback state and lifetime changes.
+- [x] **AC-1: keep verdict Post.** Two 16-character verdict strings plus queue handoff/ack: 9.82 us,
+  4 allocations including the strings. Do not move result copying or a new lock into the input hook.
+- [x] **IN-9: keep tap-only mouse hook.** Passive idle: zero moves, buttons or keys in 30 s. Mouse-move
+  proc body: 3.4 ns; queued invocation/ack proxy: 9.14 us. These are not a hardware LL-hook roundtrip
+  or a 1000 Hz mouse trace. Dynamic hook changes reset the router; click-cancels-tap semantics stay.
+- [x] **KE-3: keep layout notifications.** Passive desktop: 8 window-create callbacks in 30 s,
+  0.781 ms total layout-read time. A private-desktop burst delivered 2,002 callbacks in 31.0 ms;
+  process scoping delivered 1,001 in 24.1 ms (includes producer startup). A 40k unpaced burst lost
+  delivery markers and was excluded from timing comparisons. No interactive Chromium/Electron
+  workload was captured. Scoping/removal can miss external layout changes or cross-process focus;
+  the measured idle load does not warrant changing that behavior.
+- [x] **FT-8: keep desktop API.** Three real desktops, read-only: Current 276 us, Count 8.9 us,
+  Names batch 257 us; cached connection lock + references 104 ns. No new step-specific API for this.
+- [x] **FT-15: keep callback dispatch.** Real callback with a no-op subscriber: atomics 3.8 ns,
+  atomics + Event lock 10.7 ns. This measures uncontended dispatch, not the UI post or startup contention.
+- [x] **FT-19: keep bounded polling.** Empty `PeekNamedPipe` 1.32 us; at 50 polls/s that operation costs
+  about 66 us/s during capture only, excluding wakeup overhead. Preserve the leaked-grandchild timeout;
+  overlapped pipes are a larger change, and window-raising polling remains bounded to 3 s.
+- [x] **KE-16: keep pack hashes.** Current basis 13.1 ns vs standard basis 13.5 ns for 16 characters.
+  No speed benefit; changing it invalidates every existing pack.
 
-`.\build.ps1 -Test`; then by hand: hotkeys and hold under real typing; autocorrect fix, undo and the password guard;
+## Deliberately outside this performance pass
+
+- **UP-18** WAV resampling changes sound quality; keep the assets.
+- **AC-9** Logging through the hold changes the behavior being observed; keep the existing path.
+- **UP-14, Core regroup** Folder moves do not improve runtime; keep ownership and layout.
+- **UP-10** Injection and its cold-path wait were not exercised or changed.
+- **UP-5** Download hash verification remains a separate integrity task.
+- **IN-13** Probe deduplication and Linux CI remain tooling work.
+
+## Manual checks not run
+
+Hotkeys and hold under real typing; autocorrect fix, undo and the password guard;
 config save and `.bad`; settings Tab, Enter, Esc and Cancel; elevation prompt decline; update swap (plain and
 elevated); overlay drag and click-through; UIAccess overlay after settings close; `vd.*` and `Placer` on real
 desktops; a `{stdout}` command with `R&D` in a folder name; tray digit icons above 12; delay-loaded DLLs start.

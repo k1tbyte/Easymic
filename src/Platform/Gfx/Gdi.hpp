@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <memory>
 #include <string>
 #include <windows.h>
 #include <gdiplus.h>
@@ -66,4 +67,35 @@ namespace Gdi {
         canvas.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
         canvas.DrawString(text.c_str(), -1, &font, rect, &format, &brush);
     }
+
+    class TextLayout {
+        std::wstring _text;
+        std::wstring _family;
+        float _size = 0.0f;
+        std::unique_ptr<Gdiplus::Font> _font;
+        TextMetrics _metrics{};
+
+    public:
+        TextMetrics Measure(const std::wstring& text, const float size, const wchar_t* family) {
+            const bool fontChanged = !_font || _size != size || _family != family;
+            if (!fontChanged && _text == text) {
+                return _metrics;
+            }
+            if (fontChanged) {
+                _font.reset(new Gdiplus::Font(TextFont(size, family)));
+                _family = family;
+                _size = size;
+            }
+            _text = text;
+            _metrics = MeasureText(_text, *_font);
+            return _metrics;
+        }
+
+        void Draw(Gdiplus::Graphics& canvas, const int width, const int height) const {
+            DrawCentred(canvas, _text, *_font,
+                        Gdiplus::RectF(0, _metrics.CenterOffset, static_cast<float>(width), static_cast<float>(height)));
+        }
+
+        void Reset() { *this = {}; }
+    };
 }

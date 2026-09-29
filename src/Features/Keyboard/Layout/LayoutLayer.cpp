@@ -16,7 +16,7 @@ namespace {
     KeyboardSettings* _settings = nullptr;
     HKL _layout = nullptr;
     std::wstring _text;
-    float _centerOffset = 0.0f;
+    Gdi::TextLayout _textLayout;
     bool _watching = false;
     HWINEVENTHOOK _hooks[2]{};
 
@@ -66,19 +66,17 @@ namespace {
 
     OverlaySlot _measure(const OverlayCell& cell) {
         if (!_settings->ShowLayout) {
+            _textLayout.Reset();
             return {};
         }
 
         _read();
-        const auto metrics = Gdi::MeasureText(_text, Gdi::TextFont(cell.FontSize, cell.FontFamily));
-        _centerOffset = metrics.CenterOffset;
+        const auto metrics = _textLayout.Measure(_text, cell.FontSize, cell.FontFamily);
         return {.Width = metrics.Width + cell.Padding * 2};
     }
 
     void _render(const OverlayCell& cell, Gdiplus::Graphics& canvas, const int width) {
-        Gdi::DrawCentred(canvas, _text, Gdi::TextFont(cell.FontSize, cell.FontFamily),
-                         Gdiplus::RectF(0, _centerOffset, static_cast<Gdiplus::REAL>(width),
-                                        static_cast<Gdiplus::REAL>(cell.Height)));
+        _textLayout.Draw(canvas, width, cell.Height);
     }
 
 } // anonymous namespace

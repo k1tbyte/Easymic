@@ -132,6 +132,11 @@ add_unit_test(RouterTest
     SOURCES tests/Input/RouterTest.cpp src/Core/Input/Router.cpp src/Core/Input/Hold.cpp
     INCLUDES src/Core)
 
+add_unit_test(TextLayoutTest
+    SOURCES tests/Platform/TextLayoutTest.cpp
+    INCLUDES src
+    LIBS gdiplus)
+
 add_unit_test(KeyboardConfigTest
     SOURCES tests/Keyboard/KeyboardConfigTest.cpp
     INCLUDES src src/Core src/Platform
