@@ -108,6 +108,13 @@ void AudioDeviceController::WatchForSessions() {
     _sessionManager->RegisterSessionNotification(_sessionCreated.Get());
 }
 
+void AudioDeviceController::Detach() {
+    StopWatchingForSessions();
+    if (_volume) {
+        _volume->Changed = nullptr;
+    }
+}
+
 void AudioDeviceController::StopWatchingForSessions() {
     std::lock_guard lock(_sessionMutex);
 

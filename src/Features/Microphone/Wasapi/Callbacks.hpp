@@ -75,13 +75,14 @@ class VolumeCallback final : public ComObject<IAudioEndpointVolumeCallback> {
 public:
     std::atomic<bool> Muted = false;
     std::atomic<float> Level = -1.0f;
-    Event<bool, float>* Changed = nullptr;
+    /// Atomic: the controller detaches it from another thread once replaced.
+    std::atomic<Event<bool, float>*> Changed = nullptr;
 
     HRESULT STDMETHODCALLTYPE OnNotify(const PAUDIO_VOLUME_NOTIFICATION_DATA data) override {
         Muted = data->bMuted;
         Level = data->fMasterVolume;
-        if (Changed) {
-            (*Changed)(data->bMuted, data->fMasterVolume);
+        if (Event<bool, float>* changed = Changed) {
+            (*changed)(data->bMuted, data->fMasterVolume);
         }
         return S_OK;
     }

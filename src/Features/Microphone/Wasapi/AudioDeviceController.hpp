@@ -36,6 +36,8 @@ public:
     bool AnySessionActive() const;
     void WatchForSessions();
     void StopWatchingForSessions();
+    /// Replaced or orphaned: raises no manager event any more, though a holder may still use it.
+    void Detach();
 
 private:
     struct Watched {

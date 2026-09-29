@@ -66,6 +66,8 @@ void SettingsWindow::Show() {
 
         if (!_hwnd) {
             MessageBoxW(nullptr, L"Failed to create the settings window.", L"Error", MB_ICONERROR | MB_OK);
+            // No WM_DESTROY will say so, and the frame waits for this to resume the app
+            _onExit();
             return;
         }
 

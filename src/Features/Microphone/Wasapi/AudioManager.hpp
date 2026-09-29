@@ -83,8 +83,8 @@ public:
             WaitForThreadpoolWorkCallbacks(_reinit, FALSE);
             CloseThreadpoolWork(_reinit);
         }
-        // A session job may outlive us holding the device: stopped, it no longer raises our events
-        _device->StopWatchingForSessions();
+        // A session job or a holder may outlive us with the device: detached, it no longer raises our events
+        _device->Detach();
     }
 
 private:
@@ -104,8 +104,8 @@ private:
             std::lock_guard lock(_deviceMutex);
             old = std::exchange(_device, std::move(newDevice));
         }
-        // Someone may still hold it, and its session jobs would go on raising our events
-        old->StopWatchingForSessions();
+        // Someone may still hold it, and its volume and session callbacks would go on raising our events
+        old->Detach();
     }
 
     void _setWatching(const bool watching) {
