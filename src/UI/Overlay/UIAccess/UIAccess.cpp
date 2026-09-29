@@ -1,5 +1,6 @@
 #include "UIAccess.hpp"
 
+#include <algorithm>
 #include <vector>
 #include <tlhelp32.h>
 
@@ -57,7 +58,6 @@ VOID WINAPI WindowCreateRemoteThreadFunc(LPVOID lpParam) {
         return;
     }
 
-    // Message loop
     MSG msg;
     while (fnGetMessageA(&msg, NULL, 0, 0) > 0) {
         fnTranslateMessage(&msg);
@@ -120,7 +120,7 @@ std::vector<DWORD> FindUiAccessProcesses() {
     if (Process32FirstW(snapshot, &entry)) {
         do {
             auto processHandle = OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                PROCESS_QUERY_LIMITED_INFORMATION,
                 FALSE,
                 entry.th32ProcessID
             );
@@ -139,71 +139,61 @@ std::vector<DWORD> FindUiAccessProcesses() {
     return processIds;
 }
 
-HWND GetWindowsByTitle(std::vector<DWORD> pids, LPCSTR title) {
-    struct CallbackData {
-        HWND *outHwnd;
-        DWORD targetPid;
-        LPCSTR targetTitle;
-    };
+HWND FindWindowByTitle(const std::vector<DWORD>& pids, LPCSTR title) {
+    struct Search {
+        const std::vector<DWORD>& pids;
+        LPCSTR title;
+        HWND found;
+    } search{pids, title, nullptr};
 
-    HWND hWnd{};
-    CallbackData data = {&hWnd, 0, title};
-    for (const auto &processId: pids) {
-        data.targetPid = processId;
-        EnumWindows([](HWND hWnd, LPARAM lParam) {
-            auto *pData = reinterpret_cast<CallbackData *>(lParam);
-            DWORD windowPid;
-            GetWindowThreadProcessId(hWnd, &windowPid);
-            if (pData->targetPid != windowPid) {
-                return TRUE;
-            }
-            CHAR windowTitle[255];
-            GetWindowTextA(hWnd, windowTitle, sizeof(windowTitle));
-            if (strcmp(windowTitle, pData->targetTitle) != 0) {
-                return TRUE;
-            }
-
-            *pData->outHwnd = hWnd;
-            return FALSE;
-        }, reinterpret_cast<LPARAM>(&data));
-
-        if (hWnd) {
-            break;
+    EnumWindows([](HWND hWnd, LPARAM lParam) {
+        auto& search = *reinterpret_cast<Search*>(lParam);
+        DWORD windowPid;
+        GetWindowThreadProcessId(hWnd, &windowPid);
+        if (std::ranges::find(search.pids, windowPid) == search.pids.end()) {
+            return TRUE;
         }
-    }
 
-    return hWnd;
+        CHAR windowTitle[255] = {};
+        GetWindowTextA(hWnd, windowTitle, sizeof(windowTitle));
+        if (strcmp(windowTitle, search.title) != 0) {
+            return TRUE;
+        }
+
+        search.found = hWnd;
+        return FALSE;
+    }, reinterpret_cast<LPARAM>(&search));
+
+    return search.found;
 }
 
 } // anonymous namespace
 
 HWND UIAccess::GetOrCreateWindow(const char *key, DWORD exStyle, DWORD style) {
-    auto uiAccessPids = FindUiAccessProcesses();
+    const auto uiAccessPids = FindUiAccessProcesses();
     if (uiAccessPids.empty()) {
         LOG_ERROR("No UIAccess processes found");
         return nullptr;
     }
 
-    auto hwnd = GetWindowsByTitle(uiAccessPids, key);
-
-    if (!hwnd) {
-        if (!InjectToProcess(uiAccessPids[0], key, exStyle, style)) {
-            LOG_ERROR("Failed to inject UIAccess process for window creation");
-            return nullptr;
-        }
-
-        // Wait a bit for the window to be created
-        Sleep(100);
+    if (const HWND existing = FindWindowByTitle(uiAccessPids, key)) {
+        return existing;
     }
 
-    return GetWindowsByTitle(uiAccessPids, key);
+    if (!InjectToProcess(uiAccessPids[0], key, exStyle, style)) {
+        LOG_ERROR("Failed to inject UIAccess process for window creation");
+        return nullptr;
+    }
+
+    // The remote thread creates the window on its own time
+    Sleep(100);
+    return FindWindowByTitle(uiAccessPids, key);
 }
 
 bool UIAccess::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     DWORD pid;
     GetWindowThreadProcessId(hWnd, &pid);
     if (pid == 0) {
-            LOG_INFO("[InjectDisplayAffinity] Failed to get PID for HWND %p", hWnd);
         return false;
     }
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
@@ -211,9 +201,5 @@ bool UIAccess::InjectDisplayAffinity(HWND hWnd, DWORD affinity) {
     params.pfSetWindowDisplayAffinity = GetProcAddress(hUser32, "SetWindowDisplayAffinity");
     params.hWnd = hWnd;
     params.affinity = affinity;
-    const auto result = InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, ShellcodeSize, true);
-    LOG_INFO("[InjectDisplayAffinity] Injected display affinity (%d) into process %d: %s",
-             affinity, pid, result ? "Success" : "Failure");
-
-    return result;
+    return InjectShellcode(pid, params, (PVOID)AffinityRemoteThreadFunc, ShellcodeSize, true);
 }

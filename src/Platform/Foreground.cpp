@@ -14,7 +14,7 @@ namespace {
 
     HWINEVENTHOOK _hook = nullptr;
     PTP_WORK _work = nullptr;
-    /// Written on the UI thread only, so the hop below still orders a resolve against a newer focus
+    /// Written on the UI thread only, so the hop below orders a resolve against a newer focus.
     std::atomic<std::shared_ptr<const Snapshot>> _snapshot;
     std::atomic<HWND> _latestHwnd{nullptr};
     std::atomic<uint64_t> _generation{0};
@@ -26,8 +26,7 @@ namespace {
         _snapshot.store(std::make_shared<const Snapshot>(Snapshot{window, std::move(exe), fullscreen}));
     }
 
-    /// Borderless or exclusive. A maximized window fills the monitor too once the taskbar
-    /// auto-hides, and the desktop always does - both are typed in.
+    /// A maximized window (taskbar auto-hidden) and the desktop fill the monitor too: neither is fullscreen.
     bool _fullscreen(const HWND window) {
         wchar_t name[16]{};
         GetClassNameW(window, name, 16);
@@ -60,8 +59,7 @@ namespace {
                 || _latestHwnd.load(std::memory_order_relaxed) != window) {
                 return;
             }
-            // Alt+Tab's hidden host reports itself after the window it switched to, and no event follows. A visible
-            // window stands: the live one can still be the window before it
+            // Alt+Tab's hidden host reports itself after the window it switched to, with no event after; a visible one stands.
             if (const HWND live = GetForegroundWindow(); live && live != window && !IsWindowVisible(window)) {
                 _focus(live);
                 return;
@@ -72,9 +70,9 @@ namespace {
 
     void _focus(HWND window) {
         _latestHwnd.store(window, std::memory_order_relaxed);
-        // Refocusing the same window: a resolve still in flight from before must not land last
+        // Refocusing the same window: an older resolve still in flight must not land last.
         _generation.fetch_add(1, std::memory_order_relaxed);
-        // It keeps what it resolved to until the fresh resolve lands: per-app hotkeys never fall back meanwhile
+        // Keeps the old exe until the fresh resolve lands, so per-app hotkeys never fall back meanwhile.
         if (const auto current = _snapshot.load(); !current || current->Window != window) {
             _publish(window, {});
         }

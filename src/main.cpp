@@ -14,141 +14,148 @@
 #include "Features/Keyboard/Keyboard.hpp"
 #include "Features/Launcher/Launcher.hpp"
 #include "Features/Microphone/Microphone.hpp"
-#include "Logger.hpp"
-#include "Version.hpp"
 #include "UpdateManager.hpp"
 #include "UACService.hpp"
 
+#include <algorithm>
+#include <gdiplus.h>
 #include <memory>
 
-/// Every feature there is. Adding one is this line plus its own folder - nothing else in the app
-/// knows the list, and the order here is the order the "Add action" menu shows them in.
+/// The order is the "Add action" menu's.
 constexpr void (*Modules[])(Host&) = {
     &Mic::Register, &Keyboard::Register, &Launcher::Register, &Desktops::Register,
 };
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
-    auto *mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+namespace {
 
-    // App is running - shutdown duplicate
-    if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
-        CloseHandle(mutex);
-        return 0;
+    HANDLE _claimInstance() {
+        HANDLE mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+        const DWORD error = GetLastError();
+        if (error == ERROR_ALREADY_EXISTS || error == ERROR_ACCESS_DENIED) {
+            CloseHandle(mutex);
+            return nullptr;
+        }
+        return mutex;
     }
 
-    // "%s": the report carries whatever an exception message had in it
-    CrashHandler::Install([](const char* report) { LOG_ERROR("%s", report); });
-
-    // Static: feature registrations and the feedback object keep references to the config.
-    static AppConfig config = AppConfig::Load();
-    std::unique_ptr<UpdateManager> updateManager;
-
-    if (config.Core.SkipUac && !UAC::IsElevated() && UAC::IsSkipUACEnabled()) {
-        // The elevated instance claims this very name, and the name lives as long as a handle is
-        // open - hand it over before starting it, or it shuts itself down as a duplicate
-        CloseHandle(mutex);
-        mutex = nullptr;
-
-        if (UAC::RunWithSkipUAC()) {
-            return 0;
+    bool _handOffToElevated(HANDLE& mutex, const AppConfig& config) {
+        if (!config.Core.SkipUac || UAC::IsElevated() || !UAC::IsSkipUACEnabled()) {
+            return false;
         }
 
-        // Handoff failed - take the name back, unless the elevated instance got it anyway
-        mutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
-        if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
-            CloseHandle(mutex);
-            return 0;
+        // The elevated instance claims this very name, which lives as long as a handle is open
+        CloseHandle(mutex);
+        if (UAC::RunWithSkipUAC()) {
+            return true;
+        }
+
+        mutex = _claimInstance();
+        if (!mutex) {
+            return true;
         }
 
         MessageBoxW(nullptr,
             L"Failed to start application with elevated privileges using UAC bypass. The application will continue to start normally, but some features may not work correctly.",
             L"UAC Bypass Failed",
             MB_OK | MB_ICONWARNING);
-        LOG_WARNING("Skip UAC failed, continuing with normal startup");
+        return false;
     }
 
+    /// No GDI+ background thread: the hook it returns wraps the message loop instead.
+    Gdiplus::GdiplusStartupOutput _startGdiplus() {
+        ULONG_PTR token = 0;
+        const Gdiplus::GdiplusStartupInput input(nullptr, TRUE, FALSE);
+        Gdiplus::GdiplusStartupOutput output{};
+        Gdiplus::GdiplusStartup(&token, &input, &output);
+        return output;
+    }
+
+    void _registerModules(Host& host, AppConfig& config) {
+        // Ahead of the modules: their pages land after the frame's own and before About
+        SettingsPages::Register(config);
+
+        HotkeyCapture::Register();
+        HotkeyService::Register();
+        for (const auto& registerModule : Modules) {
+            registerModule(host);
+        }
+    }
+
+    /// ~thread() on a joinable thread terminates, so every exit path stops both.
+    void _stopThreads() {
+        Input::Stop();
+        Dispatcher::Stop();
+    }
+
+    void _runMessageLoop(const MainWindow& window, const Gdiplus::GdiplusStartupOutput& gdiplus) {
+        ULONG_PTR hookToken = 0;
+        gdiplus.NotificationHook(&hookToken);
+
+        MSG message;
+        while (GetMessage(&message, nullptr, 0, 0)) {
+            if (!window.PreTranslate(message)) {
+                TranslateMessage(&message);
+                DispatchMessage(&message);
+            }
+        }
+
+        gdiplus.NotificationUnhook(hookToken);
+    }
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
+{
+    HANDLE mutex = _claimInstance();
+    if (!mutex) {
+        return 0;
+    }
+
+    // "%s": the report carries whatever an exception message had in it
+    CrashHandler::Install([](const char* report) { LOG_ERROR("%s", report); });
+
+    // Static: registrations and the feedback object keep references to what they were given
+    static AppConfig config = AppConfig::Load();
+    if (_handOffToElevated(mutex, config)) {
+        return 0;
+    }
+
+    UpdateManager::DeleteStaleExecutable();
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    ULONG_PTR gdiplusToken = 0;
-    Gdiplus::GdiplusStartupInput input;
-    Gdiplus::GdiplusStartup(&gdiplusToken, &input, nullptr);
+    const Gdiplus::GdiplusStartupOutput gdiplus = _startGdiplus();
 
-    LOG_INFO("Application version: %s", g_AppVersion.GetFullFormat().c_str());
-
-    // Static for the same reason the config is: an action registered here outlives WinMain, and
-    // every module holds on to what the host carries
     static Feedback feedback(config);
     static Host host{config, feedback, hInstance};
 
-    // Before the window: restoring the config resolves every binding through the registry, and an
-    // empty one would drop them all without saying so
-    // Before the modules, so a page a module contributes lands after the frame's own middle
-    // pages and still ahead of About, which pins itself last
-    SettingsPages::Register(config);
+    // Before the window: restoring the config resolves bindings through the registry, and an empty one drops them all
+    _registerModules(host, config);
 
-    HotkeyCapture::Register();
-    HotkeyService::Register();
-    for (const auto& registerModule : Modules) {
-        registerModule(host);
-    }
-
-    // Both outlive the message loop, and ~thread() on a joinable thread calls std::terminate -
-    // every exit path has to stop them
-    const auto stopThreads = [] {
-        Input::Stop();
-        Dispatcher::Stop();
-    };
     // The dispatcher starts in the frame's RestoreConfig, as after every settings session
     Input::Start();
 
     static MainWindow mainWindow(hInstance, config, feedback);
-
-    if (!mainWindow.Initialize({})) {
+    if (!mainWindow.Initialize()) {
         LOG_ERROR("Failed to initialize MainWindow");
-        stopThreads();
+        _stopThreads();
         CloseHandle(mutex);
         return 1;
     }
 
-    LOG_INFO("MainWindow initialized successfully");
-
+    std::unique_ptr<UpdateManager> updates;
     if (config.Core.Updates) {
-        updateManager = std::make_unique<UpdateManager>(config);
-        UpdateManager* const manager = updateManager.get();
-        manager->CheckForUpdatesAsync([manager](bool hasUpdate, const std::string& error) {
-            if (!error.empty()) {
-                LOG_WARNING("Update check failed: %s", error.c_str());
-                return;
-            }
-
-            if (hasUpdate) {
-                LOG_INFO("Update available - showing notification");
-                manager->ShowUpdateNotification();
-            }
-        });
+        updates = std::make_unique<UpdateManager>(config);
+        updates->CheckForUpdatesAsync();
     }
 
-    atexit([] {
-        LOG_INFO("Application shutting down");
-        mainWindow.Hide();
-    });
+    _runMessageLoop(mainWindow, gdiplus);
 
-    MSG callbackMsg;
-    while (GetMessage(&callbackMsg, nullptr, 0, 0)) {
-        TranslateMessage(&callbackMsg);
-        DispatchMessage(&callbackMsg);
-    }
-
-    // Finish window teardown before destroying the services that may post to it.
+    // Producers first: the hooks are what post to the worker and the window
+    _stopThreads();
     Foreground::Stop();
     mainWindow.Close();
-    if (updateManager) {
-        updateManager->Stop();
-    }
-
-    // Input first: its hooks are what posts to the worker
-    stopThreads();
 
     CloseHandle(mutex);
+    if (updates) {
+        updates->RelaunchIfInstalled();
+    }
     return 0;
 }

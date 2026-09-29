@@ -6,67 +6,57 @@
 #include <windows.h>
 
 #include "AppConfig.hpp"
-#include "BaseWindow.hpp"
 #include "Core/Overlay.hpp"
-#include "LayeredWindow.hpp"
 #include "OverlaySlots.hpp"
+#include "OverlayWindow.hpp"
 #include "TextLayer.hpp"
 #include "Str.hpp"
 #include "UACService.hpp"
-#include "UIAccess/UIAccess.hpp"
 
-/**
- * @brief Where the overlay sits, how wide it is, and whether it is on screen at all.
- *
- * Owns nothing that is drawn in it - that is the layer registry's job. It drives the frame's
- * window rather than one of its own: whoever owns the message loop is who the worker gets back to
- * the UI thread through, and there is no second answer to that.
- */
+/// Where the overlay sits, how wide it is and whether it is on screen. What is drawn in it is the layers' business.
 class OverlaySurface {
-public:
-    /// Click-through and never activated; the settings window lifts that while it is open.
-    static constexpr auto StyleEx = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
-    static constexpr auto Style = WS_POPUP | WS_DISABLED;
-
-private:
     static constexpr UINT_PTR ID_TEXT_TIMER = WM_USER + 101;
-    /// One timer per layer that asks for one, offset by the layer's index - two layers can poll
-    /// at different rates without agreeing on a common interval.
     static constexpr UINT_PTR ID_LAYER_TIMER = WM_USER + 200;
     static constexpr int TextDurationMs = 2000;
-    /// Kept as it was: the shadow window is looked up by name from another process, and renaming
-    /// it would orphan the one a running instance already made.
-    static constexpr const char* ShadowWindowKey = "EasyLauncherIndicator";
 
-    BaseWindow* _view;
+    OverlayWindow& _window;
     OverlaySettings& _cfg;
     std::string _fontSource;
     std::wstring _fontFamily = L"Segoe UI";
 
     OverlaySlots _slots;
-    /// Where the user left the overlay. Widening it for a notification must not move this.
+    /// Where the user left the overlay; widening it for a notification must not move this.
     POINT _anchor{};
     POINT _previewOrigin{};
     bool _previewPlaced = false;
-    /// The settings window is open, so every layer shows a state rather than nothing - the user
-    /// is dragging the overlay and has to see what they are dragging.
     bool _preview = false;
     std::array<bool, Overlay::MaxLayers> _ticking{};
 
-    void _syncFont() {
+    /// True when the family changed. Runs only once something is on screen, so an idle app never touches GDI+ fonts.
+    bool _syncFont() {
         if (_fontSource == _cfg.FontFamily) {
-            return;
+            return false;
         }
         _fontSource = _cfg.FontFamily;
         std::wstring family = Str::Utf8ToWide(_fontSource);
         if (family.empty() || Gdiplus::FontFamily(family.c_str()).GetLastStatus() != Gdiplus::Ok) {
             family = L"Segoe UI";
         }
+        if (family == _fontFamily) {
+            return false;
+        }
         _fontFamily = std::move(family);
+        return true;
     }
 
-    /// A pill that grew must not shove the first one sideways, so the strip grows to the right -
-    /// or to the left instead, when the right edge of the work area is in the way.
+    void _measure() {
+        _slots = OverlaySlots::Measure(_cfg.Size, _preview, _fontFamily.c_str());
+        if (_slots.TotalWidth && _syncFont()) {
+            _slots = OverlaySlots::Measure(_cfg.Size, _preview, _fontFamily.c_str());
+        }
+    }
+
+    /// A pill that grew must not shove the first one sideways: the strip grows right, or left at the work area's edge.
     LONG _originX() const {
         const int overhang = _slots.TotalWidth - _slots.Height;
         if (overhang <= 0) {
@@ -82,41 +72,23 @@ private:
     }
 
     void _capturePreviewPosition() {
-        _view->UpdateRect();
-        const POINT position{_view->GetPositionX(), _view->GetPositionY()};
-        _anchor.x += position.x - _previewOrigin.x;
-        _anchor.y += position.y - _previewOrigin.y;
-        _previewOrigin = position;
+        _window.SyncBounds();
+        _anchor.x += _window.Pos.x - _previewOrigin.x;
+        _anchor.y += _window.Pos.y - _previewOrigin.y;
+        _previewOrigin = _window.Pos;
     }
 
-    void _applyDisplayAffinity() const {
-        const auto affinity = _cfg.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
-        DWORD existingAffinity = 0;
-        GetWindowDisplayAffinity(_view->GetEffectiveHandle(), &existingAffinity);
-
-        if (existingAffinity == affinity) {
-            return;
-        }
-
-        _view->IsOvershadowed()
-            ? UIAccess::InjectDisplayAffinity(_view->GetEffectiveHandle(), affinity)
-            : SetWindowDisplayAffinity(_view->GetHandle(), affinity);
-    }
-
-    /// A layer is polled while it has something on screen, or while it asked to be polled
-    /// anyway - which is how it watches for its own cue with no window to host a timer.
     void _syncTimers() {
         for (size_t i = 0; i < _slots.Count; i++) {
             const OverlayLayer& layer = Overlay::Layers[i];
-            const OverlaySlot& slot = _slots.Items[i].Slot;
-            const bool wanted = layer.TickMs && layer.Tick && (slot.Width > 0 || slot.WantsTick);
+            const bool wanted = layer.TickMs && layer.Tick && _slots.Items[i].Slot.WantsTick;
 
             if (wanted == _ticking[i]) {
                 continue;
             }
 
-            wanted ? SetTimer(_view->GetHandle(), ID_LAYER_TIMER + i, layer.TickMs, nullptr)
-                   : KillTimer(_view->GetHandle(), ID_LAYER_TIMER + i);
+            wanted ? SetTimer(_window.Frame(), ID_LAYER_TIMER + i, layer.TickMs, nullptr)
+                   : KillTimer(_window.Frame(), ID_LAYER_TIMER + i);
             _ticking[i] = wanted;
         }
     }
@@ -124,7 +96,7 @@ private:
     void _killTimers() {
         for (size_t i = 0; i < _ticking.size(); i++) {
             if (_ticking[i]) {
-                KillTimer(_view->GetHandle(), ID_LAYER_TIMER + i);
+                KillTimer(_window.Frame(), ID_LAYER_TIMER + i);
                 _ticking[i] = false;
             }
         }
@@ -137,62 +109,51 @@ private:
             return;
         }
 
-        KillTimer(_view->GetHandle(), ID_TEXT_TIMER);
+        KillTimer(_window.Frame(), ID_TEXT_TIMER);
         TextLayer::Text.clear();
     }
 
 public:
-    OverlaySurface(BaseWindow* view, OverlaySettings& config) : _view(view), _cfg(config) {
-        // Before the window exists, so it is created where the user left it - the frame reads no config
+    OverlaySurface(OverlayWindow& window, OverlaySettings& config) : _window(window), _cfg(config) {
         const int size = OverlaySlots::PillHeight(config.Size);
-        _view->SetPositionX(config.PosX)->SetPositionY(config.PosY)->SetWidth(size)->SetHeight(size);
+        _window.Pos = {config.PosX, config.PosY};
+        _window.Size = {size, size};
 
-        // Last, so what an action says reads after whatever the features contributed
         Overlay::Add({.Id = "overlay.text",
                       .Order = Overlay::Last,
                       .Measure = &TextLayer::Measure,
                       .Render = &TextLayer::Render});
     }
 
-    /// The one place that decides whether the overlay is on screen and how wide it is.
     void Relayout() {
-        // While nothing has widened the strip, where the window is *is* the anchor - that is how
-        // dragging it is stored. Reading it back while a pill is up would walk it across the
-        // screen notification by notification, because the work-area clamp shifts it left.
+        // While nothing has widened the strip the window is the anchor: dragging is stored that way.
+        // Reading it back under a pill would walk it left notification by notification (work-area clamp).
         if (_preview && _previewPlaced) {
             _capturePreviewPosition();
         } else if (_slots.TotalWidth <= _slots.Height) {
-            _anchor = {_view->GetPositionX(), _view->GetPositionY()};
+            _anchor = _window.Pos;
         }
 
-        _syncFont();
-        _slots = OverlaySlots::Measure(_cfg.Size, _preview, _fontFamily.c_str());
+        _measure();
         _syncTimers();
 
         if (!_slots.TotalWidth) {
-            // Parked back on the anchor before it goes: RefreshPos writes its work-area clamp
-            // into the window position, and a hidden window keeps it - the next pass would read
-            // that clamped position back as the anchor and the overlay would stay where a wide
-            // pill had pushed it.
-            _view->SetPositionX(_anchor.x)->SetPositionY(_anchor.y);
-            _view->Hide();
+            // Parked on the anchor first: Place writes the work-area clamp into Pos, and a hidden
+            // window would keep it and be read back as the anchor.
+            _window.Pos = _anchor;
+            _window.Hide();
             return;
         }
 
-        // Seeded from the anchor every time, so the work-area clamp inside RefreshPos stays
-        // transient instead of walking the overlay across the screen
-        _view->SetPositionX(_originX())
-             ->SetPositionY(_anchor.y)
-             ->SetWidth(_slots.TotalWidth)
-             ->SetHeight(_slots.Height);
-
-        _view->Show();
-        _view->RefreshPos(HWND_TOPMOST);
+        _window.Pos = {_originX(), _anchor.y};
+        _window.Size = {_slots.TotalWidth, _slots.Height};
+        _window.Show();
+        _window.Place(HWND_TOPMOST);
         if (_preview) {
-            _previewOrigin = {_view->GetPositionX(), _view->GetPositionY()};
+            _previewOrigin = _window.Pos;
             _previewPlaced = true;
         }
-        _view->Invalidate();
+        _window.Invalidate();
     }
 
     void Render(RenderContext& context) const {
@@ -213,24 +174,20 @@ public:
         }
     }
 
-    /// Text that is already resolved, handed over through the window's message queue.
     void ShowText(std::wstring text) {
         TextLayer::Text = std::move(text);
-        // Same id, so a second action while the first is still up just restarts the countdown
-        SetTimer(_view->GetHandle(), ID_TEXT_TIMER, TextDurationMs, nullptr);
+        // Same id: a second action while the first is up restarts the countdown
+        SetTimer(_window.Frame(), ID_TEXT_TIMER, TextDurationMs, nullptr);
         Relayout();
     }
 
-    /// The settings window is taking over: stop polling, drop the text, and show a preview so
-    /// the user can find the overlay to drag it.
     void Suspend() {
         _killTimers();
         _preview = true;
         _previewPlaced = false;
 
-        if (_view->IsOvershadowed()) {
-            _view->Hide();
-            _view->SetShadowHwnd(nullptr);
+        if (_window.OnShadow()) {
+            _window.LeaveShadow();
         }
 
         Relayout();
@@ -244,22 +201,20 @@ public:
         _cfg.PosY = _anchor.y;
     }
 
-    /// The settings window is gone: put back the window properties the config asks for.
     void Restore() {
         _killText();
         _preview = false;
         _previewPlaced = false;
         _anchor = {_cfg.PosX, _cfg.PosY};
-        _view->SetPositionX(_anchor.x)->SetPositionY(_anchor.y);
+        _window.Pos = _anchor;
 
-        if (_cfg.OnTopExclusive && UAC::IsElevated() && !_view->IsOvershadowed()) {
-            _view->Hide();
-            _view->SetShadowHwnd(UIAccess::GetOrCreateWindow(
-                ShadowWindowKey, StyleEx, Style));
-            _view->RefreshPos(HWND_TOPMOST);
+        if (_cfg.OnTopExclusive && UAC::IsElevated() && !_window.OnShadow()) {
+            _window.Hide();
+            _window.EnterShadow();
+            _window.Place(HWND_TOPMOST);
         }
 
-        _applyDisplayAffinity();
+        _window.SetDisplayAffinity(_cfg.ExcludeFromCapture ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
         Relayout();
     }
 };

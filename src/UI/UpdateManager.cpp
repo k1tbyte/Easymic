@@ -1,8 +1,8 @@
 #include "UpdateManager.hpp"
 
+#include <algorithm>
 #include <optional>
-#include <thread>
-#include <windows.h>
+#include <vector>
 #include <wininet.h>
 #include <glaze/glaze.hpp>
 
@@ -12,13 +12,26 @@
 #include "Resources/Resource.h"
 #include "Settings/DialogControls.hpp"
 #include "Str.hpp"
+#include "Version.hpp"
 #include "definitions.h"
 
 #pragma comment(lib, "wininet.lib")
 
 namespace {
 
-    /// Closes a WinINet handle the way every other resource in this file is closed.
+    struct GitHubAsset {
+        std::string name;
+        std::string browser_download_url;
+    };
+
+    struct GitHubRelease {
+        std::string tag_name;
+        std::string body;
+        std::vector<GitHubAsset> assets;
+    };
+
+    constexpr auto ApiUrl = "https://api.github.com/repos/" DEV_NAME "/" REPO_NAME "/releases/latest";
+
     class InternetHandle {
         HINTERNET _handle;
     public:
@@ -32,13 +45,9 @@ namespace {
         explicit operator bool() const { return _handle != nullptr; }
     };
 
-    /**
-     * @brief The body of a URL, or nothing.
-     *
-     * The status and read checks are the point: an error page or a cut download would otherwise be
-     * written to disk and then copied over the running executable.
-     */
-    std::optional<std::string> Fetch(const std::string& url) {
+    /// Status and read checks are the point: an error page or a cut download would otherwise be
+    /// written to disk and installed over the running executable.
+    std::optional<std::string> _fetch(const std::string& url) {
         constexpr DWORD NetworkTimeoutMs = 10000;
         const InternetHandle session(InternetOpenA("EasyLauncher-Updater", INTERNET_OPEN_TYPE_PRECONFIG,
                                                    nullptr, nullptr, 0));
@@ -76,17 +85,34 @@ namespace {
         return std::nullopt;
     }
 
-    /// Single quotes are the only PowerShell quoting that takes a string verbatim; the one
-    /// character that still needs escaping inside them is the quote itself, doubled.
-    std::wstring PsQuote(const std::wstring& text) {
-        std::wstring quoted = L"'";
-        for (const wchar_t character : text) {
-            if (character == L'\'') {
-                quoted += L'\'';
-            }
-            quoted += character;
+    std::wstring _download(const std::string& url, const std::string& filename) {
+        wchar_t tempPath[MAX_PATH];
+        const DWORD tempLength = GetTempPathW(MAX_PATH, tempPath);
+        if (tempLength == 0 || tempLength > MAX_PATH) {
+            LOG_ERROR("Update download: no temp directory (0x%08lX)", GetLastError());
+            return {};
         }
-        return quoted + L"'";
+
+        // Widening byte by byte would turn a non-ASCII asset name into a path that does not exist
+        const std::wstring downloadPath = std::wstring(tempPath, tempLength) + Str::Utf8ToWide(filename);
+
+        const std::optional<std::string> body = _fetch(url);
+        if (!body || !File::Write(downloadPath.c_str(), *body)) {
+            LOG_ERROR("Update download failed");
+            DeleteFileW(downloadPath.c_str());
+            return {};
+        }
+        return downloadPath;
+    }
+
+    std::wstring _executablePath() {
+        wchar_t path[MAX_PATH];
+        const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+        return length == MAX_PATH ? std::wstring{} : std::wstring(path, length);
+    }
+
+    std::wstring _previousPath(const std::wstring& executable) {
+        return executable + L".old";
     }
 }
 
@@ -94,97 +120,67 @@ UpdateManager::UpdateManager(AppConfig& config) : _cfg(config) {
 }
 
 UpdateManager::~UpdateManager() {
-    Stop();
-}
-
-void UpdateManager::Stop() {
-    if (_updateWorker.joinable()) {
-        _updateWorker.join();
+    // Detached, not joined: a check stalled in WinINet must not hold up quitting. The worker
+    // touches nothing of ours but a UI post, and that fails once the window is gone.
+    if (_worker.joinable()) {
+        _worker.detach();
     }
 }
 
-std::string UpdateManager::GetApiUrl() {
-    return "https://api.github.com/repos/" GITHUB_OWNER "/" GITHUB_REPO "/releases/latest";
+void UpdateManager::JoinWorker() {
+    if (_worker.joinable()) {
+        _worker.join();
+    }
 }
 
-void UpdateManager::CheckForUpdatesAsync(std::function<void(bool, const std::string&)> callback) {
-    Stop();
-    _updateWorker = std::thread([this, callback = std::move(callback)]() mutable {
+void UpdateManager::CheckForUpdatesAsync() {
+    JoinWorker();
+    _worker = std::thread([this] {
+        const std::optional<std::string> response = _fetch(ApiUrl);
         GitHubRelease release;
-        std::string error;
-        bool hasUpdate = false;
-        const std::optional<std::string> response = Fetch(GetApiUrl());
-
-        if (!response) {
-            error = "Failed to reach GitHub";
-        } else if (const auto parseResult = glz::read<glz::opts{.error_on_unknown_keys = false}>(
-                       release, *response)) {
-            error = "Failed to parse JSON response: " + glz::format_error(parseResult, *response);
-        } else if (GetExecutableAssets(release).empty()) {
-            error = "Release " + release.tag_name + " carries no executable";
-        } else {
-            hasUpdate = Version(release.tag_name) > g_AppVersion;
+        if (!response || glz::read<glz::opts{.error_on_unknown_keys = false}>(release, *response)) {
+            return;
         }
 
-        Dispatcher::ToUi([this, callback = std::move(callback), release = std::move(release),
-                          hasUpdate, error = std::move(error)]() mutable {
-            if (!error.empty()) {
-                callback(false, error);
+        const auto asset = std::ranges::find_if(release.assets, [](const GitHubAsset& candidate) {
+            return candidate.name.ends_with(".exe");
+        });
+        if (asset == release.assets.end() || !(Version(release.tag_name) > Version::App())) {
+            return;
+        }
+
+        Dispatcher::ToUi([this, found = Release{release.tag_name, release.body, asset->name,
+                                                asset->browser_download_url}]() mutable {
+            if (_cfg.Core.SkippedVersions.contains(found.Tag)) {
                 return;
             }
-
-            _latestRelease = std::move(release);
-            // A skipped version is no update, and no error either
-            _hasUpdate = hasUpdate && !IsVersionSkipped(_latestRelease.tag_name);
-            callback(_hasUpdate, "");
+            _release = std::move(found);
+            ShowUpdateNotification();
         });
     });
 }
 
 void UpdateManager::ShowUpdateNotification() {
-    if (!_hasUpdate) {
-        return;
-    }
-
-    // If auto-update is enabled, skip the dialog and install directly
     if (_cfg.Core.AutoUpdate) {
-        LOG_INFO("Auto-update enabled - installing update automatically");
         DownloadAndInstallUpdate();
         return;
     }
 
-    // Custom dialog rather than a message box, for button names that say what they do
-    const INT_PTR result = DialogBoxParamW(GetModuleHandleW(nullptr),
-                                           MAKEINTRESOURCEW(IDD_UPDATE_DIALOG),
-                                           nullptr,
-                                           UpdateDialogProc,
-                                           reinterpret_cast<LPARAM>(this));
-
-    switch (result) {
-        case IDC_UPDATE_INSTALL:
-            DownloadAndInstallUpdate();
-            break;
-        case IDC_UPDATE_SKIP:
-            SkipVersion();
-            break;
-        default:
-            // Remind later
-            break;
+    const INT_PTR result = DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE_DIALOG),
+                                           nullptr, UpdateDialogProc, reinterpret_cast<LPARAM>(this));
+    if (result == IDC_UPDATE_INSTALL) {
+        DownloadAndInstallUpdate();
+    } else if (result == IDC_UPDATE_SKIP) {
+        SkipVersion();
     }
 }
 
 void UpdateManager::DownloadAndInstallUpdate() {
-    const auto assets = GetExecutableAssets(_latestRelease);
-    if (!_hasUpdate || assets.empty()) {
-        MessageBoxW(nullptr, L"No update available or no assets found.", L"Update Error", MB_ICONERROR);
-        return;
-    }
-
-    Stop();
-    _updateWorker = std::thread([url = assets[0].browser_download_url, name = assets[0].name] {
-        const std::wstring downloadPath = DownloadFile(url, name);
-        Dispatcher::ToUi([downloadPath] {
-            if (downloadPath.empty() || !ApplyUpdate(downloadPath)) {
+    JoinWorker();
+    _worker = std::thread([this, url = _release.AssetUrl, name = _release.AssetName] {
+        const std::wstring downloaded = _download(url, name);
+        Dispatcher::ToUi([this, downloaded] {
+            if (downloaded.empty() || !ApplyUpdate(downloaded)) {
                 MessageBoxW(nullptr, L"The update could not be downloaded or installed.", L"Update Error",
                             MB_ICONERROR);
             }
@@ -192,118 +188,87 @@ void UpdateManager::DownloadAndInstallUpdate() {
     });
 }
 
-std::vector<GitHubAsset> UpdateManager::GetExecutableAssets(const GitHubRelease& release) {
-    std::vector<GitHubAsset> exeAssets;
-    for (const auto& asset : release.assets) {
-        if (asset.name.ends_with(".exe")) {
-            exeAssets.push_back(asset);
-        }
-    }
-    return exeAssets;
-}
-
-std::wstring UpdateManager::DownloadFile(const std::string& url, const std::string& filename) {
-    wchar_t tempPath[MAX_PATH];
-    const DWORD tempLength = GetTempPathW(MAX_PATH, tempPath);
-    if (tempLength == 0 || tempLength > MAX_PATH) {
-        LOG_ERROR("Update download: no temp directory (0x%08lX)", GetLastError());
-        return {};
-    }
-
-    // Everything narrow in this app is UTF-8, so the name has to go through the one converter -
-    // widening it byte by byte turns any non-ASCII asset name into a path that does not exist
-    const std::wstring downloadPath = std::wstring(tempPath, tempLength) + Str::Utf8ToWide(filename);
-
-    const std::optional<std::string> body = Fetch(url);
-    if (!body || !File::Write(downloadPath.c_str(), *body)) {
-        LOG_ERROR("Update download failed");
-        DeleteFileW(downloadPath.c_str());
-        return {};
-    }
-    return downloadPath;
-}
-
-bool UpdateManager::ApplyUpdate(const std::wstring& filePath) {
-    wchar_t currentExecutable[MAX_PATH];
-    const DWORD length = GetModuleFileNameW(nullptr, currentExecutable, MAX_PATH);
-    if (length == 0 || length == MAX_PATH) {
+bool UpdateManager::ApplyUpdate(const std::wstring& downloaded) {
+    const std::wstring executable = _executablePath();
+    if (executable.empty()) {
         return false;
     }
 
-    const std::wstring target = PsQuote(std::wstring(currentExecutable, length));
-    const std::wstring downloaded = PsQuote(filePath);
-
-    // The copy has to wait for this process to let go of its own image
-    const std::wstring command = L"Start-Sleep -Seconds 2; "
-        L"Copy-Item -Path " + downloaded + L" -Destination " + target + L" -Force; "
-        L"Remove-Item -Path " + downloaded + L" -Force; "
-        L"Start-Sleep -Seconds 1; "
-        L"Start-Process -FilePath " + target + L";";
-
-    const std::wstring arguments = L"-WindowStyle Hidden -ExecutionPolicy Bypass -Command \"" + command + L"\"";
-
-    SHELLEXECUTEINFOW sei = {sizeof(sei)};
-    sei.fMask = SEE_MASK_NOASYNC;
-    sei.lpVerb = L"open";
-    sei.lpFile = L"powershell.exe";
-    sei.lpParameters = arguments.c_str();
-    sei.nShow = SW_HIDE;
-
-    if (!ShellExecuteExW(&sei)) {
-        LOG_ERROR("Failed to start the update process: 0x%08lX", GetLastError());
+    // A running image can be renamed but not overwritten, so the old one steps aside first
+    const std::wstring previous = _previousPath(executable);
+    DeleteFileW(previous.c_str());
+    if (!MoveFileExW(executable.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        LOG_ERROR("Update: cannot move the running executable aside (0x%08lX)", GetLastError());
+        DeleteFileW(downloaded.c_str());
         return false;
     }
 
-    // The updater waits before replacing the executable, so leave through the normal message loop.
+    if (!MoveFileExW(downloaded.c_str(), executable.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)) {
+        LOG_ERROR("Update: cannot move the download into place (0x%08lX)", GetLastError());
+        MoveFileExW(previous.c_str(), executable.c_str(), MOVEFILE_REPLACE_EXISTING);
+        DeleteFileW(downloaded.c_str());
+        return false;
+    }
+
+    _installed = true;
     PostQuitMessage(0);
     return true;
 }
 
-bool UpdateManager::IsVersionSkipped(const std::string& version) const {
-    return _cfg.Core.SkippedVersions.contains(version);
+void UpdateManager::RelaunchIfInstalled() const {
+    if (!_installed) {
+        return;
+    }
+
+    std::wstring command = L"\"" + _executablePath() + L"\"";
+    STARTUPINFOW startup{.cb = sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process)) {
+        LOG_ERROR("Update: relaunch failed (0x%08lX)", GetLastError());
+        return;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+}
+
+void UpdateManager::DeleteStaleExecutable() {
+    if (const std::wstring executable = _executablePath(); !executable.empty()) {
+        DeleteFileW(_previousPath(executable).c_str());
+    }
 }
 
 void UpdateManager::SkipVersion() {
-    if (!_latestRelease.tag_name.empty()) {
-        _cfg.Core.SkippedVersions.insert(_latestRelease.tag_name);
-        _cfg.Save();
-        LOG_INFO("Skipped version: %s", _latestRelease.tag_name.c_str());
-    }
+    // Only this field goes to disk: the live config may hold the settings window's unsaved edits
+    _cfg.Core.SkippedVersions.insert(_release.Tag);
+    AppConfig stored = AppConfig::Load();
+    stored.Core.SkippedVersions.insert(_release.Tag);
+    stored.Save();
 }
 
 INT_PTR CALLBACK UpdateManager::UpdateDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-    if (message == WM_INITDIALOG) {
-        SetWindowLongPtrW(hDlg, GWLP_USERDATA, lParam);
-        const auto* manager = reinterpret_cast<UpdateManager*>(lParam);
-
-        SetDlgItemTextW(hDlg, IDC_UPDATE_VERSION, Str::Utf8ToWide(manager->_latestRelease.tag_name).c_str());
-        SetDlgItemTextW(hDlg, IDC_UPDATE_NOTES,
-                        Str::Utf8ToWide(manager->_latestRelease.body.empty()
-                                            ? "No release notes available."
-                                            : manager->_latestRelease.body).c_str());
-
-        DialogControls::CenterOnScreen(hDlg);
-        return TRUE;
-    }
-
-    if (message == WM_CLOSE) {
-        EndDialog(hDlg, IDC_UPDATE_LATER);
-        return TRUE;
-    }
-
-    if (message != WM_COMMAND) {
-        return FALSE;
-    }
-
-    switch (LOWORD(wParam)) {
-        case IDC_UPDATE_INSTALL:
-        case IDC_UPDATE_SKIP:
-        case IDC_UPDATE_LATER:
-            EndDialog(hDlg, LOWORD(wParam));
+    switch (message) {
+        case WM_INITDIALOG: {
+            const Release& release = reinterpret_cast<const UpdateManager*>(lParam)->_release;
+            SetDlgItemTextW(hDlg, IDC_UPDATE_VERSION, Str::Utf8ToWide(release.Tag).c_str());
+            SetDlgItemTextW(hDlg, IDC_UPDATE_NOTES,
+                            Str::Utf8ToWide(release.Notes.empty() ? "No release notes available." : release.Notes).c_str());
+            DialogControls::CenterOnScreen(hDlg);
             return TRUE;
-        case IDCANCEL:
-            EndDialog(hDlg, IDC_UPDATE_LATER);
+        }
+
+        case WM_CLOSE:
+            EndDialog(hDlg, IDCANCEL);
             return TRUE;
+
+        case WM_COMMAND: {
+            const UINT id = LOWORD(wParam);
+            if (id == IDC_UPDATE_INSTALL || id == IDC_UPDATE_SKIP || id == IDC_UPDATE_LATER || id == IDCANCEL) {
+                EndDialog(hDlg, id);
+                return TRUE;
+            }
+            return FALSE;
+        }
+
         default:
             return FALSE;
     }

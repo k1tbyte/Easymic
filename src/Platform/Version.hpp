@@ -2,22 +2,20 @@
 
 #include <string>
 
-/// major.minor.patch.build, read from the module's version resource or parsed from a release tag.
 class Version {
 public:
-    /// The running build.
-    Version();
-    /// Parses "v1.2.3", "1.2.3.4" or "1.2.3-beta" - a pre-release suffix is dropped, and anything
-    /// unparseable simply leaves that component at zero rather than throwing at a caller who is
-    /// handing us whatever the release feed said.
+    /// "v1.2.3", "1.2.3.4" or "1.2.3-beta": a pre-release suffix is dropped, an unparseable component stays zero.
     explicit Version(const std::string& versionString);
 
-    std::string GetFullFormat() const; // e.g. "1.0.0.0"
+    /// Read on first use, so version.dll stays unloaded until something asks.
+    static const Version& App();
+
+    std::string GetFullFormat() const;
 
     bool operator>(const Version& other) const;
 
 private:
-    Version(int major, int minor, int patch, int build);
+    Version() = default;
 
     int _major = 0;
     int _minor = 0;
@@ -26,7 +24,4 @@ private:
 
     static Version LoadFromVersionResource();
 };
-
-// Global version instance
-extern Version g_AppVersion;
 

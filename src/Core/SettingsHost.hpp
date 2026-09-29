@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -9,31 +8,25 @@
 #include <windows.h>
 
 #include "AppConfig.hpp"
+#include "OrderedInsert.hpp"
 
-/// Which control a row becomes.
 enum class RowKind : uint8_t {
     Check,
     Combo,
     Slider,
-    /// A bundled sound or a file, with a browse button.
     SoundPicker,
-    /// One choice out of a list, a button per item.
     Radio,
     Text,
-    /// A group box around the rows after it, up to the next Group.
     Group,
-    /// Controls the grid places but does not understand, made by the row's own Create.
     Custom,
 };
 
-/// Get/Set for integers, Text for string-valued controls.
 struct RowField {
     int (*Get)(const AppConfig&) = nullptr;
     void (*Set)(AppConfig&, int) = nullptr;
     std::string& (*Text)(AppConfig&) = nullptr;
 };
 
-/// cfg.*Section.*Field as a binding - Bind<&AppConfig::Core, &CoreSettings::Updates>().
 template <auto Section, auto Field>
 constexpr RowField Bind() {
     using T = std::remove_cvref_t<decltype(std::declval<AppConfig&>().*Section.*Field)>;
@@ -45,32 +38,23 @@ constexpr RowField Bind() {
     }
 }
 
-/**
- * @brief One line of a settings page, described rather than built.
- *
- * Every control is re-read from its field after any change, so a hook edits other fields and
- * never other controls - the rows that show those fields repaint themselves.
- */
+/// Every control is re-read from its field after any change, so a hook edits fields, never controls.
 struct SettingsRow {
     RowKind Kind;
     const wchar_t* Label = L"";
     RowField Field{};
-    /// Slider range and its Page Up/Down step.
     int16_t Min = 0;
     int16_t Max = 100;
     uint8_t Step = 1;
-    /// Combo and Radio. Read when the page is built, so the list can come from a registry.
+    /// Read when the page is built, so the list can come from a registry.
     std::span<const wchar_t* const> (*Items)() = nullptr;
-    /// After the field is written from the control. owner parents any prompt.
     void (*Changed)(HWND owner, AppConfig& cfg) = nullptr;
-    /// On OK, for what has to reach outside the config file - never on a click, or Cancel would
-    /// stop meaning Cancel.
+    /// On OK only, for what reaches outside the config file: on a click, Cancel would stop cancelling.
     void (*Commit)(HWND owner, AppConfig& cfg, const AppConfig& before) = nullptr;
     bool (*Enabled)(const AppConfig& cfg) = nullptr;
-    /// Combo, Slider or SoundPicker: shares the previous row's line, each taking half its control
-    /// area, and has no label of its own.
+    /// Shares the previous row's line, half the control area each, with no label of its own.
     bool Beside = false;
-    /// Custom: height in dialog units; zero fills the remaining page. A control given id routes its click to Changed.
+    /// Custom only: dialog units, zero fills the page. A control created with `id` routes its click to Changed.
     uint8_t Height = 0;
     void (*Create)(HWND page, const RECT& cell, int id) = nullptr;
 };
@@ -80,31 +64,22 @@ struct SettingsTab {
     std::span<const SettingsRow> Rows;
 };
 
-/// One page of the settings window. The window builds it fresh on every visit.
+/// Built fresh on every visit.
 struct SettingsPage {
     const wchar_t* Title;
     std::span<const SettingsRow> Rows;
-    /// Where the page sits in the sidebar - see the keys below.
     int Order = 100;
     std::span<const SettingsTab> Tabs;
 };
 
-/**
- * @brief Every settings page anyone has registered, in the order the sidebar shows them.
- *
- * Registration order alone would put About wherever its owner happens to sit in main, so the
- * frame's own first and last pages pin themselves with a sort key and everything else keeps the
- * order it registered in.
- */
 namespace SettingsHost {
 
-    /// A module leaves Order alone unless it has a reason to be first or last.
     inline constexpr int First = 0;
     inline constexpr int Last = 1000;
 
     inline std::vector<SettingsPage> Pages;
 
     inline void AddPage(const SettingsPage& page) {
-        Pages.insert(std::ranges::upper_bound(Pages, page.Order, {}, &SettingsPage::Order), page);
+        InsertByOrder(Pages, page);
     }
 }

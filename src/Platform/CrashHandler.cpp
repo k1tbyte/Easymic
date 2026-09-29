@@ -49,7 +49,6 @@ namespace {
         }
     }
 
-    /// Reports and ends the process: nothing is trusted to run after a crash.
     [[noreturn]] void _crash(const char* source, const char* detail, const EXCEPTION_POINTERS* info) {
         // A crash inside _log ends at once; another thread's waits for the first report
         static std::atomic<DWORD> owner = 0;

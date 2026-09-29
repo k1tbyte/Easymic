@@ -4,21 +4,9 @@
 #include <string_view>
 #include <windows.h>
 
-/**
- * @brief The one narrow<->wide conversion pair in the app.
- *
- * A narrow string is UTF-8, everywhere, no exceptions. It exists only because the config format
- * stores bytes - glaze serializes std::string and has no notion of std::wstring - so UTF-8 is
- * what a std::string in AppConfig means.
- *
- * Everything that talks to Windows goes wide: the *W entry points take what the OS actually
- * speaks, and these two functions are the whole border between the two worlds. A second narrow
- * encoding (CP_ACP) used to live here as well, which is how a name could round-trip through one
- * and a command line through the other.
- */
+/// A std::string is UTF-8 everywhere (glaze stores bytes); Windows calls go wide through these two.
 namespace Str {
 
-    /// A lowercase copy, by the rules Windows compares names with.
     inline std::wstring Lower(const std::wstring_view text) {
         std::wstring out(text);
         if (!out.empty()) {
@@ -27,7 +15,7 @@ namespace Str {
         return out;
     }
 
-    /// Replaces every occurrence. Skipping past the replacement keeps `to` containing `from` safe.
+    /// Resumes after each replacement, so a `to` that contains `from` terminates.
     inline std::string Replace(std::string text, const std::string_view from, const std::string_view to) {
         if (from.empty()) {
             return text;

@@ -7,14 +7,15 @@
 #include "SettingsPages.hpp"
 #include "SettingsRows.hpp"
 #include "UACService.hpp"
+#include "Controls.hpp"
 #include "Resources/Resource.h"
 #include "Version.hpp"
 #include "Str.hpp"
+#include "definitions.h"
 
 namespace {
     constexpr COLORREF VersionLabelColor = RGB(128, 128, 128);
 
-    /// The page's own scroll bar, shown by SettingsRows::Build when the rows run past the page.
     bool ScrollPage(HWND page, UINT message, WPARAM wParam) {
         SCROLLINFO info{.cbSize = sizeof(info), .fMask = SIF_ALL};
         if (!(GetWindowLongW(page, GWL_STYLE) & WS_VSCROLL) || !GetScrollInfo(page, SB_VERT, &info)) {
@@ -61,7 +62,6 @@ void SettingsWindow::Show() {
                                       ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
         InitCommonControlsEx(&controls);
 
-        // Modeless: the tray app keeps pumping its own message loop while this is open
         CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(IDD_SETTINGS_MAIN), _owner,
                            SettingsDialogProc, reinterpret_cast<LPARAM>(this));
 
@@ -76,7 +76,6 @@ void SettingsWindow::Show() {
     }
 
     SetForegroundWindow(_hwnd);
-    _isVisible = true;
 }
 
 INT_PTR CALLBACK SettingsWindow::SettingsDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -101,7 +100,6 @@ INT_PTR CALLBACK SettingsWindow::SettingsDialogProc(HWND hwnd, UINT message, WPA
     }
 }
 
-/// One category page: its controls' input goes to its rows.
 INT_PTR CALLBACK SettingsWindow::PageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     auto* window = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
@@ -148,9 +146,8 @@ INT_PTR SettingsWindow::OnInitDialog() {
     SendMessageW(_hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
     SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
 
-    SetDlgItemTextW(_hwnd, IDC_SETTINGS_VERSION, Str::Utf8ToWide(g_AppVersion.GetFullFormat()).c_str());
+    SetDlgItemTextW(_hwnd, IDC_SETTINGS_VERSION, Str::Utf8ToWide(Version::App().GetFullFormat()).c_str());
 
-    // Hand cursor over the categories
     SetWindowSubclass(_hwndTreeView, TreeViewSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
     PopulateTreeView();
     return TRUE;
@@ -226,19 +223,15 @@ INT_PTR SettingsWindow::OnDestroy() {
     _hwndTabPage = nullptr;
     _rows = {};
     _tabs = {};
-    _isVisible = false;
 
     SettingsPages::Close();
     _cfg = _cfgPrev;
 
-    // Last statement: subscribers treat this as "the window is gone" and one of them queues its
-    // destruction, so nothing may touch this object afterwards
+    // Last: a subscriber queues this object's destruction, so nothing may touch it afterwards
     _onExit();
     return TRUE;
 }
 
-/// One row per registered page, carrying its index - the window has no business knowing one page
-/// from another.
 void SettingsWindow::PopulateTreeView() const {
     HTREEITEM firstItem = nullptr;
 
@@ -301,9 +294,9 @@ void SettingsWindow::ShowPage(const SettingsPage& page) {
         GetClientRect(_hwndContentDialog, &client);
         RECT unit{0, 0, 100, 0};
         MapDialogRect(_hwndContentDialog, &unit);
-        _hwndTabs = SettingsRows::Control(_hwndContentDialog, WC_TABCONTROLW, L"",
-                                          WS_TABSTOP | WS_CLIPSIBLINGS,
-                                          {0, 0, MulDiv(client.right, 100, unit.right), 14}, 900);
+        _hwndTabs = Controls::Create(_hwndContentDialog, _hwndContentDialog, WC_TABCONTROLW, L"",
+                                     WS_TABSTOP | WS_CLIPSIBLINGS,
+                                     {0, 0, MulDiv(client.right, 100, unit.right), 14}, 900);
         for (size_t i = 0; i < _tabs.size(); ++i) {
             TCITEMW item{.mask = TCIF_TEXT, .pszText = const_cast<wchar_t*>(_tabs[i].Title)};
             TabCtrl_InsertItem(_hwndTabs, static_cast<int>(i), &item);
@@ -338,7 +331,6 @@ void SettingsWindow::ShowTab(const int index) {
     ShowWindow(_hwndTabPage, SW_SHOW);
 }
 
-/// Fits the category page into the group box interior, below its title.
 void SettingsWindow::UpdateGroupBoxLayout() const {
     RECT groupBox;
     GetClientRect(_hwndGroupBox, &groupBox);

@@ -6,12 +6,11 @@
 
 #pragma comment(lib, "gdiplus.lib")
 
-/// The canvas a render pass draws on, and the area it owns.
 struct RenderContext {
     Gdiplus::Graphics* graphics = nullptr;
     int width = 0;
     int height = 0;
-    /// Of the whole window, for the callback to lower.
+    /// Whole-window alpha; the callback may lower it.
     BYTE alpha = 255;
 };
 
@@ -19,12 +18,7 @@ namespace LayeredWindow {
 
     using RenderCallback = std::function<void(RenderContext&)>;
 
-    /**
-     * @brief Back buffer for a layered window.
-     *
-     * Built once per size and kept across paints. Every layered window owns its own: a second
-     * window's size would churn a shared one on every repaint.
-     */
+    /// One per window: a shared buffer would be rebuilt whenever another window's size differs.
     class Surface {
         HDC _dc = nullptr;
         HBITMAP _bitmap = nullptr;
@@ -83,9 +77,6 @@ namespace LayeredWindow {
         ~Surface() { Release(); }
     };
 
-    /**
-     * @brief Draws through the callback and pushes the result to the layered window.
-     */
     inline void Render(HWND hwnd, Surface& surface, int width, int height, const POINT& windowPos,
                        const RenderCallback& renderFunc) {
         if (!hwnd || !renderFunc) {

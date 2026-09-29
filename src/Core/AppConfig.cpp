@@ -15,10 +15,7 @@ namespace {
 
 } // anonymous namespace
 
-void AppConfig::Save() {
-    for (auto& binding : Bindings) {
-        binding.Trigger.App = Foreground::CanonicalApp(binding.Trigger.App);
-    }
+void AppConfig::Save() const {
     std::string json;
     if (const auto ec = glz::write<glz::opts{.prettify = true}>(*this, json)) {
         LOG_ERROR("Config save failed: %s", glz::format_error(ec).c_str());
@@ -29,20 +26,17 @@ void AppConfig::Save() {
 
 AppConfig AppConfig::Load() {
     AppConfig config{};
-    // A missing file is the normal first run
     const auto json = File::Read(_path().c_str());
     if (!json) {
         return config;
     }
     if (const auto ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(config, *json)) {
         LOG_ERROR("Config load failed: %s", glz::format_error(ec, *json).c_str());
+        MoveFileExW(_path().c_str(), (_path() + L".bad").c_str(), MOVEFILE_REPLACE_EXISTING);
         return {};
     }
 
-    // Whatever the file says becomes the canonical spelling, so two bindings that mean the
-    // same combination compare equal - KeyNames::Parse accepts LCTRL, which Format never
-    // prints, and a hand-edited file is exactly where that shows up. A name that does not
-    // parse is left as the user wrote it: the binding shows up unbound rather than blank.
+    // Parse accepts spellings Format never prints (LCTRL): canonicalize so hand-edited bindings compare equal
     for (auto& binding : config.Bindings) {
         if (const uint64_t mask = KeyNames::Parse(binding.Trigger.Keys)) {
             binding.Trigger.Keys = KeyNames::Format(mask);

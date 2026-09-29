@@ -7,8 +7,6 @@
 
 #pragma comment(lib, "gdiplus.lib")
 
-/// Platform rather than UI on purpose - whatever paints needs these, and a feature that draws
-/// into the overlay must not have to include a window header to get them.
 namespace Gdi {
 
     inline void RoundedRect(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& rect, const float radius) {
@@ -40,7 +38,7 @@ namespace Gdi {
         { // the Graphics has to go before the DC it was built on
             Gdiplus::Graphics graphics(screenDC);
             Gdiplus::StringFormat format;
-            // Without this GDI+ drops trailing whitespace from the measurement but still draws it
+            // Without this GDI+ drops trailing whitespace from the measurement but still draws it.
             format.SetFormatFlags(Gdiplus::StringFormatFlagsMeasureTrailingSpaces);
 
             graphics.MeasureString(text.c_str(), -1, &font, Gdiplus::PointF(0, 0), &format, &bounds);
@@ -57,8 +55,6 @@ namespace Gdi {
                 bounds.Height / 2.0f - ink.Y - ink.Height / 2.0f};
     }
 
-    /// Off-white rather than white by default: on the overlay's dark pill, pure white on a
-    /// bright glyph next to it reads as two different whites.
     inline void DrawCentred(Gdiplus::Graphics& canvas, const std::wstring& text, const Gdiplus::Font& font,
                             const Gdiplus::RectF& rect,
                             const Gdiplus::Color& colour = Gdiplus::Color(255, 240, 240, 240)) {

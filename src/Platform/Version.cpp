@@ -7,21 +7,6 @@
 
 #pragma comment(lib, "version.lib")
 
-namespace {
-    /// What the app claims to be when the version resource cannot be read at all.
-    constexpr int FallbackVersion[] = {1, 3, 0, 0};
-}
-
-// Global version instance
-Version g_AppVersion;
-
-Version::Version() : Version(LoadFromVersionResource()) {
-}
-
-Version::Version(int major, int minor, int patch, int build)
-    : _major(major), _minor(minor), _patch(patch), _build(build) {
-}
-
 Version::Version(const std::string& versionString) {
     const char* cursor = versionString.c_str();
 
@@ -38,12 +23,17 @@ Version::Version(const std::string& versionString) {
         }
 
         *component = static_cast<int>(parsed);
-        // A pre-release suffix is no component: strtol would read "-1" as minus one
+        // strtol would read the "-1" of a pre-release suffix as minus one
         if (*next != '.') {
             break;
         }
         cursor = next + 1;
     }
+}
+
+const Version& Version::App() {
+    static const Version version = LoadFromVersionResource();
+    return version;
 }
 
 std::string Version::GetFullFormat() const {
@@ -59,32 +49,26 @@ bool Version::operator>(const Version& other) const {
 }
 
 Version Version::LoadFromVersionResource() {
-    const Version fallback(FallbackVersion[0], FallbackVersion[1], FallbackVersion[2], FallbackVersion[3]);
+    Version version;
 
-    wchar_t modulePath[MAX_PATH];
-    if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH)) {
-        return fallback;
+    wchar_t path[MAX_PATH];
+    DWORD handle = 0;
+    if (!GetModuleFileNameW(nullptr, path, MAX_PATH)) {
+        return version;
     }
 
-    DWORD verHandle = 0;
-    const DWORD verSize = GetFileVersionInfoSizeW(modulePath, &verHandle);
-    if (verSize == 0) {
-        return fallback;
+    const DWORD size = GetFileVersionInfoSizeW(path, &handle);
+    std::vector<BYTE> data(size);
+    VS_FIXEDFILEINFO* info = nullptr;
+    UINT length = 0;
+    if (!size || !GetFileVersionInfoW(path, handle, size, data.data())
+        || !VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &length) || !info) {
+        return version;
     }
 
-    std::vector<BYTE> verData(verSize);
-    if (!GetFileVersionInfoW(modulePath, verHandle, verSize, verData.data())) {
-        return fallback;
-    }
-
-    VS_FIXEDFILEINFO* fileInfo = nullptr;
-    UINT infoLength = 0;
-    if (!VerQueryValueW(verData.data(), L"\\", (VOID**)&fileInfo, &infoLength) || !fileInfo) {
-        return fallback;
-    }
-
-    return {static_cast<int>((fileInfo->dwFileVersionMS >> 16) & 0xffff),
-            static_cast<int>(fileInfo->dwFileVersionMS & 0xffff),
-            static_cast<int>((fileInfo->dwFileVersionLS >> 16) & 0xffff),
-            static_cast<int>(fileInfo->dwFileVersionLS & 0xffff)};
+    version._major = HIWORD(info->dwFileVersionMS);
+    version._minor = LOWORD(info->dwFileVersionMS);
+    version._patch = HIWORD(info->dwFileVersionLS);
+    version._build = LOWORD(info->dwFileVersionLS);
+    return version;
 }

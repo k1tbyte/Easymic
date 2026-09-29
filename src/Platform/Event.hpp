@@ -4,7 +4,6 @@
 #include <mutex>
 #include <vector>
 
-/// Subscribe side only - owners hand this out so nobody but them can raise the event.
 template<typename... Args>
 class IEvent {
 public:
@@ -28,7 +27,6 @@ private:
     int _nextId = 0;
 
 public:
-    /// Subscribe - returns the id to unsubscribe with.
     int operator+=(Handler handler) override {
         std::lock_guard lock(_mutex);
         _subscriptions.push_back({_nextId, std::move(handler)});
@@ -40,9 +38,7 @@ public:
         std::erase_if(_subscriptions, [id](const Subscription& entry) { return entry.id == id; });
     }
 
-    /// Handlers run under the lock: none of them subscribes to, unsubscribes from or destroys
-    /// the event it is handling, and copying them out first would allocate on every raise -
-    /// including the mute path and every log line.
+    /// Run under the lock: a handler must not (un)subscribe or destroy the event; copying them out allocates per raise.
     void operator()(Args... args) {
         std::lock_guard lock(_mutex);
         for (const Subscription& entry : _subscriptions) {

@@ -21,8 +21,7 @@ namespace {
     constexpr ULONG TASK_START_ATTEMPTS = 6;
     constexpr DWORD TASK_START_WAIT_MS = 250;
 
-    /// COM has to be up for the task scheduler, but the thread that asks may already have it in
-    /// another mode - that is not an error, it just means we are not the one to shut it down.
+    /// A thread that already has COM in another mode is fine: it just is not ours to shut down.
     class ComScope {
         HRESULT _hr;
         bool _ownsInit;
@@ -42,7 +41,6 @@ namespace {
         bool IsValid() const { return SUCCEEDED(_hr) || _hr == RPC_E_CHANGED_MODE; }
     };
 
-    /// The root task folder, connected. Everything below needs both.
     class TaskSchedulerSession {
         ComScope _com;
         ComPtr<ITaskService> _service;
@@ -125,7 +123,6 @@ namespace {
             registration->put_Description(_bstr_t(APP_DESCRIPTION));
         }
 
-        // The whole point of the task: it starts elevated without a prompt
         ComPtr<IPrincipal> principal;
         if (FAILED(taskDefinition->get_Principal(&principal))
             || FAILED(principal->put_RunLevel(TASK_RUNLEVEL_HIGHEST))
@@ -166,22 +163,6 @@ namespace {
         return SUCCEEDED(execAction->put_Path(_bstr_t(exePath.c_str())));
     }
 
-    std::wstring GetCommandLineArguments() {
-        std::wstring arguments;
-        int argumentCount = 0;
-        LPWSTR* argumentList = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
-
-        if (argumentList) {
-            for (int i = 1; i < argumentCount; i++) {
-                if (i > 1) arguments += L" ";
-                arguments += argumentList[i];
-            }
-            LocalFree(argumentList);
-        }
-
-        return arguments;
-    }
-
     bool WaitForTaskStart(IRunningTask* runningTask) {
         ULONG attempts = TASK_START_ATTEMPTS;
 
@@ -204,14 +185,12 @@ namespace {
         return false;
     }
 
-    /// True when the user has an administrator token to elevate into at all.
     bool CanElevate() {
         TOKEN_ELEVATION_TYPE elevationType;
         return QueryProcessToken(TokenElevationType, elevationType)
                && (elevationType == TokenElevationTypeLimited || elevationType == TokenElevationTypeFull);
     }
 
-    /// Looks the task up and checks it still belongs to us.
     bool OpenOwnTask(const TaskSchedulerSession& session, ComPtr<IRegisteredTask>& task) {
         return SUCCEEDED(session.Folder()->GetTask(_bstr_t(APP_SKIPUAC_NAME), &task))
                && task && TaskRunsThisExecutable(task.Get());
@@ -294,13 +273,7 @@ bool RunWithSkipUAC() {
         return false;
     }
 
-    // Whatever we were started with has to reach the elevated instance too
-    const std::wstring arguments = GetCommandLineArguments();
-    _variant_t params;
-    if (!arguments.empty()) {
-        params = arguments.c_str();
-    }
-
+    const _variant_t params;
     ComPtr<IRunningTask> runningTask;
     if (FAILED(task->RunEx(params, TASK_RUN_IGNORE_CONSTRAINTS, 0, nullptr, &runningTask))
         || !runningTask) {

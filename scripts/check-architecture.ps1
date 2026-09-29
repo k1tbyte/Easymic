@@ -42,8 +42,6 @@ function Resolve-Include([string]$IncluderDirectory, [string]$Included, [bool]$Q
     return $null
 }
 
-$platformDir = Join-Path $sourceDir "Platform"
-
 function Get-Includes([string]$Directory) {
     Get-ChildItem $Directory -Recurse -File -Include *.hpp, *.cpp, *.h | ForEach-Object {
         $file = $_
@@ -54,6 +52,16 @@ function Get-Includes([string]$Directory) {
             $landsAt = Resolve-Include $file.Directory.FullName $included $quoted
             if ($landsAt) {
                 [pscustomobject]@{ File = $file.FullName; Line = "  $($_.Path):$($_.LineNumber)"; Included = $included; LandsAt = $landsAt }
+            }
+        }
+    }
+}
+
+function Get-LeaksAbove([string]$Layer, [string[]]$Above) {
+    Get-Includes (Join-Path $sourceDir $Layer) | ForEach-Object {
+        foreach ($other in $Above) {
+            if (Test-UnderDirectory $_.LandsAt (Join-Path $sourceDir $other)) {
+                "$($_.Line): $Layer includes $($_.Included), which lives under src/$other"
             }
         }
     }
@@ -70,18 +78,13 @@ $leaks = @(
             "$where, which lives under src/UI"
         }
     }
-    # Platform sits under everything else
-    Get-Includes $platformDir | ForEach-Object {
-        foreach ($layer in "Core", "Features", "UI") {
-            if (Test-UnderDirectory $_.LandsAt (Join-Path $sourceDir $layer)) {
-                "$($_.Line): Platform includes $($_.Included), which lives under src/$layer"
-            }
-        }
-    }
+    Get-LeaksAbove "Platform" "Core", "Features", "UI"
+    Get-LeaksAbove "Core" "Features", "UI"
+    Get-LeaksAbove "UI" "Features"
 )
 
 if ($leaks.Count -gt 0) {
-    Write-Host "layering rule violated - a feature may only include Core/ and Platform/, and Platform/ none of Core/, Features/ or UI/:" -ForegroundColor Red
+    Write-Host "layering rule violated - Features include only Core/ and Platform/; UI/ never Features/; Core/ never UI/ or Features/; Platform/ nothing above it:" -ForegroundColor Red
     $leaks | ForEach-Object { Write-Host $_ -ForegroundColor Red }
     throw "layering rule violated"
 }

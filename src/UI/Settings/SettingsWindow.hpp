@@ -10,22 +10,14 @@
 #include "Core/SettingsHost.hpp"
 #include "Event.hpp"
 
-/**
- * @brief Settings window with TreeView sidebar navigation.
- *
- * The frame is the IDD_SETTINGS_MAIN template and each page is an empty child dialog in the group
- * box, filled from the page's rows - the dialog manager still owns the font and the DPI scale.
- * The rows edit the live config: OK saves it, Cancel puts back the snapshot taken on open.
- */
+/// Modeless: each page is an empty child dialog filled from its rows, which edit the live config. OK saves, Cancel restores the snapshot.
 class SettingsWindow final : public BaseWindow {
-
 public:
     SettingsWindow(HINSTANCE hInstance, HWND owner, AppConfig& config);
     ~SettingsWindow() override = default;
 
-    void Show() override;
+    void Show();
 
-    // Subscribe side only - the window is the one that raises these
     /// OK, before the rows commit: what the config does not follow live goes into it now.
     IEvent<>& OnApply = _onApply;
     IEvent<>& OnExit = _onExit;
@@ -53,9 +45,7 @@ private:
     Event<> _onApply;
 
     AppConfig& _cfg;
-    /// What OK compares against and Cancel puts back - the whole config, so no row needs an undo.
     AppConfig _cfgPrev;
-    /// The open page's rows, which its controls' input is routed through.
     std::span<const SettingsRow> _rows;
     std::span<const SettingsTab> _tabs;
 

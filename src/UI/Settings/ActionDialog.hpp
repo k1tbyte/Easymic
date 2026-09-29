@@ -1,52 +1,27 @@
 #pragma once
 
-#include <cstdint>
 #include <set>
 #include <string>
 #include <windows.h>
 
-/**
- * @brief One editor for every action, built-in or custom.
- *
- * The flags decide which rows exist - a built-in has no command line, push to talk has no
- * "trigger on release", and an action whose feedback is covered elsewhere has no sound row.
- * Everything else, including future ones like debounce, stays common to all of them.
- */
-struct ActionEdit {
-    std::string Title;        // dialog caption
-    std::string Name;
-    std::string Command;      // command actions only
-    /// What a built-in was configured with. The label doubles as the switch: empty means this
-    /// action takes no argument and the row is not there at all.
-    std::string Args;
+#include "AppConfig.hpp"
+
+struct ActionLayout {
+    std::string Title;
+    /// Empty: the action takes no argument and the row is not there.
     std::string ArgsLabel;
     std::string ArgsHint;
-    std::string Sound;        // SoundCatalog key or file path, empty means none
-    uint8_t SoundVolume = 100; // 0-100, this action's own level
-    std::string Notification; // overlay text, {token} aware
-    /// Optional exe basename the hotkey is scoped to (e.g. "chrome.exe"). Empty means global.
-    std::string App;
-    uint64_t Hotkey = 0;
-    bool OnRelease = false;
-    /// How many presses of the combination in a row run this action.
-    uint8_t Presses = 1;
-    /// Swallows the combination so nothing below EasyLauncher sees it.
-    bool Block = false;
-    /// Release only: the key has to have been tapped by itself, not held as a modifier.
-    bool TapOnly = false;
-    bool ShowNotification = false;
-
-    /// The argument is a command line: shows the command row and offers the command tokens.
     bool RunsCommand = false;
-    bool HasSound = true;     // shows the sound row
-    bool HoldOnly = false;    // hides "trigger on release" - the action needs both edges
-    bool AllowDelete = false; // shows the Delete button
-
-    bool Deleted = false;     // out: the user pressed Delete
+    bool HasSound = true;
+    bool HoldOnly = false;
+    bool AllowDelete = false;
 };
 
 namespace ActionDialog {
-    /// @return true when the action must be saved
-    bool Show(HINSTANCE hInstance, HWND owner, ActionEdit& action, std::set<std::string>& recentSounds);
-}
 
+    enum class Result { Cancel, Save, Delete };
+
+    /// Edits `binding` in place; a caller that gets anything but Save discards it.
+    Result Show(HINSTANCE hInstance, HWND owner, Binding& binding, const ActionLayout& layout,
+                std::set<std::string>& recentSounds);
+}

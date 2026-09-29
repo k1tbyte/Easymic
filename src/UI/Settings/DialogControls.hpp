@@ -1,7 +1,7 @@
 #pragma once
 
 #include <commctrl.h>
-#include <filesystem>
+#include <iterator>
 #include <set>
 #include <string>
 #include <windows.h>
@@ -9,11 +9,9 @@
 #include "SoundCatalog.hpp"
 #include "Str.hpp"
 
-/// Small helpers shared by the settings pages and the action dialog.
 namespace DialogControls {
 
-    /// Centers a window on the primary screen. Called from WM_INITDIALOG, so it only moves the
-    /// window - activation and z-order stay with the dialog manager that is still building it.
+    /// Only moves the window: safe in WM_INITDIALOG, where activation and z-order still belong to the dialog manager.
     inline void CenterOnScreen(HWND hWnd) {
         RECT window;
         GetWindowRect(hWnd, &window);
@@ -33,15 +31,9 @@ namespace DialogControls {
         SendMessage(hWnd, TBM_SETPOS, TRUE, value);
     }
 
-    /// Row pitch of the action dialog - every one of its rows sits on this grid.
     inline constexpr int RowHeightDlu = 20;
 
-    /**
-     * @brief Hides a row of controls and pulls everything below it up, shrinking the dialog.
-     *
-     * Lets one template serve every kind of action: the rows that do not apply are removed
-     * instead of left as holes.
-     */
+    /// Lets one template serve every kind of action: a row that does not apply is removed, not left as a hole.
     inline void CollapseRow(HWND dialog, std::initializer_list<int> controlIds) {
         RECT step{0, 0, 0, RowHeightDlu};
         MapDialogRect(dialog, &step);
@@ -91,12 +83,7 @@ namespace DialogControls {
         }
     }
 
-    /**
-     * @brief Fills a sound picker: None, then the bundled sounds, then the user files.
-     *
-     * Vanished files are dropped up front, so an item index maps back to its entry by position
-     * alone and no item has to carry a pointer into a container it does not own.
-     */
+    /// None, the bundled sounds, then the user files. Vanished files are pruned first so an item index maps back by position.
     inline void PopulateSoundCombo(HWND comboBox, std::set<std::string>& recent, const std::string& current) {
         PruneRecentSounds(recent);
 
@@ -114,9 +101,10 @@ namespace DialogControls {
         }
 
         for (const auto& source : recent) {
-            const std::filesystem::path path{Str::Utf8ToWide(source)};
-            const LRESULT index = SendMessageW(comboBox, CB_ADDSTRING, 0,
-                                               (LPARAM)path.filename().c_str());
+            const std::wstring path = Str::Utf8ToWide(source);
+            const size_t slash = path.find_last_of(L"\\/");
+            const wchar_t* name = slash == std::wstring::npos ? path.c_str() : path.c_str() + slash + 1;
+            const LRESULT index = SendMessageW(comboBox, CB_ADDSTRING, 0, (LPARAM)name);
             if (current == source) {
                 selectedIndex = index;
             }
@@ -125,7 +113,6 @@ namespace DialogControls {
         SendMessageW(comboBox, CB_SETCURSEL, selectedIndex, 0);
     }
 
-    /// Maps the current selection back to a catalog key or a file path. Empty means None.
     inline std::string ResolveSound(HWND comboBox, const std::set<std::string>& recent) {
         const LRESULT selected = SendMessageW(comboBox, CB_GETCURSEL, 0, 0);
         constexpr LRESULT bundledCount = static_cast<LRESULT>(std::size(SoundCatalog::All));

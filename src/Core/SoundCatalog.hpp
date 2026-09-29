@@ -8,18 +8,11 @@
 #include "Resources/Resource.h"
 #include "Str.hpp"
 
-/**
- * @brief The single registry every sound picker and every playback site goes through.
- *
- * A stored sound is either a bundled key from the table below or a path to a user file, and an
- * empty string means silence. Nothing hardcodes a sound per feature any more: the defaults are
- * just table keys that the user can override or swap.
- */
 namespace SoundCatalog {
 
     struct Bundled {
-        const char* Key;    // stored in the config, must stay stable
-        const char* Title;  // shown in the pickers
+        const char* Key;
+        const char* Title;
         int ResourceId;
     };
 
@@ -40,16 +33,7 @@ namespace SoundCatalog {
         return nullptr;
     }
 
-    /**
-     * @brief Plays a bundled key or a user file at the given level, 0-100.
-     *
-     * Empty is silence, a missing file is silence too, and so is a level of zero.
-     *
-     * The level belongs to the whole process, but PlaySound only ever plays one sound at a time,
-     * so setting it for the sound about to start is the same as setting it per sound. The lock is
-     * what keeps the two playback threads - the hotkey worker and the device notifications - from
-     * playing at each other's level.
-     */
+    /// The level is process-wide: the lock stops the hotkey worker and device notifications playing at each other's.
     inline void Play(HINSTANCE hInstance, const std::string& sound, const uint8_t volumePercent) {
         if (sound.empty() || !volumePercent) {
             return;

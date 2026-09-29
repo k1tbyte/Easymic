@@ -1,6 +1,5 @@
 #include "Logger.hpp"
 #include <cstdio>
-#include <filesystem>
 #include <windows.h>
 
 #include "File.hpp"
@@ -20,9 +19,10 @@ void Logger::Initialize() {
 }
 
 void Logger::CheckLogFileSize() {
-    std::error_code ec;
-    if (std::filesystem::file_size(_logFilePath, ec) > MAX_LOG_SIZE) {
-        std::filesystem::remove(_logFilePath, ec);
+    WIN32_FILE_ATTRIBUTE_DATA info;
+    if (GetFileAttributesExW(_logFilePath.c_str(), GetFileExInfoStandard, &info)
+        && (info.nFileSizeHigh || info.nFileSizeLow > MAX_LOG_SIZE)) {
+        DeleteFileW(_logFilePath.c_str());
     }
 }
 
@@ -63,8 +63,7 @@ void Logger::LogImpl(Level level, const std::string& message) {
         File::Write(_logFilePath.c_str(), line + "\r\n", true);
     }
 
-    // Raised with nothing held: a log line can come from any thread, and a subscriber that has
-    // to reach the UI thread would otherwise deadlock against the UI thread's own logging
+    // No lock held: a subscriber that has to reach the UI thread would deadlock against the UI thread's own logging
     OnLogAdded(level, message, formattedEntry);
 }
 

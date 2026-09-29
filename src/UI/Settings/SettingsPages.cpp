@@ -5,7 +5,7 @@
 #include <gdiplus.h>
 
 #include "ActionList.hpp"
-#include "SettingsRows.hpp"
+#include "Controls.hpp"
 #include "Core/Overlay.hpp"
 #include "Core/SettingsHost.hpp"
 #include "Core/Tray.hpp"
@@ -21,8 +21,7 @@ namespace {
 
     AppConfig* _config = nullptr;
 
-    /// Autostart lives in the registry, not the config, so what the box says waits here until OK -
-    /// closing with Cancel must leave the machine exactly as it was.
+    /// Autostart lives in the registry: what the box says waits here until OK, so Cancel leaves the machine as it was.
     bool _autoStartWas = false;
     bool _autoStartWants = false;
 
@@ -39,7 +38,6 @@ namespace {
             return;
         }
 
-        // Quoted, or a path with spaces is a command line Windows has to guess at
         wchar_t command[MAX_PATH + 2] = L"\"";
         const DWORD length = GetModuleFileNameW(nullptr, command + 1, MAX_PATH);
         if (length == 0 || length == MAX_PATH) {
@@ -54,31 +52,24 @@ namespace {
     std::vector<const wchar_t*> _fontItems;
     HFONT _linkFont = nullptr;
 
-    /// Posted to the log box when a line is logged: the line can come from any thread, and the
-    /// logger must never end up waiting on the UI thread.
+    /// Only ever posted: the logging thread must never wait on the UI thread while it holds the log file.
     constexpr UINT WM_LOG_REFRESH = WM_APP + 10;
 
-    /// Offers to restart elevated. @return true when the app is on its way out.
-    bool _requestElevation(HWND owner, AppConfig& cfg, const wchar_t* feature) {
+    /// Restarting elevated is the commit: the elevated instance reads the file, so the choice is
+    /// saved first. RequestElevation returns only when refused, and then the file goes back too.
+    void _elevateOrRevert(HWND owner, AppConfig& cfg, bool& field, const wchar_t* feature) {
         const std::wstring message = std::wstring(L"Administrator privileges are required for ") + feature
             + L".\nWould you like to restart the application as administrator?";
 
         if (MessageBoxW(owner, message.c_str(), L"Administrator Required", MB_YESNO | MB_ICONQUESTION) != IDYES) {
-            return false;
-        }
-
-        // Restarting elevated is the commit: the elevated instance reads the file, so the choice has
-        // to survive the process it was made in. RequestElevation does not return when it succeeds.
-        cfg.Save();
-        return UAC::RequestElevation();
-    }
-
-    /// Declined, or the OS refused - put the field and the file back the way we found them.
-    void _elevateOrRevert(HWND owner, AppConfig& cfg, bool& field, const wchar_t* feature) {
-        if (!_requestElevation(owner, cfg, feature)) {
             field = !field;
-            cfg.Save();
+            return;
         }
+
+        cfg.Save();
+        UAC::RequestElevation();
+        field = !field;
+        cfg.Save();
     }
 
     void _loadFonts() {
@@ -107,12 +98,6 @@ namespace {
         return it == _fontNames.end() ? -1 : static_cast<int>(it - _fontNames.begin());
     }
 
-    /**
-     * @brief Reloads the log box from the file on WM_LOG_REFRESH.
-     *
-     * Wholesale rather than appending the one new line: only errors are logged, so this runs
-     * almost never, and the refresh is a bare message with nothing to marshal across threads.
-     */
     LRESULT CALLBACK _logProc(HWND edit, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id,
                               DWORD_PTR subscription) {
         if (message == WM_LOG_REFRESH) {
@@ -131,32 +116,27 @@ namespace {
     }
 
     void _createLog(HWND page, const RECT& cell, int) {
-        const HWND edit = SettingsRows::Control(page, WC_EDITW, L"",
-                                                ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP,
-                                                cell, IDC_ABOUT_LOG_LIST, WS_EX_CLIENTEDGE);
+        const HWND edit = Controls::Create(page, page, WC_EDITW, L"",
+                                           ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP,
+                                           cell, IDC_ABOUT_LOG_LIST, WS_EX_CLIENTEDGE);
         // The default limit of 30,000 characters cuts the newest lines off a longer log
         SendMessageW(edit, EM_SETLIMITTEXT, 0, 0);
 
-        // Only posts: reaching into the control from the logging thread would make the logger wait
-        // on the UI thread while it still holds the file - which the UI thread's next log call would
-        // then wait on
         const int subscription = Logger::OnLogAdded += [edit](Logger::Level, const std::string&, const std::string&) {
             PostMessageW(edit, WM_LOG_REFRESH, 0, 0);
         };
         SetWindowSubclass(edit, _logProc, 0, subscription);
 
-        // First fill takes the same path as every later line
         PostMessageW(edit, WM_LOG_REFRESH, 0, 0);
     }
 
     void _createLinks(HWND page, const RECT& cell, int id) {
-        SettingsRows::Control(page, WC_STATICW, Str::Utf8ToWide("Version " + g_AppVersion.GetFullFormat()).c_str(),
-                              SS_LEFT, {cell.left, cell.top, cell.left + 100, cell.bottom}, -1);
-        const HWND link = SettingsRows::Control(page, WC_STATICW, L"GitHub", SS_LEFT | SS_NOTIFY,
-                                                {cell.left + 105, cell.top, cell.left + 185, cell.bottom}, id);
+        Controls::Create(page, page, WC_STATICW, Str::Utf8ToWide("Version " + Version::App().GetFullFormat()).c_str(),
+                         SS_LEFT, {cell.left, cell.top, cell.left + 100, cell.bottom}, -1);
+        const HWND link = Controls::Create(page, page, WC_STATICW, L"GitHub", SS_LEFT | SS_NOTIFY,
+                                           {cell.left + 105, cell.top, cell.left + 185, cell.bottom}, id);
 
-        // Underlined copy of the page font, so the link scales with the rest of the page.
-        // Once per session: the page is destroyed and rebuilt on every visit.
+        // Once per session: the page is rebuilt on every visit
         if (!_linkFont) {
             LOGFONTW logFont{};
             GetObjectW((HFONT)SendMessageW(page, WM_GETFONT, 0, 0), sizeof(logFont), &logFont);
@@ -175,7 +155,7 @@ namespace {
                  _setAutoStart(_autoStartWants);
              }
          }},
-        // Left enabled without elevation on purpose - clicking it is what offers the restart
+        // Enabled without elevation on purpose: clicking it is what offers the restart
         {.Kind = RowKind::Check, .Label = L"Skip UAC (Administrator required)",
          .Field = Bind<&AppConfig::Core, &CoreSettings::SkipUac>(),
          .Changed = [](HWND owner, AppConfig& cfg) {
@@ -195,7 +175,6 @@ namespace {
          }},
         {.Kind = RowKind::Check, .Label = L"Check for updates",
          .Field = Bind<&AppConfig::Core, &CoreSettings::Updates>(),
-         // Auto-update cannot outlive the check that feeds it
          .Changed = [](HWND, AppConfig& cfg) { cfg.Core.AutoUpdate = cfg.Core.AutoUpdate && cfg.Core.Updates; }},
         {.Kind = RowKind::Check, .Label = L"Enable auto-updates",
          .Field = Bind<&AppConfig::Core, &CoreSettings::AutoUpdate>(),
@@ -231,14 +210,13 @@ namespace {
                        }
                    }},
          .Items = [] {
-             // Once per session: every slider tick syncs the page, and the list takes a font enumeration
+             // Once per session: every slider tick syncs the page, and a font enumeration is slow
              if (_fontItems.empty()) {
                  _loadFonts();
              }
              return std::span<const wchar_t* const>{_fontItems};
          },
-         // A sample in the text pill, which the overlay shows while settings are open.
-         // MSVC's source codepage cannot reliably decode Cyrillic literals.
+         // Sample text for the pill. MSVC's source codepage cannot reliably decode Cyrillic literals.
          .Changed = [](HWND, AppConfig&) {
              TextLayer::Text = {L'A', L'a', L' ', 0x042F, 0x044F};
              Overlay::Changed();
@@ -260,7 +238,6 @@ namespace {
              }
              return std::span<const wchar_t* const>{titles};
          },
-         // The icon follows the click; Cancel puts it back when the frame restores the config
          .Changed = [](HWND, AppConfig&) { Tray::Changed(); }},
     };
 

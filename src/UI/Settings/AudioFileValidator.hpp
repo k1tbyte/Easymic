@@ -9,37 +9,26 @@
 #include "File.hpp"
 #include "Str.hpp"
 
-/**
- * @brief Picks a short PCM WAV file, or tells the user why the one they picked will not do.
- *
- * Nothing here reports format details: an action sound either plays or it does not, and the only
- * thing a caller has ever needed is the path and the reason it was rejected.
- */
+/// Picks a short PCM WAV file and tells the user why a rejected one will not do.
 namespace AudioFileValidator {
 
     inline constexpr float MaxDurationSeconds = 3.0f;
 
     namespace Detail {
-        /// "fmt " chunk payload plus the size of the "data" chunk found for it.
         struct WavHeader {
-            uint16_t audioFormat;   // Audio format (1 = PCM)
-            uint16_t channels;      // Number of channels
-            uint32_t sampleRate;    // Sample rate
-            uint32_t byteRate;      // Byte rate
-            uint16_t blockAlign;    // Block align
-            uint16_t bitsPerSample; // Bits per sample
-            uint32_t dataSize;      // Data chunk size
+            uint16_t audioFormat;
+            uint16_t channels;
+            uint32_t sampleRate;
+            uint32_t byteRate;
+            uint16_t blockAlign;
+            uint16_t bitsPerSample;
+            uint32_t dataSize;
         };
 
         // The first six fields are read as one 16 byte block straight out of the "fmt " chunk
         static_assert(offsetof(WavHeader, bitsPerSample) == 14);
 
-        /**
-         * @brief Walks the RIFF chunk list for "fmt " and "data".
-         *
-         * They are not at fixed offsets: ffmpeg and Audacity happily emit LIST or fact chunks in
-         * between, and reading a fixed 44-byte header there yields a garbage duration.
-         */
+        /// Walks the chunks: "fmt " and "data" are not at fixed offsets, ffmpeg and Audacity emit LIST or fact chunks between them.
         inline bool ReadWavHeader(const std::string_view bytes, WavHeader& header) {
             if (bytes.size() < 12 || !bytes.starts_with("RIFF") || bytes.substr(8, 4) != "WAVE") {
                 return false;
@@ -58,23 +47,22 @@ namespace AudioFileValidator {
                     hasFormat = true;
                 } else if (id == "data") {
                     header.dataSize = size;
-                    break; // Everything past the samples is metadata
+                    break;
                 }
-                at += size + (size & 1); // Chunks are word aligned
+                at += size + (size & 1);
             }
 
             return hasFormat && header.dataSize > 0;
         }
 
         inline bool IsSupportedFormat(const WavHeader& header) {
-            return header.audioFormat == 1 // PCM
+            return header.audioFormat == 1
                    && header.channels > 0 && header.channels <= 8
                    && header.sampleRate >= 8000 && header.sampleRate <= 192000
                    && (header.bitsPerSample == 8 || header.bitsPerSample == 16
                        || header.bitsPerSample == 24 || header.bitsPerSample == 32);
         }
 
-        /// @return why the file was rejected, empty when it is fine.
         inline std::string Reject(const std::string& filePath) {
             // The chunk headers sit up front; the samples are never read
             const auto bytes = File::Read(Str::Utf8ToWide(filePath).c_str(), 1 << 20);
@@ -118,11 +106,6 @@ namespace AudioFileValidator {
         }
     }
 
-    /**
-     * @brief Picks a WAV file and validates it, reporting the reason when it is rejected.
-     * @param result receives the file path on success
-     * @return false when cancelled or invalid
-     */
     inline bool PickValidWavFile(HWND hWnd, const char* title, std::string& result) {
         const std::string selectedFile = Detail::ShowWavFileDialog(hWnd, title);
         if (selectedFile.empty()) {

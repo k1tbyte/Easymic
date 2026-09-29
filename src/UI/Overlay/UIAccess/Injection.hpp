@@ -2,8 +2,7 @@
 
 #include <windows.h>
 
-/// Copies a position-independent function plus its parameter block into another process and runs it.
-/// `returns`: the function ends, so its memory is freed once it has; a message loop keeps it for good.
+/// Runs a position-independent function with its parameters in another process; `returns` frees the copy once it ends.
 template<typename T>
 inline bool InjectShellcode(DWORD pid, const T& params, PVOID function, SIZE_T codeSize, bool returns) {
     const HANDLE process = OpenProcess(
@@ -14,7 +13,6 @@ inline bool InjectShellcode(DWORD pid, const T& params, PVOID function, SIZE_T c
         return false;
     }
 
-    // One block: the code, its parameters right after it
     const auto code = static_cast<BYTE*>(VirtualAllocEx(process, nullptr, codeSize + sizeof(T),
                                                         MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
     const HANDLE thread = code
@@ -24,7 +22,6 @@ inline bool InjectShellcode(DWORD pid, const T& params, PVOID function, SIZE_T c
                              code + codeSize, 0, nullptr)
         : nullptr;
 
-    // Freed only once nothing runs it: never started, or finished
     if (code && (!thread || (returns && WaitForSingleObject(thread, 1000) == WAIT_OBJECT_0))) {
         VirtualFreeEx(process, code, 0, MEM_RELEASE);
     }
