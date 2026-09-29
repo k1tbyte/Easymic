@@ -24,7 +24,7 @@ namespace {
     Event<> _stateChanged;
 
     MicSettings* _settings = nullptr;
-    /// Only to persist a bell toggle - the module reads nothing outside its own section
+    /// Only to save the bell toggle and a hotkey's kept level - the module reads nothing outside its own section
     AppConfig* _config = nullptr;
     HINSTANCE _instance = nullptr;
 
@@ -52,7 +52,17 @@ namespace {
         // Keeps the controller alive for the call: the shared_ptr is returned by value, and the
         // device-change task can drop the last other reference at any moment
         const auto mic = Mic::Audio().CaptureDevice();
+        if (!mic->IsInitialized()) {
+            return;
+        }
         const int target = std::clamp(mic->GetVolumePercent() + delta, 0, 100);
+        // The kept level moves too, posted ahead of the device's echo that would restore the old one
+        Dispatcher::ToUi([target] {
+            if (_settings->KeepVolume && _settings->Volume != -1) {
+                _settings->Volume = static_cast<int8_t>(target);
+                _config->Save();
+            }
+        });
         mic->SetVolumePercent(static_cast<BYTE>(target));
         _shownVolume = static_cast<uint8_t>(target);
     }

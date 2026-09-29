@@ -1,8 +1,7 @@
 #pragma once
 
-
 #include <mutex>
-#include "EventHandlers/AudioDeviceEventsHandler.hpp"
+
 #include "AudioDeviceController.hpp"
 
 /**
@@ -31,7 +30,7 @@ class AudioManager {
     }, this, nullptr);
 
     ComPtr<IMMDeviceEnumerator> _deviceEnumerator;
-    ComPtr<AudioDeviceEventsHandler> _deviceHandler;
+    ComPtr<DefaultDeviceCallback> _deviceHandler;
 
     mutable std::mutex _deviceMutex;
 
@@ -56,8 +55,8 @@ public:
 
         // Attach, not assign: the handler is born with one reference and ComPtr would AddRef a
         // second one that nothing ever releases
-        _deviceHandler.Attach(new AudioDeviceEventsHandler());
-        _deviceHandler->DefaultDeviceChanged = _handleDeviceChanged;
+        _deviceHandler.Attach(new DefaultDeviceCallback());
+        _deviceHandler->Changed = _handleDeviceChanged;
         result = _deviceEnumerator->RegisterEndpointNotificationCallback(_deviceHandler.Get());
         CHECK_HR(result, "Failed to register endpoint notification callback");
 
@@ -117,7 +116,7 @@ private:
         watching ? device->WatchForSessions() : device->StopWatchingForSessions();
     }
 
-    const std::function<void(EDataFlow, ERole, LPCWSTR)> _handleDeviceChanged = [this](EDataFlow flow, ERole role, LPCWSTR) {
+    const std::function<void(EDataFlow, ERole)> _handleDeviceChanged = [this](const EDataFlow flow, const ERole role) {
         if (role == ERole::eCommunications && flow == eCapture && _reinit && !_reinitPending.exchange(true)) {
             SubmitThreadpoolWork(_reinit);
         }
