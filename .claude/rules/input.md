@@ -36,7 +36,8 @@ paths:
   on the threadpool, which posts `Commit(id, edit)`: one `SendInput` of edit + replay. One hold at a time.
 - The hold ends only once every event it sent came back through our hook. A 150 ms timeout or a full
   ring replays without an edit.
-- Edits never queue on `Dispatcher`: its worker runs slow COM and WASAPI calls.
+- Edits never queue on `Dispatcher`: its worker runs slow COM and WASAPI calls. The multi-press wait is
+  `HotkeyService`'s own timer, resolved on the input thread; `Dispatcher` is a plain queue.
 - Replayed input is injected: apps that reject injection must be excluded from text features.
 - An `ActionFlags::EditsText` action starts its edit in-proc when the hotkey fires; its sound and
   notification run only if `Commit` sent text.

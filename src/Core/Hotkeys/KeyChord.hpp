@@ -5,15 +5,29 @@
 #include <array>
 #include <cstdint>
 
-/// Left and right modifiers as the bits of a mask's low byte - the bits KeyNames names.
+/// A modifier key, its bit in a mask's low byte and its names, in the order names are printed.
+struct Modifier {
+    uint8_t Vk;
+    uint8_t Bit;
+    const char* Name;
+    /// Read, never printed: the unprefixed name already is the left key.
+    const char* Alias;
+};
+
+inline constexpr Modifier Modifiers[] = {
+    {VK_LCONTROL, 0x04, "CTRL", "LCTRL"},
+    {VK_RCONTROL, 0x20, "RCTRL", nullptr},
+    {VK_LSHIFT, 0x08, "SHIFT", "LSHIFT"},
+    {VK_RSHIFT, 0x40, "RSHIFT", nullptr},
+    {VK_LMENU, 0x10, "ALT", "LALT"},
+    {VK_RMENU, 0x80, "RALT", nullptr},
+};
+
 inline constexpr std::array<uint8_t, 256> ModifierBits = [] {
     std::array<uint8_t, 256> bits{};
-    bits[VK_LCONTROL] = 0x04;
-    bits[VK_LSHIFT] = 0x08;
-    bits[VK_LMENU] = 0x10;
-    bits[VK_RCONTROL] = 0x20;
-    bits[VK_RSHIFT] = 0x40;
-    bits[VK_RMENU] = 0x80;
+    for (const Modifier& modifier : Modifiers) {
+        bits[modifier.Vk] = modifier.Bit;
+    }
     return bits;
 }();
 

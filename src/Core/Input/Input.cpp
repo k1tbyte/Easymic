@@ -180,10 +180,12 @@ namespace {
                 }
                 default: break;
             }
+            // Moves and the wheel: never held, and never sent by us
+            if (!vk) {
+                return CallNextHookEx(nullptr, code, wParam, lParam);
+            }
             if (const uint8_t level = _level(info->dwExtraInfo); level == EditLevel) {
                 _arrived();
-            } else if (!vk) {
-                // Moves and the wheel are never held
             } else if (Router::Key(vk, down, true, level)) {
                 return 1;
             } else if (Hold::Active()) {

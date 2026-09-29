@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <iterator>
 
+#include "KeyChord.hpp"
+
 namespace {
 
 /// Case-insensitive compare of two ASCII tokens. tolower takes an int and a negative char is
@@ -16,29 +18,6 @@ bool EqualsIgnoreCase(const std::string_view left, const std::string_view right)
 }
 
 #pragma region [PRIVATE] Key name tables
-
-constexpr struct {
-    uint8_t bit;
-    const char* name;
-} ModifiersOrderedList[] = {
-    { 0x04, "CTRL" },
-    { 0x20, "RCTRL" },
-    { 0x08, "SHIFT" },
-    { 0x40, "RSHIFT" },
-    { 0x10, "ALT" },
-    { 0x80, "RALT" }
-};
-
-/// Names accepted on the way in but never printed. The unprefixed name is the left key, so a
-/// config written with the explicit prefix has to land on the same bit.
-constexpr struct {
-    uint8_t bit;
-    const char* name;
-} ModifierAliases[] = {
-    { 0x04, "LCTRL" },
-    { 0x08, "LSHIFT" },
-    { 0x10, "LALT" }
-};
 
 constexpr const char* KeysNameTable[256] = {
     nullptr,             // 0x00
@@ -57,9 +36,9 @@ constexpr const char* KeysNameTable[256] = {
     "Enter",             // VK_RETURN 	0x0D
     nullptr,             // 0x0E
     nullptr,             // 0x0F
-    "Shift",             // VK_SHIFT 	0x10
-    "Ctrl",              // VK_CONTROL 	0x11
-    "Alt",               // VK_MENU 	0x12
+    nullptr,             // VK_SHIFT 	0x10: modifiers are named by KeyChord's Modifiers
+    nullptr,             // VK_CONTROL 	0x11
+    nullptr,             // VK_MENU 	0x12
     "Pause",             // VK_PAUSE 	0x13
     "CapsLock",          // VK_CAPITAL 	0x14
     nullptr,             // VK_KANA/VK_HANGUEL/VK_HANGUL 	0x15
@@ -201,12 +180,12 @@ constexpr const char* KeysNameTable[256] = {
     nullptr,             // 0x9D
     nullptr,             // 0x9E
     nullptr,             // 0x9F
-    "LSHIFT",            // VK_LSHIFT 	0xA0
-    "RSHIFT",            // VK_RSHIFT 	0xA1
-    "LCTRL",             // VK_LCONTROL 	0xA2
-    "RCTRL",             // VK_RCONTROL 	0xA3
-    "LALT",              // VK_LMENU 	0xA4
-    "RALT",              // VK_RMENU 	0xA5
+    nullptr,             // VK_LSHIFT 	0xA0
+    nullptr,             // VK_RSHIFT 	0xA1
+    nullptr,             // VK_LCONTROL 	0xA2
+    nullptr,             // VK_RCONTROL 	0xA3
+    nullptr,             // VK_LMENU 	0xA4
+    nullptr,             // VK_RMENU 	0xA5
     "BrowserBack",       // VK_BROWSER_BACK 	    0xA6
     "BrowserForward",    // VK_BROWSER_FORWARD 	0xA7
     "BrowserRefresh",    // VK_BROWSER_REFRESH 	0xA8
@@ -274,14 +253,9 @@ constexpr const char* KeysNameTable[256] = {
 
 /// The bit a modifier name stands for, 0 when the token is not one.
 uint8_t ModifierBit(const std::string_view token) {
-    for (const auto& modifier : ModifiersOrderedList) {
-        if (EqualsIgnoreCase(token, modifier.name)) {
-            return modifier.bit;
-        }
-    }
-    for (const auto& alias : ModifierAliases) {
-        if (EqualsIgnoreCase(token, alias.name)) {
-            return alias.bit;
+    for (const Modifier& modifier : Modifiers) {
+        if (EqualsIgnoreCase(token, modifier.Name) || (modifier.Alias && EqualsIgnoreCase(token, modifier.Alias))) {
+            return modifier.Bit;
         }
     }
     return 0;
@@ -325,12 +299,12 @@ std::string Format(const uint64_t keysMask) {
     // Modifiers first, in the table's own order rather than the order they were pressed
     const uint8_t modifierByte = keysMask & 0xFF;
     bool hasModifiers = false;
-    for (const auto& modifier : ModifiersOrderedList) {
-        if (modifierByte & modifier.bit) {
+    for (const Modifier& modifier : Modifiers) {
+        if (modifierByte & modifier.Bit) {
             if (hasModifiers) {
                 modifierResult += " + ";
             }
-            modifierResult += modifier.name;
+            modifierResult += modifier.Name;
             hasModifiers = true;
         }
     }

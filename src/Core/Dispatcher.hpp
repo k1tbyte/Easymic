@@ -2,7 +2,6 @@
 
 #include <windows.h>
 
-#include <chrono>
 #include <functional>
 
 /**
@@ -16,10 +15,6 @@
  *    to WASAPI. It is the thread a feature's callback lands on.
  *  - **The UI thread** owns every window and the config. Anything on the worker that needs to
  *    touch either goes through ToUi.
- *
- * Nothing here knows what a hotkey is. Deferred actions exist because a combination bound to
- * several press counts has to wait to find out which one the user meant, but the rule - hold one
- * action until a deadline, replace it if a newer one arrives - is not specific to that.
  */
 namespace Dispatcher {
 
@@ -31,20 +26,6 @@ namespace Dispatcher {
 
     /// Queues an action. An empty function is ignored, so an unbound slot needs no check of its own.
     void Post(std::function<void()> action);
-
-    /**
-     * @brief Holds one action until the deadline, then queues it.
-     *
-     * A second call replaces what was waiting - the held action never runs twice, and the newer
-     * deadline is the one that counts.
-     */
-    void Defer(std::chrono::steady_clock::time_point deadline, std::function<void()> action);
-
-    /// Queues the waiting action now instead of at its deadline. Nothing waiting is not an error.
-    void FlushDeferred();
-
-    /// Drops the waiting action without running it.
-    void CancelDeferred();
 
     /// Posted by ToUi. The bound window has to route this message to RunPosted.
     inline constexpr UINT WM_DISPATCH_RUN = WM_APP + 20;

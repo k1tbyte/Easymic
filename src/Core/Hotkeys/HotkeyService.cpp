@@ -82,7 +82,7 @@ namespace {
     /// UI thread.
     std::unique_ptr<Table> _building = std::make_unique<Table>();
 
-    // Input thread, from here down; Dispatcher owns deferred action locking.
+    // Input thread, from here down
     std::unique_ptr<Table> _active;
     KeyChord _chord;
     std::vector<ReleaseClaim> _releases;
@@ -94,20 +94,18 @@ namespace {
     uint8_t _pendingCount = 0;
     HWND _pendingWindow = nullptr;
     std::chrono::steady_clock::time_point _pendingDeadline{};
-    /// The edit of a press waiting out the window. It resolves on the input thread, never on the
-    /// action worker, which COM or WASAPI can keep busy past the hold's timeout.
-    const HotkeyBinding* _pendingEdit = nullptr;
-    PTP_TIMER _editTimer = nullptr;
+    /// What the press waiting out the window fires. It resolves on the input thread, never on the
+    /// action worker, which COM or WASAPI can keep busy past an edit's hold timeout.
+    const HotkeyBinding* _pendingPress = nullptr;
+    PTP_TIMER _timer = nullptr;
 
+    /// Drops the waiting press unfired.
     void _clearPending() {
         _pendingMask = 0;
         _pendingCount = 0;
         _pendingWindow = nullptr;
-    }
-
-    void _cancelDeferred() {
-        Dispatcher::CancelDeferred();
-        _pendingEdit = nullptr;
+        _pendingPress = nullptr;
+        SetThreadpoolTimer(_timer, nullptr, 0, 0);
     }
 
     /// The edit under a hold; its sound and notification wait for it to land.
@@ -116,30 +114,42 @@ namespace {
                                                     : std::function<void()>{});
     }
 
-    /// In-proc: the key that ended the window is held behind the edit.
-    void _flushDeferred() {
-        Dispatcher::FlushDeferred();
-        if (_pendingEdit) {
-            _edit(*std::exchange(_pendingEdit, nullptr));
+    /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
+    /// that fired it can be delivered.
+    void _press(const HotkeyBinding& binding) {
+        if (binding.onEdit) {
+            _edit(binding);
+        } else {
+            Dispatcher::Post(binding.onPress);
         }
     }
 
-    void _armEdit(const std::chrono::steady_clock::duration delay) {
+    /// The window closed: the waiting press fires. In-proc when a key closed it, so an edit's hold
+    /// catches that key.
+    void _firePending() {
+        const HotkeyBinding* binding = _pendingPress;
+        _clearPending();
+        if (binding) {
+            _press(*binding);
+        }
+    }
+
+    void _arm(const std::chrono::steady_clock::duration delay) {
         // Negative is relative, in 100 ns units
         const int64_t due = -std::chrono::duration_cast<std::chrono::duration<int64_t, std::ratio<1, 10'000'000>>>(delay).count();
         FILETIME at{.dwLowDateTime = static_cast<DWORD>(due), .dwHighDateTime = static_cast<DWORD>(due >> 32)};
-        SetThreadpoolTimer(_editTimer, &at, 0, 0);
+        SetThreadpoolTimer(_timer, &at, 0, 0);
     }
 
     /// A fire armed for an earlier window re-arms for what is left of this one.
-    void _editDue() {
-        if (!_pendingEdit) {
+    void _due() {
+        if (!_pendingMask) {
             return;
         }
         if (const auto left = _pendingDeadline - std::chrono::steady_clock::now(); left > left.zero()) {
-            _armEdit(left);
+            _arm(left);
         } else {
-            _edit(*std::exchange(_pendingEdit, nullptr));
+            _firePending();
         }
     }
 
@@ -198,16 +208,6 @@ namespace {
         _releases.resize(kept);
     }
 
-    /// Press, and an edit under it if the action types. In-proc: the hold starts before the key
-    /// that fired it can be delivered.
-    void _press(const HotkeyBinding& binding) {
-        if (binding.onEdit) {
-            _edit(binding);
-        } else {
-            Dispatcher::Post(binding.onPress);
-        }
-    }
-
     void _fireOnce(const Match& entry) {
         const auto* binding = entry.At(0);
         if (binding && (entry.count == 1 || binding->onRelease)) {
@@ -222,25 +222,22 @@ namespace {
         const auto* binding = entry.At(_pendingCount - 1);
 
         if (_pendingCount >= entry.count) {
-            _cancelDeferred();
+            _clearPending();
             // In-proc, like _fireOnce: an edit's hold has to catch the key that fired it
             if (binding) {
                 _press(*binding);
             }
-            _clearPending();
+            return;
+        }
+
+        _pendingDeadline = std::chrono::steady_clock::now() + _active->MultiPressWindow;
+        _arm(_active->MultiPressWindow);
+        // A first press that also acts on its release fires at once; anything else waits
+        if (_pendingCount == 1 && binding && binding->onRelease && binding->onPress) {
+            _pendingPress = nullptr;
+            Dispatcher::Post(binding->onPress);
         } else {
-            _pendingDeadline = std::chrono::steady_clock::now() + _active->MultiPressWindow;
-            if (_pendingCount == 1 && binding && binding->onRelease && binding->onPress) {
-                _cancelDeferred();
-                Dispatcher::Post(binding->onPress);
-            } else {
-                Dispatcher::Defer(_pendingDeadline, binding && !binding->onEdit ? binding->onPress
-                                                                                : std::function<void()>{});
-                _pendingEdit = binding && binding->onEdit ? binding : nullptr;
-                if (_pendingEdit) {
-                    _armEdit(_active->MultiPressWindow);
-                }
-            }
+            _pendingPress = binding;
         }
     }
 
@@ -277,8 +274,7 @@ namespace {
             const bool modifier = ModifierBits[vkCode] && _pendingMask != countingMask;
             const bool expired = std::chrono::steady_clock::now() >= _pendingDeadline;
             if (changed || expired || (!modifier && _pendingMask != countingMask)) {
-                _flushDeferred();
-                _clearPending();
+                _firePending();
             }
         }
 
@@ -318,8 +314,7 @@ namespace {
     }
 
     void _reset() {
-        // The waiting action and the claims belong to presses this stage no longer knows about
-        _cancelDeferred();
+        // The waiting press and the claims belong to presses this stage no longer knows about
         _clearPending();
         _releases.clear();
         _chord = {};
@@ -337,8 +332,8 @@ namespace {
 
     void Register() {
         Input::Add({.Id = StageId, .Order = 200, .OnKey = &_onKey, .OnReset = &_reset});
-        _editTimer = CreateThreadpoolTimer([](PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) {
-            Input::Post(&_editDue);
+        _timer = CreateThreadpoolTimer([](PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) {
+            Input::Post(&_due);
         }, nullptr, nullptr);
     }
 

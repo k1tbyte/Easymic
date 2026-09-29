@@ -24,11 +24,9 @@ namespace KeyNames {
      *
      * Tokens are separated by '+' and matched without regard to case or surrounding spaces.
      *
-     * A modifier name wins over a key of the same spelling, which is what makes the round trip
-     * total: the hook folds all six side-specific modifier keys into the modifier byte and never
-     * reports the three generic ones at all, so none of them can reach a key byte and their names
-     * are free to mean the modifier. That is also why VK_OEM_PLUS is called "Plus" rather than
-     * "+" - it is the one key whose name would otherwise be the separator itself.
+     * Modifier keys have no key name, only their bit's (KeyChord's `Modifiers`): the hook folds
+     * them into the modifier byte, so none reaches a key byte. VK_OEM_PLUS is "Plus", as "+" is the
+     * separator.
      *
      * An unknown token rejects the whole name rather than silently dropping one key: half a
      * combination is a hotkey the user never asked for.
