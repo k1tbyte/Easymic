@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "Autocorrect.hpp"
+#include "Autocorrect/Autocorrect.hpp"
 #include "Platform/Foreground.hpp"
 
 namespace KeyboardExclusions {

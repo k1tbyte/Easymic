@@ -3,15 +3,15 @@
 #include <string>
 
 #include "AppConfig.hpp"
-#include "Autocorrect.hpp"
+#include "Autocorrect/Autocorrect.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Input/Input.hpp"
 #include "Core/Lifecycle.hpp"
 #include "InputLanguage.hpp"
 #include "KeyboardPage.hpp"
 #include "LayoutLayer.hpp"
-#include "Learning.hpp"
-#include "WordTracker.hpp"
+#include "Autocorrect/Learning.hpp"
+#include "Autocorrect/WordTracker.hpp"
 #include "definitions.h"
 
 namespace {

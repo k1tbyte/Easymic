@@ -4,7 +4,7 @@
 #include <array>
 #include <cstdint>
 
-#include "Convert/LayoutTable.hpp"
+#include "../Convert/LayoutTable.hpp"
 
 namespace TypedWord {
 

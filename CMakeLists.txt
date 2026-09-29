@@ -127,7 +127,7 @@ target_link_libraries(KeyboardConfigTest PRIVATE glaze::glaze)
 add_executable(AutocorrectTest EXCLUDE_FROM_ALL tests/Keyboard/AutocorrectTest.cpp
                src/Features/Keyboard/Convert/Rules.cpp src/Features/Keyboard/Convert/Detector.cpp
                src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/LayoutTable.cpp
-               src/Features/Keyboard/Convert/Alphabet.cpp src/Features/Keyboard/Convert/Ngram.cpp
+               src/Features/Keyboard/Convert/Alphabet.cpp
                tools/Keyboard/langpack/PackBuilder.cpp tools/Keyboard/langpack/Console.cpp)
 target_include_directories(AutocorrectTest PRIVATE src tools/Keyboard)
 target_compile_definitions(AutocorrectTest PRIVATE NOMINMAX UNICODE _UNICODE)

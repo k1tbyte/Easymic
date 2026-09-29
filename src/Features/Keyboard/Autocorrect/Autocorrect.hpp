@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "Convert/Detector.hpp"
+#include "../Convert/Detector.hpp"
 #include "TypedWord.hpp"
 
 class Feedback;

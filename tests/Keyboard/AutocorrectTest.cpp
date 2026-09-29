@@ -5,7 +5,7 @@
 
 #include "Features/Keyboard/Convert/Detector.hpp"
 #include "Features/Keyboard/Convert/Rules.hpp"
-#include "Features/Keyboard/TypedWord.hpp"
+#include "Features/Keyboard/Autocorrect/TypedWord.hpp"
 #include "Platform/Str.hpp"
 #include "langpack/PackBuilder.hpp"
 

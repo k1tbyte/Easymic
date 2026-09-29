@@ -7,7 +7,7 @@
 #include "InputLanguage.hpp"
 #include "KeyboardExclusions.hpp"
 #include "KeyboardPacks.hpp"
-#include "Learning.hpp"
+#include "Autocorrect/Learning.hpp"
 #include "Platform/Foreground.hpp"
 #include "Platform/WindowCatalog.hpp"
 #include "Str.hpp"

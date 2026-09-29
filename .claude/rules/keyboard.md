@@ -9,13 +9,16 @@ paths:
 
 ## Files
 
-- `WordTracker` - stage `kbd.text`: the word as key positions (never characters), Space, mid-word
-  fixes, convert, undo, learning signals.
-- `Judge` - `Autocorrect::Decide`/`Early` on the threadpool while the word is typed. Never on the input
-  thread: a page fault in the mapped pack would stall desktop input.
-- `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
-- `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`.
-- `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack`, `Rules`, `Detector`.
+- `Autocorrect/` - the text stage:
+  - `WordTracker` - stage `kbd.text`: the word as key positions (never characters), Space, mid-word
+    fixes, convert, undo, learning signals.
+  - `Judge` - `Autocorrect::Decide`/`Early` on the threadpool while the word is typed. Never on the input
+    thread: a page fault in the mapped pack would stall desktop input.
+  - `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
+  - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`.
+- `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack` (with its
+  `Alphabet`), `Rules`, `Detector`.
+- Root: `Keyboard` (module), `KeyboardPage`, `KeyboardPacks`, `KeyboardExclusions`, `InputLanguage`, `LayoutLayer`.
 
 ## Flow
 

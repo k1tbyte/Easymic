@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+#include "Alphabet.hpp"
+
 namespace Convert {
 
     constexpr uint32_t PackVersion = 2;
@@ -64,7 +66,7 @@ namespace Convert {
         double Threshold() const { return _threshold; }
         uint64_t WordCount() const { return _wordCount; }
         uint64_t MappedBytes() const { return _size; }
-        const std::wstring& Symbols() const { return _symbols; }
+        const std::wstring& Symbols() const { return _alphabet.Symbols(); }
 
         bool Contains(std::wstring_view word) const;
         /// Some word starts with `text`'s first `StartLetters` letters.
@@ -82,7 +84,7 @@ namespace Convert {
         const uint8_t* _data = nullptr;
         uint64_t _size = 0;
 
-        std::wstring _symbols;
+        Alphabet _alphabet;
         uint64_t _bloomBits = 0;
         uint32_t _bloomHashes = 0;
         const uint8_t* _bloomData = nullptr;

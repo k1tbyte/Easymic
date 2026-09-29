@@ -2,7 +2,7 @@
 paths:
   - "src/Core/Input/**"
   - "src/Core/Hotkeys/**"
-  - "src/Features/Keyboard/WordTracker*"
+  - "src/Features/Keyboard/Autocorrect/WordTracker*"
   - "tests/Input/**"
 ---
 

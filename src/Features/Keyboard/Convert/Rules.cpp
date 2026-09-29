@@ -12,12 +12,21 @@ namespace {
 
     enum : uint8_t { Whole = 0, Begin = 1, Anywhere = 2, Exception = 4, CaseSensitive = 8, Cyrillic = 16 };
 
+    constexpr uint64_t Prime = 1099511628211ull;
+
+    uint64_t _seed(const uint8_t kind) {
+        return (14695981039346656037ull ^ kind) * Prime;
+    }
+
+    uint64_t _step(uint64_t h, const wchar_t c) {
+        h = (h ^ static_cast<uint8_t>(c)) * Prime;
+        return (h ^ static_cast<uint8_t>(c >> 8)) * Prime;
+    }
+
     uint64_t _hash(const uint8_t kind, const std::wstring_view text) {
-        constexpr uint64_t prime = 1099511628211ull;
-        uint64_t h = (14695981039346656037ull ^ kind) * prime;
+        uint64_t h = _seed(kind);
         for (const wchar_t c : text) {
-            h = (h ^ static_cast<uint8_t>(c)) * prime;
-            h = (h ^ static_cast<uint8_t>(c >> 8)) * prime;
+            h = _step(h, c);
         }
         return h;
     }
@@ -70,25 +79,34 @@ bool Rules::_has(const uint8_t kind, const std::wstring_view text) const {
 }
 
 bool Rules::_match(const uint8_t kind, const std::wstring_view word, RuleHit& hit, const bool open) const {
-    const std::wstring edged = L" " + std::wstring(word) + (open ? L"" : L" ");
-    const std::wstring_view view = edged;
     if ((!open || kind & Exception) && _has(kind | Whole, word)) {
         hit.Pattern = L"P " + std::wstring(word);
         return true;
     }
-    for (size_t n = 1; n <= std::min(_longest, view.size() - 1); ++n) {
-        if (_has(kind | Begin, view.substr(1, n))) {
-            hit.Pattern = L"B " + edged.substr(1, n);
-            return true;
-        }
-    }
-    for (size_t i = 0; i < view.size(); ++i) {
-        for (size_t n = 1; n <= _longest && i + n <= view.size(); ++n) {
-            if (_has(kind | Anywhere, view.substr(i, n))) {
-                hit.Pattern = L"A " + edged.substr(i, n);
-                hit.Anywhere = true;
+    // The word between spaces, so an edge space anchors a pattern; hashed as it grows, never copied
+    const size_t size = word.size() + (open ? 1 : 2);
+    const auto at = [word](const size_t i) { return i == 0 || i > word.size() ? L' ' : word[i - 1]; };
+    const auto found = [&](const uint8_t type, const size_t from, const wchar_t* tag) {
+        uint64_t h = _seed(kind | type);
+        for (size_t n = 1; n <= _longest && from + n <= size; ++n) {
+            h = _step(h, at(from + n - 1));
+            if (std::ranges::binary_search(_keys, h)) {
+                hit.Pattern = tag;
+                for (size_t i = from; i < from + n; ++i) {
+                    hit.Pattern += at(i);
+                }
                 return true;
             }
+        }
+        return false;
+    };
+    if (found(Begin, 1, L"B ")) {
+        return true;
+    }
+    for (size_t i = 0; i < size; ++i) {
+        if (found(Anywhere, i, L"A ")) {
+            hit.Anywhere = true;
+            return true;
         }
     }
     return false;

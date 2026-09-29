@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "Autocorrect.hpp"
-#include "InputLanguage.hpp"
-#include "KeyboardExclusions.hpp"
+#include "../InputLanguage.hpp"
+#include "../KeyboardExclusions.hpp"
 #include "Judge.hpp"
 #include "Learning.hpp"
-#include "LayoutLayer.hpp"
+#include "../LayoutLayer.hpp"
 #include "TypedWord.hpp"
 #include "WordEdit.hpp"
 
@@ -104,6 +104,13 @@ namespace {
     /// Autocorrect's to judge: not converted already, and not the rest of a word a mid-word hold converts.
     bool _judging() {
         return _runtime->Auto && _word.Count && !_word.Spaces && !_word.Layout && !(_heldId && _heldEarly);
+    }
+
+    /// Edited after its Space left it alone: that Space's pin goes, so the judge reads the word anew.
+    void _reopen() {
+        if (_word.Judged == Judgement::Kept || _word.Judged == Judgement::Undecided) {
+            _word.Layout = nullptr;
+        }
     }
 
     /// The word's keys changed: a new version for the judge.
@@ -204,6 +211,7 @@ namespace {
                     _erased = _word;
                     _erasedWhole = false;
                 }
+                _reopen();
                 _word.Judged = Judgement::None;
                 if (!--_word.Count) {
                     // Gone from the screen: the next word is read in the layout it is typed in
@@ -263,6 +271,7 @@ namespace {
             }
             // A mid-word fix stands for the rest of its word
             if (!_word.EarlyAt || _word.Judged != Judgement::Fixed) {
+                _reopen();
                 _word.Judged = Judgement::None;
             }
             _word.Keys[_word.Count++] = key;

@@ -1,10 +1,8 @@
 #include "Pack.hpp"
 
-#include "Alphabet.hpp"
 #include "Bloom.hpp"
-#include "Ngram.hpp"
 
-#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "Platform/Str.hpp"
@@ -103,11 +101,12 @@ bool Pack::Load(const std::wstring& path, std::wstring* error) {
         return fail(L"truncated pack");
     }
 
-    _symbols.clear();
+    std::wstring symbols;
     const auto* codepoints = reinterpret_cast<const uint32_t*>(_data + at.Alphabet);
     for (uint32_t i = 0; i < header.AlphabetLen; ++i) {
-        _symbols.push_back(static_cast<wchar_t>(codepoints[i]));
+        symbols.push_back(static_cast<wchar_t>(codepoints[i]));
     }
+    _alphabet = Alphabet(std::move(symbols));
     _bloomBits = header.BloomBits;
     _bloomHashes = header.BloomHashes;
     _bloomData = _data + at.Bloom;
@@ -130,11 +129,29 @@ bool Pack::Begins(const std::wstring_view text) const {
 }
 
 double Pack::Score(const std::wstring& text, const bool open) const {
-    return NgramScore(_symbols, _tri, _bi, text, open);
+    constexpr double Smoothing = 0.5;
+    const uint64_t v = _alphabet.Size();
+    const std::vector<uint32_t> seq = _alphabet.Encode(text, open);
+    if (seq.size() < 3) {
+        return -20.0;
+    }
+    double sum = 0.0;
+    for (size_t i = 2; i < seq.size(); ++i) {
+        const uint64_t context = seq[i - 2] * v + seq[i - 1];
+        sum += std::log((_tri[context * v + seq[i]] + Smoothing)
+                        / (_bi[context] + Smoothing * static_cast<double>(v)));
+    }
+    return sum / static_cast<double>(seq.size() - 2);
 }
 
 size_t Pack::Unseen(const std::wstring& text, const bool open) const {
-    return NgramUnseen(_symbols, _tri, text, open);
+    const uint64_t v = _alphabet.Size();
+    const std::vector<uint32_t> seq = _alphabet.Encode(text, open);
+    size_t unseen = 0;
+    for (size_t i = 2; i < seq.size(); ++i) {
+        unseen += _tri[(seq[i - 2] * v + seq[i - 1]) * v + seq[i]] == 0;
+    }
+    return unseen;
 }
 
 }

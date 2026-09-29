@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "Convert/Detector.hpp"
+#include "../Convert/Detector.hpp"
 #include "TypedWord.hpp"
 
 namespace Autocorrect {
