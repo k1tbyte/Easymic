@@ -16,7 +16,8 @@ paths:
     thread: a page fault in the mapped pack would stall desktop input.
   - `Autocorrect` - `Runtime` (tables, packs, rules, settings) built on Restore; verdicts, feedback, log.
   - `TypedWord` (the word, the run), `WordEdit` (Backspaces, Unicode text, held modifiers), `Learning`,
-    `Accessibility` (password field over MSAA).
+    `UserRules` (the user's rules, compiled for the judge), `Accessibility` (password field over MSAA).
+- `Settings/` - the Keyboard page's Excluded apps and Rules tabs, the rule dialog.
 - `Convert/` - the engine, shared with `tools/Keyboard/langpack`: `LayoutTable`, `Pack` (with its
   `Alphabet`), `Rules`, `Detector`.
 - Root: `Keyboard` (module), `KeyboardPage`, `KeyboardPacks`, `KeyboardExclusions`, `InputLanguage`, `LayoutLayer`.
@@ -45,9 +46,11 @@ paths:
   (`bv,f` = имба; `e.g`, `:p`, `ofc.` stay). Same-script pairs skip rules.
 - The pair is two layouts by KLID. A third layout of a side's script (uk next to ru) is never judged,
   only converted by hand; a conversion always goes to the pair's other layout.
-- Learning (`Keyboard.Learned`, typed form, lowercase): convert or undo right after an auto-fix teaches
-  Never, converting a kept word teaches Always, erasing and retyping from the other side teaches too.
-  A trailing `*` in Never refuses a start, mid-word only.
+- User rules (`Keyboard.Learned.Rules`, the Rules tab): text as typed, signs kept (`,he[` = брух), whole
+  word / starts with / contains, optional case; Never beats Always and both beat detection on Space.
+  Mid-word, a word that may still hit a Never waits; a Contains Never makes every word wait.
+- Learning writes the same rules: convert or undo right after an auto-fix teaches Never (an undone mid-word
+  fix: a Never start), converting a kept word teaches Always, erasing and retyping teaches too.
 - Undo returns the fix and what was typed after it; a caret move, chord, layout switch or next fix ends
   it. Not tracked: excluded apps, fullscreen windows, an unresolved foreground app.
 

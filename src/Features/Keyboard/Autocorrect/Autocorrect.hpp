@@ -9,10 +9,10 @@
 
 #include "../Convert/Detector.hpp"
 #include "TypedWord.hpp"
+#include "UserRules.hpp"
 
 class Feedback;
 struct KeyboardSettings;
-struct LearnedWords;
 
 namespace Autocorrect {
 
@@ -48,11 +48,11 @@ namespace Autocorrect {
     std::shared_ptr<Runtime> Resolve(const KeyboardSettings& settings);
 
     /// Off the input thread: the verdict on a word typed on pair side `from`, the user's words over all.
-    Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
+    Convert::Verdict Decide(const Runtime& runtime, const UserRules::Compiled& learned, std::span<const Convert::Key> word,
                             int from);
 
     /// Off the input thread: whether the word so far switches now, unless the user refused its start.
-    Convert::Verdict Early(const Runtime& runtime, const LearnedWords& learned, std::span<const Convert::Key> word,
+    Convert::Verdict Early(const Runtime& runtime, const UserRules::Compiled& learned, std::span<const Convert::Key> word,
                            int from);
 
     /// Input thread: the user overruled autocorrect on `word`, on screen on pair side `side` - a fix teaches never

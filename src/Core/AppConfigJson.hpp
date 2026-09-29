@@ -16,3 +16,9 @@ struct glz::meta<AutoCorrectMode> {
     using enum AutoCorrectMode;
     static constexpr auto value = enumerate(Off, Space, MidWord);
 };
+
+template <>
+struct glz::meta<WordMatch> {
+    using enum WordMatch;
+    static constexpr auto value = enumerate(Exact, StartsWith, Contains);
+};

@@ -57,7 +57,8 @@ SettingsWindow::SettingsWindow(HINSTANCE hInstance, HWND owner, AppConfig& confi
 
 void SettingsWindow::Show() {
     if (!_hwnd) {
-        INITCOMMONCONTROLSEX controls{sizeof(INITCOMMONCONTROLSEX), ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES};
+        INITCOMMONCONTROLSEX controls{sizeof(INITCOMMONCONTROLSEX),
+                                      ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES};
         InitCommonControlsEx(&controls);
 
         // Modeless: the tray app keeps pumping its own message loop while this is open
@@ -113,6 +114,14 @@ INT_PTR CALLBACK SettingsWindow::PageProc(HWND hwnd, UINT message, WPARAM wParam
         case WM_HSCROLL:
             if (window) {
                 SettingsRows::Handle(hwnd, window->_rows, window->_cfg, message, wParam, lParam);
+            }
+            break;
+
+        case WM_NOTIFY:
+            if (const auto* header = reinterpret_cast<const NMHDR*>(lParam);
+                window && header->hwndFrom == window->_hwndTabs && header->code == TCN_SELCHANGE) {
+                window->ShowTab(TabCtrl_GetCurSel(header->hwndFrom));
+                return TRUE;
             }
             break;
 
@@ -187,13 +196,17 @@ INT_PTR SettingsWindow::OnCtlColorStatic(WPARAM wParam, LPARAM lParam) const {
 void SettingsWindow::Apply() {
     _onApply();
 
-    // Every page's rows, not only the open one's - a choice made on a page left earlier is still
-    // waiting for this
-    for (const SettingsPage& page : SettingsHost::Pages) {
-        for (const SettingsRow& row : page.Rows) {
+    const auto commit = [&](const std::span<const SettingsRow> rows) {
+        for (const SettingsRow& row : rows) {
             if (row.Commit) {
                 row.Commit(_hwnd, _cfg, _cfgPrev);
             }
+        }
+    };
+    for (const SettingsPage& page : SettingsHost::Pages) {
+        commit(page.Rows);
+        for (const SettingsTab& tab : page.Tabs) {
+            commit(tab.Rows);
         }
     }
 
@@ -209,6 +222,10 @@ INT_PTR SettingsWindow::OnDestroy() {
     _hwndTreeView = nullptr;
     _hwndGroupBox = nullptr;
     _hwndContentDialog = nullptr;
+    _hwndTabs = nullptr;
+    _hwndTabPage = nullptr;
+    _rows = {};
+    _tabs = {};
     _isVisible = false;
 
     SettingsPages::Close();
@@ -264,8 +281,11 @@ void SettingsWindow::ShowPage(const SettingsPage& page) {
 
     if (_hwndContentDialog) {
         DestroyWindow(_hwndContentDialog);
-        _hwndContentDialog = nullptr;
     }
+    _hwndTabs = nullptr;
+    _hwndTabPage = nullptr;
+    _tabs = page.Tabs;
+    _rows = page.Rows;
 
     _hwndContentDialog = CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(IDD_SETTINGS_PAGE), _hwndGroupBox,
                                             PageProc, reinterpret_cast<LPARAM>(this));
@@ -273,11 +293,49 @@ void SettingsWindow::ShowPage(const SettingsPage& page) {
         return;
     }
 
-    // Sized before it is filled: the rows take their width from the page
     UpdateGroupBoxLayout();
-    _rows = page.Rows;
-    SettingsRows::Build(_hwndContentDialog, _rows, _cfg);
+    if (_tabs.empty()) {
+        SettingsRows::Build(_hwndContentDialog, _rows, _cfg);
+    } else {
+        RECT client;
+        GetClientRect(_hwndContentDialog, &client);
+        RECT unit{0, 0, 100, 0};
+        MapDialogRect(_hwndContentDialog, &unit);
+        _hwndTabs = SettingsRows::Control(_hwndContentDialog, WC_TABCONTROLW, L"",
+                                          WS_TABSTOP | WS_CLIPSIBLINGS,
+                                          {0, 0, MulDiv(client.right, 100, unit.right), 14}, 900);
+        for (size_t i = 0; i < _tabs.size(); ++i) {
+            TCITEMW item{.mask = TCIF_TEXT, .pszText = const_cast<wchar_t*>(_tabs[i].Title)};
+            TabCtrl_InsertItem(_hwndTabs, static_cast<int>(i), &item);
+        }
+        ShowTab(0);
+    }
     ShowWindow(_hwndContentDialog, SW_SHOW);
+}
+
+void SettingsWindow::ShowTab(const int index) {
+    if (index < 0 || static_cast<size_t>(index) >= _tabs.size()) {
+        return;
+    }
+    if (_hwndTabPage) {
+        DestroyWindow(_hwndTabPage);
+    }
+    _rows = _tabs[index].Rows;
+    TabCtrl_SetCurSel(_hwndTabs, index);
+    _hwndTabPage = CreateDialogParamW(_hInstance, MAKEINTRESOURCEW(IDD_SETTINGS_PAGE), _hwndContentDialog,
+                                     PageProc, reinterpret_cast<LPARAM>(this));
+    if (!_hwndTabPage) {
+        return;
+    }
+
+    RECT client;
+    GetClientRect(_hwndContentDialog, &client);
+    RECT top{0, 0, 0, 18};
+    MapDialogRect(_hwndContentDialog, &top);
+    SetWindowPos(_hwndTabPage, nullptr, 0, top.bottom, client.right, std::max(0L, client.bottom - top.bottom),
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+    SettingsRows::Build(_hwndTabPage, _rows, _cfg);
+    ShowWindow(_hwndTabPage, SW_SHOW);
 }
 
 /// Fits the category page into the group box interior, below its title.

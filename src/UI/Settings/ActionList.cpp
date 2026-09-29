@@ -7,6 +7,7 @@
 #include "SettingsRows.hpp"
 #include "Core/ActionRegistry.hpp"
 #include "Core/Hotkeys/KeyNames.hpp"
+#include "Platform/Controls.hpp"
 #include "Platform/Foreground.hpp"
 #include "Resources/Resource.h"
 #include "Str.hpp"
@@ -44,29 +45,6 @@ namespace {
         return hotkey;
     }
 
-    /**
-     * @brief Splits the client width across the columns - no horizontal scrolling, long commands
-     * get ellipsized and hovering unfolds the full text.
-     *
-     * GetClientRect already excludes the vertical scrollbar, so this has to run again after every
-     * fill: guessing the scrollbar width instead leaves a dead gap while the list still fits.
-     */
-    void _layoutColumns(HWND list) {
-        // The hotkey column carries the combination, the press count and the release marker,
-        // so it is the one that must not truncate
-        constexpr int percents[] = {32, 38, 0}; // the last one takes what is left
-
-        RECT client;
-        GetClientRect(list, &client);
-
-        int used = 0;
-        for (int i = 0; i < static_cast<int>(std::size(percents)); i++) {
-            const int width = percents[i] ? client.right * percents[i] / 100 : client.right - used;
-            used += width;
-            SendMessageW(list, LVM_SETCOLUMNWIDTH, i, MAKELPARAM(width, 0));
-        }
-    }
-
     void _addRow(HWND list, const std::string& name, const std::string& hotkey, const std::string& command,
                  const bool runsCommand) {
         const std::wstring cells[] = {Str::Utf8ToWide(name), Str::Utf8ToWide(hotkey), Str::Utf8ToWide(command)};
@@ -96,7 +74,8 @@ namespace {
         }
         _addRow(list, "+ Add action...", "", "", false);
 
-        _layoutColumns(list);
+        // Long commands ellipsize, the hotkey column must not
+        Controls::FitColumns(list, {32, 38});
     }
 
     /**

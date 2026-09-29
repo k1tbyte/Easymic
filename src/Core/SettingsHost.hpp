@@ -70,10 +70,14 @@ struct SettingsRow {
     /// Combo, Slider or SoundPicker: shares the previous row's line, each taking half its control
     /// area, and has no label of its own.
     bool Beside = false;
-    /// Custom only: the cell height in dialog units and what fills it. A control given id routes
-    /// its click to Changed.
+    /// Custom: height in dialog units; zero fills the remaining page. A control given id routes its click to Changed.
     uint8_t Height = 0;
     void (*Create)(HWND page, const RECT& cell, int id) = nullptr;
+};
+
+struct SettingsTab {
+    const wchar_t* Title;
+    std::span<const SettingsRow> Rows;
 };
 
 /// One page of the settings window. The window builds it fresh on every visit.
@@ -82,6 +86,7 @@ struct SettingsPage {
     std::span<const SettingsRow> Rows;
     /// Where the page sits in the sidebar - see the keys below.
     int Order = 100;
+    std::span<const SettingsTab> Tabs;
 };
 
 /**

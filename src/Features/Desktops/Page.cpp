@@ -101,11 +101,7 @@ namespace {
             }
             ListView_SetItemText(list, i, 1, place);
         }
-        // After the fill: a scrollbar that just appeared narrows the client
-        RECT client;
-        GetClientRect(list, &client);
-        ListView_SetColumnWidth(list, 0, client.right * 45 / 100);
-        ListView_SetColumnWidth(list, 1, client.right - client.right * 45 / 100);
+        Controls::FitColumns(list, {45});
     }
 
     void _fillDesktop() {

@@ -63,14 +63,12 @@ namespace {
         ShowScrollBar(page, SB_VERT, TRUE);
     }
 
-    /// The page's client width in dialog units, so a row fits the page rather than the template
-    /// the page used to be.
-    int PageWidth(HWND page) {
+    SIZE PageSize(HWND page) {
         RECT client;
         GetClientRect(page, &client);
-        RECT unit{0, 0, 100, 0};
+        RECT unit{0, 0, 100, 100};
         MapDialogRect(page, &unit);
-        return MulDiv(client.right, 100, unit.right);
+        return {MulDiv(client.right, 100, unit.right), MulDiv(client.bottom, 100, unit.bottom)};
     }
 
     int ReadInt(const SettingsRow& row, HWND control) {
@@ -190,7 +188,8 @@ HWND SettingsRows::Control(HWND page, const wchar_t* cls, const wchar_t* text, D
 
 void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig& cfg) {
     FitScrollBar(page, rows);
-    const int width = PageWidth(page);
+    const SIZE size = PageSize(page);
+    const int width = size.cx;
     int y = 0;
     HWND group = nullptr;
     int groupTop = 0;
@@ -223,7 +222,8 @@ void SettingsRows::Build(HWND page, std::span<const SettingsRow> rows, AppConfig
 
         const int left = group ? GroupIndent : 0;
         const int right = width - left;
-        const int height = HeightOf(row);
+        const int height = row.Kind == RowKind::Custom && !row.Height
+                           ? std::max(0, static_cast<int>(size.cy) - y) : HeightOf(row);
         const int labelTop = row.Kind == RowKind::Radio ? y + 1 : y + (height - TextHeight) / 2;
         const bool besideNext = i + 1 < rows.size() && rows[i + 1].Beside;
         const int middle = (ControlLeft + right) / 2;

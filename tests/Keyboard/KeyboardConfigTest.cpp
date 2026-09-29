@@ -22,7 +22,8 @@ int main() {
     Bind<&AppConfig::Keyboard, &KeyboardSettings::LogDecisions>().Set(cfg, true);
     cfg.Keyboard.PackA = "en.pack";
     cfg.Keyboard.PackB = "ru.pack";
-    cfg.Keyboard.Learned = {.Always = {"ye"}, .Never = {"ofc", "ghbdtn"}};
+    cfg.Keyboard.Learned.Rules = {{.Text = ",he["}, {.Text = "ofc", .Always = false},
+                                  {.Text = "Gh", .Match = WordMatch::Contains, .CaseSensitive = true, .Always = false}};
     cfg.Keyboard.FixSound = "Tick";
     cfg.Keyboard.FixSoundVolume = 30;
     cfg.Keyboard.FixNotification = true;
@@ -30,7 +31,8 @@ int main() {
     cfg.Keyboard.FrequencyAnalysis = false;
 
     std::string json;
-    if (glz::write_json(cfg, json) || !json.contains(R"("AutoCorrect":"MidWord")")) {
+    if (glz::write_json(cfg, json) || !json.contains(R"("AutoCorrect":"MidWord")")
+        || !json.contains(R"("Match":"Contains")") || json.contains(R"("Always":[)")) {
         std::puts("keyboard serialization failed");
         return 1;
     }

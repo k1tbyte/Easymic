@@ -87,11 +87,11 @@ namespace {
         return runtime;
     }
 
-    Convert::Verdict Decide(const Runtime& runtime, const LearnedWords& learned,
+    Convert::Verdict Decide(const Runtime& runtime, const UserRules::Compiled& learned,
                             const std::span<const Convert::Key> word, const int from) {
         Convert::Verdict verdict = Convert::Detect(word, _side(runtime, from), _side(runtime, 1 - from),
                                                      runtime.Threshold / 100.0, &runtime.Rules, runtime.Frequency);
-        if (const auto always = Learning::Answer(learned, verdict.Typed); always && !verdict.Fixed.empty()) {
+        if (const auto always = learned.Answer(verdict.Typed); always && !verdict.Fixed.empty()) {
             verdict.WrongLayout = *always;
             verdict.ByUser = true;
             verdict.Undecided = false;
@@ -99,11 +99,11 @@ namespace {
         return verdict;
     }
 
-    Convert::Verdict Early(const Runtime& runtime, const LearnedWords& learned,
+    Convert::Verdict Early(const Runtime& runtime, const UserRules::Compiled& learned,
                            const std::span<const Convert::Key> word, const int from) {
         Convert::Verdict verdict = Convert::Early(word, _side(runtime, from), _side(runtime, 1 - from), &runtime.Rules,
                                                   runtime.Frequency);
-        verdict.WrongLayout = verdict.WrongLayout && !Learning::Refused(learned, verdict.Typed);
+        verdict.WrongLayout = verdict.WrongLayout && !learned.Refused(verdict.Typed);
         return verdict;
     }
 
@@ -116,7 +116,7 @@ namespace {
         // Taught as typed, and a fix is on screen on the other side
         const Convert::LayoutTable& typed = runtime.Table(always ? side : 1 - side);
         if (!always && word.EarlyAt) {
-            Learning::Teach(typed.Render(keys.first(word.EarlyAt)) + L'*', false);
+            Learning::Teach(typed.Render(keys.first(word.EarlyAt)), false, true);
         } else {
             Learning::Teach(typed.Render(keys), always);
         }

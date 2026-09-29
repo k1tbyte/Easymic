@@ -9,7 +9,7 @@ idle footprint (it runs all day), binary size, simplicity.
 ```powershell
 .\build.ps1                      # MinSizeRel -> cmake-build-minsizerel/EasyLauncher.exe
 .\build.ps1 -Config Debug -Run   # Debug binds no hotkeys (APP_NO_GLOBAL_HOOKS): check hooks on MinSizeRel
-.\build.ps1 -Test                # tests/: router and hold, keyboard config, autocorrect
+.\build.ps1 -Test                # tests/: router and hold, keyboard config, autocorrect, user rules, keyboard UI
 .\build.ps1 -Tools               # tools/Keyboard/langpack
 ```
 

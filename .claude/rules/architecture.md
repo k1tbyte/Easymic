@@ -23,7 +23,8 @@ paths:
 
 - `ActionRegistry`, `SettingsHost`, `Overlay`, `Tray`: POD descriptors with plain function pointers, the
   last three sorted by `Order`. No DI container, no event bus between features.
-- A settings page is a `SettingsRow` table. Hooks edit fields, never controls: `Changed` on a click,
+- A settings page is a `SettingsRow` table, or `Tabs` of them (one page per feature). A `Custom` row of
+  height 0 fills the rest of its page. Hooks edit fields, never controls: `Changed` on a click,
   `Commit` on OK only, Cancel restores the config snapshot. A control is written only where it differs
   from its field, so `Get(Set(x)) == x` must hold for every value.
 - An overlay layer asks for ticks only while it has something to watch: idle means no timer.

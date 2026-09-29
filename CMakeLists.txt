@@ -133,6 +133,25 @@ target_include_directories(AutocorrectTest PRIVATE src tools/Keyboard)
 target_compile_definitions(AutocorrectTest PRIVATE NOMINMAX UNICODE _UNICODE)
 target_compile_options(AutocorrectTest PRIVATE /utf-8)
 
+add_executable(UserRulesTest EXCLUDE_FROM_ALL tests/Keyboard/UserRulesTest.cpp
+               src/Features/Keyboard/Autocorrect/UserRules.cpp)
+target_include_directories(UserRulesTest PRIVATE src)
+target_compile_definitions(UserRulesTest PRIVATE NOMINMAX UNICODE _UNICODE)
+target_compile_options(UserRulesTest PRIVATE /utf-8)
+
+file(GLOB KEYBOARD_SETTINGS_FILES CONFIGURE_DEPENDS "${SRC_DIR}/Features/Keyboard/Settings/*.cpp")
+add_executable(KeyboardUiTest EXCLUDE_FROM_ALL tests/Keyboard/KeyboardUiTest.cpp ${RESOURCE}
+               src/UI/Settings/SettingsWindow.cpp src/UI/Settings/SettingsRows.cpp
+               src/Features/Keyboard/KeyboardPage.cpp ${KEYBOARD_SETTINGS_FILES}
+               src/Features/Keyboard/Autocorrect/UserRules.cpp src/Features/Keyboard/InputLanguage.cpp
+               src/Features/Keyboard/Convert/Pack.cpp src/Features/Keyboard/Convert/Alphabet.cpp
+               src/Platform/Foreground.cpp src/Platform/WindowCatalog.cpp src/Platform/Version.cpp)
+target_include_directories(KeyboardUiTest PRIVATE src src/Core src/Platform src/UI)
+target_compile_definitions(KeyboardUiTest PRIVATE NOMINMAX UNICODE _UNICODE)
+target_compile_options(KeyboardUiTest PRIVATE /utf-8)
+target_link_options(KeyboardUiTest PRIVATE /MANIFEST:NO)
+target_link_libraries(KeyboardUiTest PRIVATE comctl32 comdlg32 dwmapi gdiplus)
+
 # Pack builder and detection console: .\build.ps1 -Tools
 add_subdirectory(tools/Keyboard/langpack)
 

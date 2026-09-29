@@ -33,6 +33,7 @@ public:
 private:
     void PopulateTreeView() const;
     void ShowPage(const SettingsPage& page);
+    void ShowTab(int index);
     void UpdateGroupBoxLayout() const;
     void OnTreeViewSelectionChanged(HTREEITEM hItem);
     void Apply();
@@ -56,9 +57,12 @@ private:
     AppConfig _cfgPrev;
     /// The open page's rows, which its controls' input is routed through.
     std::span<const SettingsRow> _rows;
+    std::span<const SettingsTab> _tabs;
 
     HWND _owner;
     HWND _hwndTreeView = nullptr;
     HWND _hwndGroupBox = nullptr;
     HWND _hwndContentDialog = nullptr;
+    HWND _hwndTabs = nullptr;
+    HWND _hwndTabPage = nullptr;
 };

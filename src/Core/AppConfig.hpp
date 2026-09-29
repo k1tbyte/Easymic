@@ -51,10 +51,20 @@ struct MicSettings {
     bool operator==(const MicSettings&) const = default;
 };
 
-/// Words the user taught autocorrect, lowercase as typed: convert them always, or never.
+enum class WordMatch { Exact, StartsWith, Contains };
+
+struct WordRule {
+    std::string Text;
+    WordMatch Match = WordMatch::Exact;
+    bool CaseSensitive = false;
+    bool Always = true;
+
+    bool operator==(const WordRule&) const = default;
+};
+
+/// Words the user taught autocorrect: the config holds them, the input thread a snapshot.
 struct LearnedWords {
-    std::vector<std::string> Always;
-    std::vector<std::string> Never;
+    std::vector<WordRule> Rules;
 
     bool operator==(const LearnedWords&) const = default;
 };

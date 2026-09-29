@@ -78,3 +78,13 @@
 #define IDC_UPDATE_SKIP                              606
 #define IDC_UPDATE_LATER                             607
 
+#define IDD_RULE_EDIT                                701
+#define IDC_RULE_WORD                                702
+#define IDC_RULE_MATCH_EXACT                         703
+#define IDC_RULE_MATCH_STARTS                        704
+#define IDC_RULE_MATCH_CONTAINS                      705
+#define IDC_RULE_CASE                                706
+#define IDC_RULE_ALWAYS                              707
+#define IDC_RULE_NEVER                               708
+#define IDC_RULE_NOTE                                709
+
