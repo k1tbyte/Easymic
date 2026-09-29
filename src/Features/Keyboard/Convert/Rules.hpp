@@ -9,28 +9,19 @@
 namespace Convert {
 
     struct RuleHit {
-        /// Kind and matched text for the log, "B ofc"; empty when nothing switches.
+        /// Kind and matched text, "B ofc"; empty when nothing switches.
         std::wstring Pattern;
-        /// A mid-word pattern: the weakest kind.
         bool Anywhere = false;
 
         explicit operator bool() const { return !Pattern.empty(); }
     };
 
-    /**
-     * @brief Punto-style rules: patterns in the characters of the layout a word was typed in.
-     *
-     * Line syntax `[_FLAGS ]pattern`: P whole word, B word begin, none or A anywhere, E never
-     * switch, C case-sensitive, D skipped. A space at a pattern's edge anchors it to the word edge.
-     * Kept as sorted 64-bit hashes, never as text.
-     */
+    /// Punto-style rules `[_FLAGS ]pattern` (flags in keyboard.md), kept as sorted 64-bit hashes, never as text.
     class Rules {
     public:
-        /// Appends one UTF-8 file.
         bool Load(const std::filesystem::path& file);
         size_t Count() const { return _keys.size(); }
-        /// The pattern that switches the word, unless an exception covers it. `open`: the word goes on, so
-        /// whole-word and end-anchored patterns wait for its end (a whole-word exception still holds).
+        /// `open`: the word goes on, so whole-word and end-anchored patterns wait for its end.
         RuleHit Find(std::wstring_view word, bool cyrillic, bool open = false) const;
 
     private:

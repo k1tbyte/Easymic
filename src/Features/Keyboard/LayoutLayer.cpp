@@ -9,6 +9,7 @@
 #include "Core/Overlay.hpp"
 #include "Gdi.hpp"
 #include "InputLanguage.hpp"
+#include "Platform/Str.hpp"
 
 namespace {
 
@@ -19,30 +20,26 @@ namespace {
     bool _watching = false;
     HWINEVENTHOOK _hooks[2]{};
 
-    /// @return true when the pill has something new to show.
     bool _show(const HKL layout) {
         if (!layout || layout == _layout) {
             return false;
         }
 
         _layout = layout;
-        wchar_t name[9]{};
-        GetLocaleInfoW(MAKELCID(LOWORD(reinterpret_cast<UINT_PTR>(layout)), SORT_DEFAULT),
-                       LOCALE_SISO639LANGNAME, name, static_cast<int>(std::size(name)));
-        _text = CharUpperW(name);
+        _text = Str::Utf8ToWide(InputLanguage::Iso639(layout));
+        CharUpperBuffW(_text.data(), static_cast<DWORD>(_text.size()));
         return true;
     }
 
-    /// The focused window, not the foreground one: focus may sit in another thread or process (an
-    /// embedded browser), and that is the thread the switch changes. No foreground window -
-    /// mid-switch - would report this app's own layout, so the last answer stands.
+    /// Focus may sit in another thread or process (an embedded browser), and that thread is the one a switch changes.
+    /// No foreground window (mid-switch) would report this app's own layout: the last answer stands.
     bool _read() {
         const HWND target = InputLanguage::FocusedWindow();
         return target && _show(InputLanguage::LayoutOf(target));
     }
 
-    /// There is no cross-process notice of a layout change, but a switching thread rebuilds its IME
-    /// window and creates the new one once the switch is in (the destroy comes too early).
+    /// No cross-process notice of a layout change exists: a switching thread creates a new IME window once the switch
+    /// is in (the destroy comes too early).
     void CALLBACK _onEvent(HWINEVENTHOOK, DWORD, HWND, const LONG object, LONG, DWORD, DWORD) {
         if (object == OBJID_WINDOW && _read()) {
             Overlay::Changed();

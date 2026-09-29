@@ -2,6 +2,7 @@
 
 #include "../Autocorrect/UserRules.hpp"
 #include "Core/AppConfig.hpp"
+#include "Platform/Controls.hpp"
 #include "Platform/Str.hpp"
 #include "Resources/Resource.h"
 
@@ -16,10 +17,7 @@ namespace {
     }
 
     void _save(HWND dialog, WordRule& result) {
-        const HWND edit = GetDlgItem(dialog, IDC_RULE_WORD);
-        std::wstring text(static_cast<size_t>(GetWindowTextLengthW(edit)) + 1, L'\0');
-        text.resize(GetWindowTextW(edit, text.data(), static_cast<int>(text.size())));
-        WordRule rule{.Text = Str::WideToUtf8(text),
+        WordRule rule{.Text = Str::WideToUtf8(Controls::Text(GetDlgItem(dialog, IDC_RULE_WORD))),
                       .Match = IsDlgButtonChecked(dialog, IDC_RULE_MATCH_EXACT) == BST_CHECKED ? WordMatch::Exact
                              : IsDlgButtonChecked(dialog, IDC_RULE_MATCH_STARTS) == BST_CHECKED ? WordMatch::StartsWith
                              : WordMatch::Contains,

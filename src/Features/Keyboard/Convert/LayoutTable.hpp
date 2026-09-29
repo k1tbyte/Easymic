@@ -17,26 +17,19 @@ namespace Convert {
         bool Caps;
     };
 
-    /// Unicode block of a letter, Latin variants as one: 0 Latin, `CyrillicScript`.
+    /// Unicode block of a letter, Latin variants as one (0).
     constexpr uint8_t ScriptOf(const wchar_t c) { return c < 0x250 ? 0 : static_cast<uint8_t>(c >> 8); }
     inline constexpr uint8_t CyrillicScript = 4;
 
-    /**
-     * @brief What each key position types in one layout, built from the system layout.
-     *
-     * No reverse map: a word is kept as positions, so converting it is rendering the same
-     * positions in the other table.
-     */
+    /// What each key position types in one layout. No reverse map: a word is kept as positions and rendered in the other table.
     class LayoutTable {
     public:
         explicit LayoutTable(HKL layout);
 
         HKL Layout() const { return _layout; }
-        /// 0 when the position types nothing here.
         wchar_t Char(Key key) const;
         /// Empty when any of the keys types nothing here.
         std::wstring Render(std::span<const Key> keys) const;
-        /// `ScriptOf` the letter keys.
         uint8_t Script() const;
 
     private:

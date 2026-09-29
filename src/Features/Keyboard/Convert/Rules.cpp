@@ -1,5 +1,6 @@
 #include "Rules.hpp"
 
+#include "Bloom.hpp"
 #include "LayoutTable.hpp"
 #include "Platform/File.hpp"
 #include "Platform/Str.hpp"
@@ -12,21 +13,14 @@ namespace {
 
     enum : uint8_t { Whole = 0, Begin = 1, Anywhere = 2, Exception = 4, CaseSensitive = 8, Cyrillic = 16 };
 
-    constexpr uint64_t Prime = 1099511628211ull;
-
     uint64_t _seed(const uint8_t kind) {
-        return (14695981039346656037ull ^ kind) * Prime;
-    }
-
-    uint64_t _step(uint64_t h, const wchar_t c) {
-        h = (h ^ static_cast<uint8_t>(c)) * Prime;
-        return (h ^ static_cast<uint8_t>(c >> 8)) * Prime;
+        return (14695981039346656037ull ^ kind) * FnvPrime;
     }
 
     uint64_t _hash(const uint8_t kind, const std::wstring_view text) {
         uint64_t h = _seed(kind);
         for (const wchar_t c : text) {
-            h = _step(h, c);
+            h = FnvStep(h, c);
         }
         return h;
     }
@@ -34,7 +28,7 @@ namespace {
 } // anonymous namespace
 
 bool Rules::Load(const std::filesystem::path& file) {
-    auto bytes = File::Read(file.c_str());
+    auto bytes = File::Read(file.wstring().c_str());
     if (!bytes) {
         return false;
     }
@@ -83,13 +77,13 @@ bool Rules::_match(const uint8_t kind, const std::wstring_view word, RuleHit& hi
         hit.Pattern = L"P " + std::wstring(word);
         return true;
     }
-    // The word between spaces, so an edge space anchors a pattern; hashed as it grows, never copied
+    // Hashed as the word between spaces grows, so an edge space anchors a pattern
     const size_t size = word.size() + (open ? 1 : 2);
     const auto at = [word](const size_t i) { return i == 0 || i > word.size() ? L' ' : word[i - 1]; };
     const auto found = [&](const uint8_t type, const size_t from, const wchar_t* tag) {
         uint64_t h = _seed(kind | type);
         for (size_t n = 1; n <= _longest && from + n <= size; ++n) {
-            h = _step(h, at(from + n - 1));
+            h = FnvStep(h, at(from + n - 1));
             if (std::ranges::binary_search(_keys, h)) {
                 hit.Pattern = tag;
                 for (size_t i = from; i < from + n; ++i) {

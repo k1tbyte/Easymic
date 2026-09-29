@@ -22,16 +22,13 @@ namespace Convert {
         double ScoreOriginal = 0.0;
         double ScoreFixed = 0.0;
         bool ByDictionary = false;
-        /// Too short to tell, or a word of both languages: kept.
         bool Ambiguous = false;
         bool ByRule = false;
-        /// The user taught this word: over every other signal.
         bool ByUser = false;
         /// A word of both languages: the next word decides.
         bool Undecided = false;
-        /// On the word so far, mid-word.
         bool Early = false;
-        /// A fix was refused: the other side's rules call the result impossible, or it holds signs for letters.
+        /// A fix was refused: the result cannot be a word of the other side.
         bool Implausible = false;
         std::wstring Rule;
         std::string_view SourceLocale;
@@ -39,8 +36,19 @@ namespace Convert {
 
         double Margin() const { return ScoreFixed - ScoreOriginal; }
         const char* Reason() const {
-            return ByUser ? "user" : ByRule ? "rule" : ByDictionary ? "dict" : Implausible ? "implausible"
-                   : Ambiguous ? "ambiguous" : "ngram";
+            if (ByUser) {
+                return "user";
+            }
+            if (ByRule) {
+                return "rule";
+            }
+            if (ByDictionary) {
+                return "dict";
+            }
+            if (Implausible) {
+                return "implausible";
+            }
+            return Ambiguous ? "ambiguous" : "ngram";
         }
     };
 
@@ -48,8 +56,7 @@ namespace Convert {
     Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
                    double thresholdOverride = 0, const Rules* rules = nullptr, bool frequency = true);
 
-    /// Mid-word: `word` so far is in the wrong layout whatever follows, as it left the typed language within
-    /// `StartLetters` letters. `frequency` off: a rule alone decides.
+    /// Mid-word: `word` so far left the typed language within `StartLetters` letters. `frequency` off: a rule alone decides.
     Verdict Early(std::span<const Key> word, const Side& typed, const Side& other, const Rules* rules,
                   bool frequency = true);
 

@@ -5,167 +5,110 @@
 #include "Features/Keyboard/Convert/Detector.hpp"
 #include "Features/Keyboard/Convert/LayoutTable.hpp"
 #include "Features/Keyboard/Convert/Pack.hpp"
+#include "Features/Keyboard/InputLanguage.hpp"
+#include "Platform/File.hpp"
+#include "Platform/Str.hpp"
 
 #include <windows.h>
 
-#include <cmath>
-#include <cstdio>
+#include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
+#include <format>
 #include <memory>
-#include <sstream>
+#include <optional>
+#include <ranges>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace {
 
+using Args = std::vector<std::string>;
+using ReverseMap = std::unordered_map<wchar_t, Convert::Key>;
+
+constexpr double MegaByte = 1048576.0;
+constexpr size_t RulesOutArg = 1;
+constexpr size_t PsDatArg = 2;
+constexpr size_t TriggersArg = 3;
+constexpr UINT Cp1251 = 1251;
+constexpr char PsDatXor = static_cast<char>(0xAA);
+
 void _line(const std::wstring& s) { Console::Print(s + L"\n"); }
 
-std::wstring _num(double d, int precision = 2) {
-    std::wostringstream out;
-    out << std::fixed << std::setprecision(precision) << d;
-    return out.str();
+std::wstring _num(const double d) { return std::format(L"{:.2f}", d); }
+
+std::wstring _wide(const std::string_view s) { return Str::Utf8ToWide(std::string(s)); }
+
+std::filesystem::path _path(const std::string& utf8) { return _wide(utf8); }
+
+std::vector<std::string> _split(const std::string& s, const char separator) {
+    std::vector<std::string> parts;
+    for (size_t start = 0; start < s.size();) {
+        const size_t end = std::min(s.find(separator, start), s.size());
+        if (end > start) {
+            parts.push_back(s.substr(start, end - start));
+        }
+        start = end + 1;
+    }
+    return parts;
 }
 
-std::wstring _wide(const std::string& s) { return Console::FromUtf8(s); }
-
-std::vector<std::string> _split(const std::string& s, char sep) {
-    std::vector<std::string> out;
-    std::istringstream in(s);
-    std::string part;
-    while (std::getline(in, part, sep)) {
-        if (!part.empty()) {
-            out.push_back(part);
+std::optional<InputLanguage::Layout> _layoutFor(const std::string& language) {
+    for (const auto& layout : InputLanguage::Installed()) {
+        if (InputLanguage::Iso639(layout.Handle) == language) {
+            return layout;
         }
     }
-    return out;
+    return std::nullopt;
 }
-
-std::string _languageOf(HKL hkl) {
-    const LANGID langId = LOWORD(reinterpret_cast<uintptr_t>(hkl));
-    wchar_t name[16]{};
-    if (!GetLocaleInfoW(MAKELCID(langId, SORT_DEFAULT), LOCALE_SISO639LANGNAME, name, 16)) {
-        return {};
-    }
-    std::string out;
-    for (const wchar_t* p = name; *p; ++p) {
-        out.push_back(static_cast<char>(*p));
-    }
-    return out;
-}
-
-struct InstalledLayout {
-    HKL Handle;
-    std::string Id;
-    std::string Language;
-    std::unique_ptr<Convert::LayoutTable> Table;
-};
-
-std::vector<InstalledLayout> _loadInstalled() {
-    const int count = GetKeyboardLayoutList(0, nullptr);
-    if (count <= 0) {
-        return {};
-    }
-    std::vector<HKL> handles(static_cast<size_t>(count));
-    GetKeyboardLayoutList(count, handles.data());
-    std::vector<InstalledLayout> out;
-    for (HKL hkl : handles) {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "%08x",
-                      static_cast<unsigned>(reinterpret_cast<uintptr_t>(hkl) & 0xFFFFFFFF));
-        InstalledLayout il;
-        il.Handle = hkl;
-        il.Id = buf;
-        il.Language = _languageOf(hkl);
-        il.Table = std::make_unique<Convert::LayoutTable>(hkl);
-        out.push_back(std::move(il));
-    }
-    return out;
-}
-
-struct ReverseMap {
-    std::unordered_map<wchar_t, Convert::Key> Map;
-};
 
 ReverseMap _buildReverse(const Convert::LayoutTable& table) {
-    ReverseMap rm;
+    ReverseMap reverse;
     for (uint8_t vk = 0x20; vk != 0; ++vk) {
         for (const bool shift : {false, true}) {
             const Convert::Key key{vk, shift, false};
-            const wchar_t c = table.Char(key);
-            if (c && rm.Map.find(c) == rm.Map.end()) {
-                rm.Map[c] = key;
+            if (const wchar_t c = table.Char(key)) {
+                reverse.try_emplace(c, key);
             }
         }
     }
-    return rm;
+    return reverse;
 }
 
-int _runLayouts(const std::vector<std::string>&) {
-    const auto layouts = _loadInstalled();
-    for (const auto& il : layouts) {
-        size_t keyCount = 0;
-        for (uint8_t vk = 0x20; vk != 0; ++vk) {
-            for (const bool shift : {false, true}) {
-                if (il.Table->Char({vk, shift, false})) {
-                    ++keyCount;
-                }
-            }
-        }
-        _line(L"  " + _wide(il.Id) + L"  lang=" + _wide(il.Language) +
-              L"  keys=" + std::to_wstring(keyCount));
-    }
-    return layouts.empty() ? 1 : 0;
-}
-
-int _runConvert(const std::vector<std::string>& args) {
+int _runConvert(const Args& args) {
     if (args.size() < 3) {
         _line(L"usage: langpack convert <from-lang> <to-lang>");
         return 2;
     }
-    const auto layouts = _loadInstalled();
-    const InstalledLayout* from = nullptr;
-    const InstalledLayout* to = nullptr;
-    for (const auto& il : layouts) {
-        if (!from && il.Language == args[1]) {
-            from = &il;
-        }
-        if (!to && il.Language == args[2]) {
-            to = &il;
-        }
-    }
+    const auto from = _layoutFor(args[1]);
+    const auto to = _layoutFor(args[2]);
     if (!from || !to) {
         _line(L"no layout for one of the languages");
         return 1;
     }
-    const ReverseMap rev = _buildReverse(*from->Table);
+    const Convert::LayoutTable toTable(to->Handle);
+    const ReverseMap reverse = _buildReverse(Convert::LayoutTable(from->Handle));
     std::wstring input;
     while (Console::ReadLine(input)) {
         std::wstring out;
         out.reserve(input.size());
-        for (wchar_t c : input) {
-            const auto it = rev.Map.find(c);
-            if (it == rev.Map.end()) {
-                out.push_back(c);
-            } else {
-                const wchar_t mapped = to->Table->Char(it->second);
-                out.push_back(mapped ? mapped : c);
-            }
+        for (const wchar_t c : input) {
+            const auto it = reverse.find(c);
+            const wchar_t mapped = it == reverse.end() ? L'\0' : toTable.Char(it->second);
+            out.push_back(mapped ? mapped : c);
         }
         _line(out);
     }
     return 0;
 }
 
-int _runPack(const std::vector<std::string>& args) {
+int _runPack(const Args& args) {
     if (args.size() < 4) {
         _line(L"usage: langpack pack <wordlist.txt> <locale> <out.pack> [--threshold X] [--fp X]");
         return 2;
     }
-    PackOptions options;
-    options.Locale = args[2];
+    PackOptions options{.Locale = args[2]};
     for (size_t i = 4; i + 1 < args.size(); i += 2) {
         if (args[i] == "--threshold") {
             options.Threshold = std::stod(args[i + 1]);
@@ -174,226 +117,224 @@ int _runPack(const std::vector<std::string>& args) {
         }
     }
     std::string error;
-    if (!BuildPack(args[1], options, args[3], &error)) {
+    if (!BuildPack(_path(args[1]), options, _path(args[3]), &error)) {
         _line(_wide(error));
         return 1;
     }
-    _line(_wide(args[3]) + L"  " +
-          _num(std::filesystem::file_size(args[3]) / 1048576.0) + L" MB");
+    _line(_wide(args[3]) + L"  " + _num(static_cast<double>(std::filesystem::file_size(_path(args[3]))) / MegaByte) + L" MB");
     return 0;
 }
 
-int _runLookup(const std::vector<std::string>& args) {
-    if (args.size() < 3) {
-        _line(L"usage: langpack lookup <pack> <word> [word ...]");
-        return 2;
+std::optional<std::string> _puntoRules(const std::filesystem::path& file, const bool triggers) {
+    auto bytes = File::Read(file.wstring().c_str());
+    if (!bytes) {
+        return std::nullopt;
     }
-    Convert::Pack pack;
-    std::wstring error;
-    if (!pack.Load(_wide(args[1]), &error)) {
-        _line(error);
-        return 1;
+    if (!triggers) {
+        for (char& c : *bytes) {
+            if (c != '\r' && c != '\n') {
+                c ^= PsDatXor;
+            }
+        }
     }
-    for (size_t i = 2; i < args.size(); ++i) {
-        const std::wstring word = _wide(args[i]);
-        _line((pack.Contains(word) ? L"hit  " : L"miss ") + word + L"   score " +
-              _num(pack.Score(word)));
+    const int size = MultiByteToWideChar(Cp1251, 0, bytes->data(), static_cast<int>(bytes->size()), nullptr, 0);
+    std::wstring text(static_cast<size_t>(size), L'\0');
+    MultiByteToWideChar(Cp1251, 0, bytes->data(), static_cast<int>(bytes->size()), text.data(), size);
+
+    std::string rules;
+    bool header = triggers;
+    for (const auto part : std::views::split(std::wstring_view(text), L'\n')) {
+        std::wstring_view line(part.begin(), part.end());
+        if (!line.empty() && line.back() == L'\r') {
+            line.remove_suffix(1);
+        }
+        if (!header && !line.empty()) {
+            rules += Str::WideToUtf8((triggers ? L"_B " : L"") + std::wstring(line)) + "\n";
+        }
+        header = false;
     }
-    return 0;
+    return rules;
 }
 
-// Punto's data as UTF-8 rule lines: ps.dat is XOR 0xAA but CR and LF, triggers.dat plain,
-// both CP1251; a trigger is a word begin
-int _runRules(const std::vector<std::string>& args) {
-    if (args.size() < 3) {
+// ps.dat is XOR 0xAA but CR and LF, triggers.dat plain (its first line a header, each a word begin), both CP1251
+int _runRules(const Args& args) {
+    if (args.size() <= PsDatArg) {
         _line(L"usage: langpack rules <out.rules> <ps.dat> [triggers.dat]");
         return 2;
     }
-    std::string out;
-    for (size_t i = 2; i < args.size(); ++i) {
-        std::ifstream in(args[i], std::ios::binary);
-        if (!in) {
+    std::string rules;
+    for (size_t i = PsDatArg; i < args.size(); ++i) {
+        const auto decoded = _puntoRules(_path(args[i]), i == TriggersArg);
+        if (!decoded) {
             _line(L"cannot read " + _wide(args[i]));
             return 1;
         }
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        const bool triggers = i == 3;
-        for (char& c : bytes) {
-            c = triggers || c == '\r' || c == '\n' ? c : static_cast<char>(c ^ 0xAA);
-        }
-        const int n = MultiByteToWideChar(1251, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
-        std::wstring text(static_cast<size_t>(n), L'\0');
-        MultiByteToWideChar(1251, 0, bytes.data(), static_cast<int>(bytes.size()), text.data(), n);
-        std::wistringstream lines(text);
-        std::wstring line;
-        for (bool header = triggers; std::getline(lines, line); header = false) {
-            if (!line.empty() && line.back() == L'\r') {
-                line.pop_back();
-            }
-            if (!header && !line.empty()) {
-                out += Console::ToUtf8((triggers ? L"_B " : L"") + line) + "\n";
-            }
-        }
+        rules += *decoded;
     }
-    std::ofstream(args[1], std::ios::binary) << out;
-    Convert::Rules rules;
-    if (!rules.Load(args[1])) {
-        _line(L"cannot write " + _wide(args[1]));
+    const auto out = _path(args[RulesOutArg]);
+    Convert::Rules loaded;
+    if (!File::Write(out.wstring().c_str(), rules) || !loaded.Load(out)) {
+        _line(L"cannot write " + _wide(args[RulesOutArg]));
         return 1;
     }
-    _line(_wide(args[1]) + L"  " + std::to_wstring(rules.Count()) + L" rules");
+    _line(_wide(args[RulesOutArg]) + L"  " + std::to_wstring(loaded.Count()) + L" rules");
     return 0;
 }
 
-int _runRepl(const std::vector<std::string>& args) {
-    std::string packDir = "packs";
+struct ReplOptions {
+    std::filesystem::path PackDir = L"packs";
+    std::vector<std::string> Languages;
+    Convert::Rules Rules;
+    double Threshold = 0.0;
+    bool Frequency = true;
+};
+
+struct BoundSide {
+    Convert::Pack Pack;
+    std::string LayoutId;
+    std::unique_ptr<Convert::LayoutTable> Table;
+    ReverseMap Reverse;
+};
+
+int _parseRepl(const Args& args, ReplOptions& options) {
     std::string pair;
-    double thresholdOverride = 0.0;
-    bool frequency = true;
-    Convert::Rules rules;
     for (size_t i = 0; i + 1 < args.size(); i += 2) {
+        const std::string& value = args[i + 1];
         if (args[i] == "--frequency") {
-            frequency = args[i + 1] != "off";
+            options.Frequency = value != "off";
         } else if (args[i] == "--rules") {
-            if (!rules.Load(args[i + 1])) {
-                _line(L"cannot read " + _wide(args[i + 1]));
+            if (!options.Rules.Load(_path(value))) {
+                _line(L"cannot read " + _wide(value));
                 return 1;
             }
         } else if (args[i] == "--packs") {
-            packDir = args[i + 1];
+            options.PackDir = _path(value);
         } else if (args[i] == "--pair") {
-            pair = args[i + 1];
+            pair = value;
         } else if (args[i] == "--threshold") {
-            thresholdOverride = std::stod(args[i + 1]);
+            options.Threshold = std::stod(value);
         }
     }
-
-    const auto langs = _split(pair, ',');
-    if (langs.size() != 2) {
+    options.Languages = _split(pair, ',');
+    if (options.Languages.size() != 2) {
         _line(L"usage: langpack [--packs dir] [--pair en,ru] [--threshold X] [--frequency off] [--rules file ...]");
         return 2;
     }
+    return 0;
+}
 
-    const auto layouts = _loadInstalled();
-
-    struct BoundSide {
-        Convert::Pack Pack;
-        const InstalledLayout* Layout = nullptr;
-    };
-    BoundSide sides[2];
-    for (int s = 0; s < 2; ++s) {
-        std::wstring packPath;
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::directory_iterator(packDir, ec)) {
-            if (entry.path().extension() != ".pack") {
-                continue;
-            }
-            Convert::Pack probe;
-            if (probe.Load(entry.path().wstring()) &&
-                std::string(probe.Locale()) == langs[s]) {
-                packPath = entry.path().wstring();
-                break;
-            }
-        }
-        if (packPath.empty() || !sides[s].Pack.Load(packPath)) {
-            _line(L"no pack for " + _wide(langs[s]));
-            return 1;
-        }
-        for (const auto& il : layouts) {
-            if (il.Language == langs[s]) {
-                sides[s].Layout = &il;
-                break;
-            }
-        }
-        if (!sides[s].Layout) {
-            _line(L"no layout for " + _wide(langs[s]));
-            return 1;
+bool _loadPack(Convert::Pack& pack, const std::filesystem::path& dir, const std::string& language) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.path().extension() == L".pack" && pack.Load(entry.path().wstring()) && pack.Locale() == language) {
+            return true;
         }
     }
+    return false;
+}
 
-    for (int s = 0; s < 2; ++s) {
-        _line(L"pack " + _wide(sides[s].Pack.Locale()) + L"  words=" +
-              std::to_wstring(sides[s].Pack.WordCount()) + L"  " +
-              _num(sides[s].Pack.MappedBytes() / 1048576.0) + L" MB  layout=" +
-              _wide(sides[s].Layout->Id));
+bool _bind(BoundSide& side, const std::filesystem::path& dir, const std::string& language) {
+    if (!_loadPack(side.Pack, dir, language)) {
+        _line(L"no pack for " + _wide(language));
+        return false;
     }
+    const auto layout = _layoutFor(language);
+    if (!layout) {
+        _line(L"no layout for " + _wide(language));
+        return false;
+    }
+    side.LayoutId = layout->Id;
+    side.Table = std::make_unique<Convert::LayoutTable>(layout->Handle);
+    side.Reverse = _buildReverse(*side.Table);
+    _line(L"pack " + _wide(side.Pack.Locale()) + L"  words=" + std::to_wstring(side.Pack.WordCount()) + L"  "
+          + _num(static_cast<double>(side.Pack.MappedBytes()) / MegaByte) + L" MB  layout=" + _wide(side.LayoutId));
+    return true;
+}
 
-    std::wstring input;
-    while (Console::ReadLine(input)) {
-        if (input.empty()) {
+std::wstring _why(const Convert::Verdict& verdict) {
+    return _wide(verdict.Reason()) + (verdict.ByRule ? L" " + verdict.Rule : L"") + L" margin=" + _num(verdict.Margin());
+}
+
+void _printVerdict(const Convert::Verdict& v) {
+    if (v.SourceLocale.empty()) {
+        _line(L"  no language matched");
+        return;
+    }
+    const std::wstring why = _why(v) + L" score=" + _num(v.ScoreOriginal) + L"/" + _num(v.ScoreFixed);
+    if (v.WrongLayout) {
+        _line(L"  FIX -> " + v.Fixed + L"   [" + _wide(v.SourceLocale) + L" to " + _wide(v.FixedLocale) + L", " + why + L"]");
+    } else {
+        _line(L"  ok   [" + _wide(v.SourceLocale) + L", " + why + L", alt: " + v.Fixed + L"]");
+    }
+}
+
+std::vector<Convert::Key> _keysOf(const std::wstring& input, const ReverseMap& reverse) {
+    std::vector<Convert::Key> keys;
+    for (const wchar_t c : input) {
+        const auto it = reverse.find(c);
+        keys.push_back(it == reverse.end() ? Convert::Key{0, false, false} : it->second);
+    }
+    return keys;
+}
+
+void _judge(const std::wstring& input, const BoundSide (&sides)[2], const ReplOptions& options) {
+    const Convert::Alphabet first(sides[0].Pack.Symbols());
+    const Convert::Alphabet second(sides[1].Pack.Symbols());
+    const int typedIndex = first.Coverage(input) >= second.Coverage(input) ? 0 : 1;
+    const BoundSide& typedSide = sides[typedIndex];
+    const BoundSide& otherSide = sides[1 - typedIndex];
+
+    const std::vector<Convert::Key> keys = _keysOf(input, typedSide.Reverse);
+    const Convert::Side typed{typedSide.Table.get(), &typedSide.Pack};
+    const Convert::Side other{otherSide.Table.get(), &otherSide.Pack};
+    const Convert::Rules* rules = options.Rules.Count() ? &options.Rules : nullptr;
+
+    _printVerdict(Convert::Detect(keys, typed, other, options.Threshold, rules, options.Frequency));
+    for (size_t n = 2; n <= keys.size(); ++n) {
+        const Convert::Verdict early = Convert::Early(std::span(keys).first(n), typed, other, rules, options.Frequency);
+        if (early.WrongLayout) {
+            _line(L"  early at " + std::to_wstring(n) + L": " + early.Typed + L" -> " + early.Fixed + L"   ["
+                  + _why(early) + L"]");
             break;
         }
+    }
+}
 
-        const Convert::Alphabet alph0(sides[0].Pack.Symbols());
-        const Convert::Alphabet alph1(sides[1].Pack.Symbols());
-        const double cov0 = alph0.Coverage(input);
-        const double cov1 = alph1.Coverage(input);
-        const int typedIdx = cov0 >= cov1 ? 0 : 1;
-        const int otherIdx = 1 - typedIdx;
-
-        const ReverseMap rev = _buildReverse(*sides[typedIdx].Layout->Table);
-        std::vector<Convert::Key> keys;
-        for (wchar_t c : input) {
-            const auto it = rev.Map.find(c);
-            if (it != rev.Map.end()) {
-                keys.push_back(it->second);
-            } else {
-                keys.push_back({0, false, false});
-            }
+int _runRepl(const Args& args) {
+    ReplOptions options;
+    if (const int code = _parseRepl(args, options)) {
+        return code;
+    }
+    BoundSide sides[2];
+    for (size_t i = 0; i < 2; ++i) {
+        if (!_bind(sides[i], options.PackDir, options.Languages[i])) {
+            return 1;
         }
-
-        const Convert::Side typed{sides[typedIdx].Layout->Table.get(), &sides[typedIdx].Pack};
-        const Convert::Side other{sides[otherIdx].Layout->Table.get(), &sides[otherIdx].Pack};
-
-        const Convert::Verdict v = Convert::Detect(keys, typed, other, thresholdOverride, rules.Count() ? &rules : nullptr,
-                                                     frequency);
-        if (v.SourceLocale.empty()) {
-            _line(L"  no language matched");
-        } else {
-            const std::wstring why = _wide(v.Reason()) + (v.ByRule ? L" " + v.Rule : L"") + L" margin=" + _num(v.Margin())
-                                     + L" score=" + _num(v.ScoreOriginal) + L"/" + _num(v.ScoreFixed);
-            if (v.WrongLayout) {
-                _line(L"  FIX -> " + v.Fixed + L"   [" + _wide(std::string(v.SourceLocale)) +
-                      L" to " + _wide(std::string(v.FixedLocale)) + L", " + why + L"]");
-            } else {
-                _line(L"  ok   [" + _wide(std::string(v.SourceLocale)) + L", " + why +
-                      L", alt: " + v.Fixed + L"]");
-            }
-        }
-        // The first key the word would switch on while typed
-        for (size_t n = 2; n <= keys.size(); ++n) {
-            const Convert::Verdict e = Convert::Early(std::span(keys).first(n), typed, other,
-                                                      rules.Count() ? &rules : nullptr, frequency);
-            if (e.WrongLayout) {
-                _line(L"  early at " + std::to_wstring(n) + L": " + e.Typed + L" -> " + e.Fixed + L"   ["
-                      + _wide(e.Reason()) + (e.ByRule ? L" " + e.Rule : L"") + L" margin=" + _num(e.Margin()) + L"]");
-                break;
-            }
-        }
+    }
+    std::wstring input;
+    while (Console::ReadLine(input) && !input.empty()) {
+        _judge(input, sides, options);
     }
     return 0;
 }
+
+struct Command {
+    std::string_view Name;
+    int (*Run)(const Args&);
+};
+
+constexpr Command Commands[] = {{"pack", &_runPack}, {"convert", &_runConvert}, {"rules", &_runRules}};
 
 } // anonymous namespace
 
 int main() {
     Console::Init();
-    const std::vector<std::string> full = Console::CommandLineUtf8();
-    const std::vector<std::string> args(full.begin() + (full.empty() ? 0 : 1), full.end());
-    if (!args.empty() && args[0] == "pack") {
-        return _runPack(args);
-    }
-    if (!args.empty() && args[0] == "lookup") {
-        return _runLookup(args);
-    }
-    if (!args.empty() && args[0] == "layouts") {
-        return _runLayouts(args);
-    }
-    if (!args.empty() && args[0] == "convert") {
-        return _runConvert(args);
-    }
-    if (!args.empty() && args[0] == "rules") {
-        return _runRules(args);
+    const Args full = Console::CommandLineUtf8();
+    const Args args(full.begin() + (full.empty() ? 0 : 1), full.end());
+    if (!args.empty()) {
+        if (const auto command = std::ranges::find(Commands, args[0], &Command::Name); command != std::end(Commands)) {
+            return command->Run(args);
+        }
     }
     return _runRepl(args);
 }

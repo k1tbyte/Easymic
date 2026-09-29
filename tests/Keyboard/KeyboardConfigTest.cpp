@@ -1,20 +1,21 @@
 #include <cstdio>
 #include <string>
 
+#include "../Check.hpp"
 #include "Core/AppConfigJson.hpp"
 #include "Core/SettingsHost.hpp"
 
 int main() {
+    using Test::Check;
+
     AppConfig cfg;
     const auto defaults = cfg.Keyboard;
-    if (defaults.AutoCorrect != AutoCorrectMode::Off || !defaults.Exclude.empty() || defaults.Threshold
-        || defaults.LogDecisions
-        || !defaults.PackA.empty() || !defaults.PackB.empty() || defaults.Learned != LearnedWords{}
-        || !defaults.FixSound.empty() || defaults.FixNotification || !defaults.SkipPasswords
-        || !defaults.SkipFullscreen || !defaults.FrequencyAnalysis) {
-        std::puts("keyboard defaults failed");
-        return 1;
-    }
+    Check(defaults.AutoCorrect == AutoCorrectMode::Off && defaults.Exclude.empty() && !defaults.Threshold
+              && !defaults.LogDecisions && defaults.PackA.empty() && defaults.PackB.empty()
+              && defaults.Learned == LearnedWords{} && defaults.FixSound.empty() && !defaults.FixNotification,
+          "keyboard defaults are off and empty");
+    Check(defaults.SkipPasswords && defaults.SkipFullscreen && defaults.FrequencyAnalysis,
+          "keyboard guards are on by default");
 
     Bind<&AppConfig::Keyboard, &KeyboardSettings::AutoCorrect>().Set(cfg, 2);
     Bind<&AppConfig::Keyboard, &KeyboardSettings::Exclude>().Text(cfg) = "notepad.exe, chrome.exe";
@@ -31,25 +32,21 @@ int main() {
     cfg.Keyboard.FrequencyAnalysis = false;
 
     std::string json;
-    if (glz::write_json(cfg, json) || !json.contains(R"("AutoCorrect":"MidWord")")
-        || !json.contains(R"("Match":"Contains")") || json.contains(R"("Always":[)")) {
-        std::puts("keyboard serialization failed");
-        return 1;
-    }
+    const bool written = !glz::write_json(cfg, json);
+    Check(written && json.contains(R"("AutoCorrect":"MidWord")") && json.contains(R"("Match":"Contains")")
+              && !json.contains(R"("Always":[)"),
+          "keyboard serialization");
+
     AppConfig loaded;
-    if (glz::read_json(loaded, json) || loaded.Keyboard != cfg.Keyboard) {
-        std::puts("keyboard round-trip failed");
-        return 1;
-    }
-    if (loaded.Keyboard.PackA != "en.pack" || loaded.Keyboard.PackB != "ru.pack") {
-        std::puts("keyboard pack round-trip failed");
-        return 1;
-    }
+    Check(!glz::read_json(loaded, json) && loaded.Keyboard == cfg.Keyboard, "keyboard round-trip");
+
     AppConfig old;
-    if (glz::read_json(old, std::string{R"({"Keyboard":{"ShowLayout":true}})"})
-        || !old.Keyboard.ShowLayout || old.Keyboard.AutoCorrect != AutoCorrectMode::Off
-        || !old.Keyboard.PackA.empty() || !old.Keyboard.PackB.empty() || old.Keyboard.Learned != LearnedWords{}) {
-        std::puts("keyboard missing-fields fallback failed");
+    Check(!glz::read_json(old, std::string{R"({"Keyboard":{"ShowLayout":true}})"}) && old.Keyboard.ShowLayout
+              && old.Keyboard.AutoCorrect == AutoCorrectMode::Off && old.Keyboard.PackA.empty()
+              && old.Keyboard.PackB.empty() && old.Keyboard.Learned == LearnedWords{},
+          "keyboard missing-fields fallback");
+
+    if (Test::Failures) {
         return 1;
     }
     std::puts("keyboard config checks passed");

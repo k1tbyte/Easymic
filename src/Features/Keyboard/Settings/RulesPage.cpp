@@ -24,6 +24,12 @@ namespace {
         return ListView_GetNextItem(GetDlgItem(panel, IdList), -1, LVNI_SELECTED);
     }
 
+    void _syncButtons(HWND panel) {
+        const BOOL selected = _selected(panel) >= 0;
+        EnableWindow(GetDlgItem(panel, IdEdit), selected);
+        EnableWindow(GetDlgItem(panel, IdRemove), selected);
+    }
+
     void _fill(HWND panel, const int select = -1) {
         const HWND list = GetDlgItem(panel, IdList);
         ListView_DeleteAllItems(list);
@@ -42,8 +48,7 @@ namespace {
             ListView_SetItemState(list, select, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
             ListView_EnsureVisible(list, select, FALSE);
         }
-        EnableWindow(GetDlgItem(panel, IdEdit), _selected(panel) >= 0);
-        EnableWindow(GetDlgItem(panel, IdRemove), _selected(panel) >= 0);
+        _syncButtons(panel);
     }
 
     void _edit(HWND panel, const int row) {
@@ -82,8 +87,7 @@ namespace {
                     if (header->code == NM_DBLCLK) {
                         _edit(panel, _selected(panel));
                     } else if (header->code == LVN_ITEMCHANGED) {
-                        EnableWindow(GetDlgItem(panel, IdEdit), _selected(panel) >= 0);
-                        EnableWindow(GetDlgItem(panel, IdRemove), _selected(panel) >= 0);
+                        _syncButtons(panel);
                     }
                 }
                 return 0;
@@ -94,16 +98,12 @@ namespace {
 }
 
 void RulesPage::Create(HWND page, const RECT& cell, const int id, AppConfig& config) {
-    static const bool registered = [] {
-        const WNDCLASSW windowClass{.lpfnWndProc = _proc, .hInstance = GetModuleHandleW(nullptr),
-                                    .hCursor = LoadCursorW(nullptr, IDC_ARROW),
-                                    .hbrBackground = GetSysColorBrush(COLOR_BTNFACE), .lpszClassName = PanelClass};
-        return RegisterClassW(&windowClass) != 0;
-    }();
-    if (!registered) return;
+    const HWND panel = Controls::Panel(page, cell, id, PanelClass, _proc);
+    if (!panel) {
+        return;
+    }
 
     _config = &config;
-    const HWND panel = Controls::Create(page, page, PanelClass, L"", WS_CLIPCHILDREN, cell, id, WS_EX_CONTROLPARENT);
     const int width = cell.right - cell.left, height = cell.bottom - cell.top;
     const auto add = [&](const wchar_t* cls, const wchar_t* text, const DWORD style, const RECT& at, const int childId,
                          const DWORD exStyle = 0) {

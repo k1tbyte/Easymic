@@ -18,10 +18,9 @@ namespace {
 
     AppConfig* _config = nullptr;
 
-    std::wstring _text(const HWND control) {
-        std::wstring text(static_cast<size_t>(GetWindowTextLengthW(control)) + 1, L'\0');
-        text.resize(GetWindowTextW(control, text.data(), static_cast<int>(text.size())));
-        return text;
+    void _syncButtons(HWND panel) {
+        const int selected = ListView_GetNextItem(GetDlgItem(panel, IdList), -1, LVNI_SELECTED);
+        EnableWindow(GetDlgItem(panel, IdRemove), selected >= 0);
     }
 
     void _fill(HWND panel) {
@@ -34,11 +33,11 @@ namespace {
             ListView_InsertItem(list, &item);
         }
         Controls::FitColumns(list, {});
-        EnableWindow(GetDlgItem(panel, IdRemove), FALSE);
+        _syncButtons(panel);
     }
 
     void _fillCombo(const HWND combo) {
-        const std::wstring text = _text(combo);
+        const std::wstring text = Controls::Text(combo);
         SendMessageW(combo, CB_RESETCONTENT, 0, 0);
         for (const auto& name : WindowCatalog::AppNames()) {
             SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
@@ -48,9 +47,11 @@ namespace {
 
     void _add(HWND panel) {
         const HWND combo = GetDlgItem(panel, IdCombo);
-        std::string exe = Foreground::CanonicalApp(Str::WideToUtf8(_text(combo)));
+        std::string exe = Foreground::CanonicalApp(Str::WideToUtf8(Controls::Text(combo)));
         auto apps = KeyboardExclusions::Parse(_config->Keyboard.Exclude);
-        if (exe.empty() || std::ranges::contains(apps, exe)) return;
+        if (exe.empty() || std::ranges::contains(apps, exe)) {
+            return;
+        }
         apps.push_back(std::move(exe));
         std::ranges::sort(apps);
         _config->Keyboard.Exclude = KeyboardExclusions::Join(apps);
@@ -61,7 +62,9 @@ namespace {
     void _remove(HWND panel) {
         const int row = ListView_GetNextItem(GetDlgItem(panel, IdList), -1, LVNI_SELECTED);
         auto apps = KeyboardExclusions::Parse(_config->Keyboard.Exclude);
-        if (row < 0 || row >= static_cast<int>(apps.size())) return;
+        if (row < 0 || row >= static_cast<int>(apps.size())) {
+            return;
+        }
         apps.erase(apps.begin() + row);
         _config->Keyboard.Exclude = KeyboardExclusions::Join(apps);
         _fill(panel);
@@ -81,8 +84,7 @@ namespace {
             case WM_NOTIFY:
                 if (const auto* header = reinterpret_cast<const NMHDR*>(lParam);
                     header->idFrom == IdList && header->code == LVN_ITEMCHANGED) {
-                    EnableWindow(GetDlgItem(panel, IdRemove),
-                                 ListView_GetNextItem(header->hwndFrom, -1, LVNI_SELECTED) >= 0);
+                    _syncButtons(panel);
                 }
                 return 0;
             default:
@@ -92,16 +94,12 @@ namespace {
 }
 
 void ExcludedApps::Create(HWND page, const RECT& cell, const int id, AppConfig& config) {
-    static const bool registered = [] {
-        const WNDCLASSW windowClass{.lpfnWndProc = _proc, .hInstance = GetModuleHandleW(nullptr),
-                                    .hCursor = LoadCursorW(nullptr, IDC_ARROW),
-                                    .hbrBackground = GetSysColorBrush(COLOR_BTNFACE), .lpszClassName = PanelClass};
-        return RegisterClassW(&windowClass) != 0;
-    }();
-    if (!registered) return;
+    const HWND panel = Controls::Panel(page, cell, id, PanelClass, _proc);
+    if (!panel) {
+        return;
+    }
 
     _config = &config;
-    const HWND panel = Controls::Create(page, page, PanelClass, L"", WS_CLIPCHILDREN, cell, id, WS_EX_CONTROLPARENT);
     const int width = cell.right - cell.left, height = cell.bottom - cell.top;
     const auto add = [&](const wchar_t* cls, const wchar_t* text, const DWORD style, const RECT& at, const int childId,
                          const DWORD exStyle = 0) {

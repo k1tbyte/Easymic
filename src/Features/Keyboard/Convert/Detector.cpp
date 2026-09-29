@@ -1,6 +1,7 @@
 #include "Detector.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <ranges>
 #include <utility>
 #include "Platform/Str.hpp"
@@ -10,10 +11,24 @@ namespace Convert {
 namespace {
 
     // Under three trigrams one sample decides: "щас" reads as the likelier "ofc"
-    constexpr size_t kNgramMinLetters = 5;
+    constexpr size_t NgramMinLetters = 5;
     // Measured on typos and brands: fewer keys or a thinner margin switch words typed right
-    constexpr size_t kEarlyKeys = 4;
-    constexpr double kEarlyMargin = 1.0;
+    constexpr size_t EarlyKeys = 4;
+    constexpr double EarlyMargin = 1.0;
+
+    struct Candidate {
+        const Side& Typed;
+        const Side& Other;
+        const std::wstring& Text;
+        const std::wstring& Converted;
+        size_t Letters;
+        int HitsSource;
+        int HitsCandidate;
+        bool Signs;
+        bool Frequency;
+        bool Stretched = false;
+        std::optional<bool> Blocked;
+    };
 
     /// Dictionary hits among the words of `text` (a joined run holds several), and the word count.
     std::pair<int, size_t> _hits(const Pack& pack, const std::wstring_view text) {
@@ -29,6 +44,10 @@ namespace {
     }
 
     bool _alpha(const wchar_t c) { return IsCharAlphaW(c); }
+
+    bool _isIdentifierOrFlag(const std::wstring_view text) {
+        return text.starts_with(L'-') || std::ranges::any_of(text, [](const wchar_t c) { return c >= L'0' && c <= L'9'; });
+    }
 
     /// A sign where a letter was typed (`[fnf` from `хата`): no word of the other side.
     /// Only a closing `.` or `,` after three keys is punctuation (`руддщб` = `hello,`); `'` is in words.
@@ -53,7 +72,7 @@ namespace {
     /// (or a start, `open`) begins a known word. Whole words of the pack skip this, they are known.
     bool _plausible(const Pack& pack, const std::wstring_view text, const bool open) {
         for (const auto part : std::views::split(text, L' ')) {
-            const std::wstring word = TrimWord(std::wstring_view(part.begin(), part.end()));
+            const std::wstring_view word = TrimWord(std::wstring_view(part.begin(), part.end()));
             const bool startCounts = open || word.size() <= StartLetters;
             if (!word.empty() && ((startCounts && !pack.Begins(word)) || pack.Unseen(word, open))) {
                 return false;
@@ -75,36 +94,120 @@ namespace {
 
     /// A sign is a letter of the other side (`bv,f` = имба) unless it is punctuation more often: not a letter
     /// there (`ц.у` = `w/e`), at the end (`ofc.`), in a short token (`:p`), after a lone first letter (`e.g`).
-    bool _signsAreLetters(const std::wstring& text, const std::wstring& converted) {
+    bool _signsAreLetters(const std::wstring_view text, const std::wstring_view converted) {
         return std::ranges::all_of(converted, _alpha) && _alpha(text.back())
-               && std::ranges::count_if(text, _alpha) >= 3 && (!_alpha(text[0]) || _alpha(text[1]));
+               && std::ranges::count_if(text, _alpha) >= 3 && (!_alpha(text.front()) || _alpha(text[1]));
+    }
+
+    /// A fix into text no word of the other side could be was typed right (`гпт` is not `ugn`).
+    bool _blocked(Candidate& c) {
+        if (!c.Blocked) {
+            c.Blocked = c.Signs || (!c.HitsCandidate && !_plausible(*c.Other.Pack, c.Converted, false));
+        }
+        return *c.Blocked;
+    }
+
+    /// A word of both or a lone letter: a sure fix of the next word converts it too (`d ljvt`).
+    void _ambiguous(Verdict& v, const Candidate& c) {
+        v.Ambiguous = true;
+        const bool joinsNext = c.Letters != std::wstring::npos
+                               && ((c.HitsSource > 0 && c.Letters >= 2) || c.Text.size() == 1);
+        v.Undecided = c.HitsCandidate > 0 && joinsNext;
+    }
+
+    bool _kept(Verdict& v, const Candidate& c) {
+        if (c.Frequency && c.Letters == 1) {
+            _ambiguous(v, c);
+            return true;
+        }
+        if (c.HitsSource <= 0 || c.HitsSource < c.HitsCandidate) {
+            return false;
+        }
+        if (c.HitsSource == c.HitsCandidate) {
+            _ambiguous(v, c);
+        } else {
+            v.ByDictionary = true;
+        }
+        return true;
+    }
+
+    bool _byRule(Verdict& v, Candidate& c, const Rules* rules) {
+        const uint8_t script = c.Typed.Table->Script();
+        if (!rules || c.Stretched || script == c.Other.Table->Script()) {
+            return false;
+        }
+        const RuleHit hit = rules->Find(c.Text, script == CyrillicScript);
+        if (!hit) {
+            return false;
+        }
+        const bool allLetters = std::ranges::all_of(c.Text, _alpha) || _signsAreLetters(c.Text, c.Converted);
+        // Short anchored rules lack enough trigrams; longer words must agree with the model.
+        const bool needsMargin = hit.Anywhere || c.Letters >= NgramMinLetters;
+        const bool agreed = (c.HitsCandidate > 0 || allLetters) && (!needsMargin || v.Margin() > 0);
+        if ((c.Frequency && !agreed) || _blocked(c)) {
+            return false;
+        }
+        v.WrongLayout = true;
+        v.ByRule = true;
+        v.Rule = hit.Pattern;
+        return true;
+    }
+
+    bool _byDictionary(Verdict& v, const Candidate& c) {
+        if (c.HitsCandidate <= c.HitsSource || c.Letters <= 1) {
+            return false;
+        }
+        v.WrongLayout = true;
+        v.ByDictionary = true;
+        return true;
+    }
+
+    void _byNgram(Verdict& v, Candidate& c, const double thresholdOverride) {
+        if (c.Letters <= 2) {
+            _ambiguous(v, c);
+            return;
+        }
+        if (!c.Frequency || c.Stretched || c.Letters < NgramMinLetters) {
+            return;
+        }
+        // Letters on the other side count: "и.т.д" makes three ("b/n/l")
+        if (static_cast<size_t>(std::ranges::count_if(c.Converted, _alpha)) < NgramMinLetters) {
+            return;
+        }
+        const double threshold = thresholdOverride > 0.0 ? thresholdOverride : c.Other.Pack->Threshold();
+        v.WrongLayout = v.Margin() > threshold && !_blocked(c);
+    }
+
+    void _decide(Verdict& v, Candidate& c, const Rules* rules, const double thresholdOverride) {
+        if (_kept(v, c)) {
+            return;
+        }
+        c.Stretched = c.Frequency && _stretched(c.Text);
+        if (_byRule(v, c, rules) || _byDictionary(v, c)) {
+            return;
+        }
+        _byNgram(v, c, thresholdOverride);
     }
 
 } // anonymous namespace
 
 Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
-               double thresholdOverride, const Rules* rules, const bool frequency) {
+               const double thresholdOverride, const Rules* rules, const bool frequency) {
     Verdict v;
     const std::wstring text = typed.Table->Render(word);
     if (text.empty()) {
         return v;
     }
-
     v.Typed = text;
     v.SourceLocale = typed.Pack->Locale();
-    v.ScoreOriginal = typed.Pack->Score(text);
 
     const std::wstring converted = other.Table->Render(word);
     if (converted.empty() || converted == text) {
         return v;
     }
-
     v.Fixed = converted;
     v.FixedLocale = other.Pack->Locale();
-
-    v.ScoreFixed = other.Pack->Score(converted);
-    // Dictionary trimming must not turn identifiers or flags into words.
-    if (text.starts_with(L'-') || std::ranges::any_of(text, [](const wchar_t c) { return c >= L'0' && c <= L'9'; })) {
+    if (_isIdentifierOrFlag(text)) {
         return v;
     }
 
@@ -113,65 +216,21 @@ Verdict Detect(std::span<const Key> word, const Side& typed, const Side& other,
     if (letters == 0) {
         return v;
     }
+    v.ScoreOriginal = typed.Pack->Score(text);
+    v.ScoreFixed = other.Pack->Score(converted);
+
     const bool signs = _signsForLetters(text, converted);
-    const int hitsCandidate = signs ? 0 : _hits(*other.Pack, converted).first;
-    // A fix into text no word of the other side could be was typed right (`гпт` is not `ugn`)
-    const auto blocked = [&] {
-        return v.Implausible = signs || (!hitsCandidate && !_plausible(*other.Pack, converted, false));
-    };
-    // A word of both or a lone letter: a sure fix of the next word converts it too (`d ljvt`)
-    const auto ambiguous = [&] {
-        v.Ambiguous = true;
-        v.Undecided = hitsCandidate && letters != std::wstring::npos && (hitsSource && letters >= 2 || text.size() == 1);
-    };
-    if (frequency && letters == 1) {
-        ambiguous();
-        return v;
-    }
-    if (hitsSource > 0 && hitsSource >= hitsCandidate) {
-        if (hitsSource == hitsCandidate) {
-            ambiguous();
-        } else {
-            v.ByDictionary = true;
-        }
-        return v;
-    }
-
-    // Only a dictionary switches an elongation
-    const bool stretched = frequency && _stretched(text);
-    if (rules && !stretched && typed.Table->Script() != other.Table->Script()) {
-        const RuleHit hit = rules->Find(text, typed.Table->Script() == CyrillicScript);
-        const bool allLetters = std::ranges::all_of(text, _alpha) || _signsAreLetters(text, converted);
-        // Short anchored rules lack enough trigrams; longer words must agree with the model.
-        const bool agreed = (hitsCandidate > 0 || allLetters)
-                            && (!(hit.Anywhere || letters >= kNgramMinLetters) || v.Margin() > 0);
-        if (hit && (agreed || !frequency) && !blocked()) {
-            v.WrongLayout = v.ByRule = true;
-            v.Rule = hit.Pattern;
-            return v;
-        }
-    }
-
-    if (hitsCandidate > hitsSource && letters > 1) {
-        v.WrongLayout = true;
-        v.ByDictionary = true;
-        return v;
-    }
-
-    if (letters <= 2) {
-        ambiguous();
-        return v;
-    }
-
-    // Letters on the other side count: "и.т.д" makes three ("b/n/l")
-    if (!frequency || stretched || letters < kNgramMinLetters
-        || std::ranges::count_if(converted, _alpha) < kNgramMinLetters) {
-        return v;
-    }
-
-    const double threshold =
-        thresholdOverride > 0.0 ? thresholdOverride : other.Pack->Threshold();
-    v.WrongLayout = v.Margin() > threshold && !blocked();
+    Candidate candidate{.Typed = typed,
+                        .Other = other,
+                        .Text = text,
+                        .Converted = converted,
+                        .Letters = letters,
+                        .HitsSource = hitsSource,
+                        .HitsCandidate = signs ? 0 : _hits(*other.Pack, converted).first,
+                        .Signs = signs,
+                        .Frequency = frequency};
+    _decide(v, candidate, rules, thresholdOverride);
+    v.Implausible = candidate.Blocked.value_or(false);
     return v;
 }
 
@@ -185,7 +244,7 @@ Verdict Early(const std::span<const Key> word, const Side& typed, const Side& ot
     const std::wstring converted = other.Table->Render(word);
     // A start ending in a sign waits a key: "ok," or "об"
     if (text.empty() || converted.empty() || typed.Pack->Begins(text)
-        || !(std::ranges::all_of(text, _alpha) && std::ranges::all_of(converted, _alpha)
+        || !((std::ranges::all_of(text, _alpha) && std::ranges::all_of(converted, _alpha))
              || _signsAreLetters(text, converted))) {
         return v;
     }
@@ -202,12 +261,10 @@ Verdict Early(const std::span<const Key> word, const Side& typed, const Side& ot
     v.ScoreFixed = other.Pack->Score(converted, true);
     const RuleHit hit = rules ? rules->Find(text, typed.Table->Script() == CyrillicScript, true) : RuleHit{};
     // Frequency analysis guards a rule as at the word end; alone it waits for more keys
-    const bool agreed = v.Margin() > kEarlyMargin;
-    v.WrongLayout = frequency ? agreed && (hit || word.size() >= kEarlyKeys) : static_cast<bool>(hit);
-    if (v.WrongLayout) {
-        v.Implausible = !_plausible(*other.Pack, converted, true);
-        v.WrongLayout = !v.Implausible;
-    }
+    const bool agreed = v.Margin() > EarlyMargin;
+    const bool switches = frequency ? agreed && (hit || word.size() >= EarlyKeys) : static_cast<bool>(hit);
+    v.Implausible = switches && !_plausible(*other.Pack, converted, true);
+    v.WrongLayout = switches && !v.Implausible;
     v.ByRule = v.WrongLayout && hit;
     v.ByDictionary = v.WrongLayout && !hit;
     v.Rule = hit.Pattern;

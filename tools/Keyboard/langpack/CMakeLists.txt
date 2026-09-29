@@ -6,12 +6,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 get_filename_component(LANGPACK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-set(ENGINE "${LANGPACK_ROOT}/src/Features/Keyboard/Convert")
+set(KEYBOARD "${LANGPACK_ROOT}/src/Features/Keyboard")
+set(ENGINE "${KEYBOARD}/Convert")
 
 add_executable(langpack EXCLUDE_FROM_ALL
         Main.cpp Console.cpp PackBuilder.cpp
         "${ENGINE}/Pack.cpp" "${ENGINE}/Alphabet.cpp"
-        "${ENGINE}/Detector.cpp" "${ENGINE}/LayoutTable.cpp" "${ENGINE}/Rules.cpp")
+        "${ENGINE}/Detector.cpp" "${ENGINE}/LayoutTable.cpp" "${ENGINE}/Rules.cpp"
+        "${KEYBOARD}/InputLanguage.cpp")
 target_include_directories(langpack PRIVATE "${LANGPACK_ROOT}/src")
 target_compile_definitions(langpack PRIVATE NOMINMAX UNICODE _UNICODE)
 if(MSVC)

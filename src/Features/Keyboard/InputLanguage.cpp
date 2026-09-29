@@ -2,22 +2,20 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdint>
 #include <cstdio>
 #include <cwctype>
 
-#include "Str.hpp"
+#include "Platform/Str.hpp"
 
 namespace InputLanguage {
 
 namespace {
 
-    /**
-     * @brief Whether one token of the locale list names this layout.
-     *
-     * A name is matched as a prefix, so "en" takes en-US and "en-GB" only that one. Hex is
-     * the escape hatch: four digits are a language id, eight the whole layout handle, which
-     * is the only way to tell two layouts of the same language apart.
-     */
+    LCID _lcid(const HKL layout) {
+        return MAKELCID(LOWORD(reinterpret_cast<UINT_PTR>(layout)), SORT_DEFAULT);
+    }
+
     bool _matches(const std::string_view token, const HKL layout) {
         const auto handle = static_cast<uint32_t>(reinterpret_cast<UINT_PTR>(layout));
 
@@ -29,8 +27,7 @@ namespace {
         }
 
         wchar_t name[LOCALE_NAME_MAX_LENGTH];
-        if (!LCIDToLocaleName(MAKELCID(LOWORD(handle), SORT_DEFAULT), name,
-                              LOCALE_NAME_MAX_LENGTH, 0)) {
+        if (!LCIDToLocaleName(_lcid(layout), name, LOCALE_NAME_MAX_LENGTH, 0)) {
             return false;
         }
 
@@ -43,44 +40,10 @@ namespace {
         return true;
     }
 
-    /// The layouts the list names, in its order, skipping what is not installed. An empty
-    /// list means every installed layout, which is the plain "next layout" behaviour.
-    std::vector<HKL> _ring(const std::string_view locales) {
-        std::vector<HKL> installed;
-        for (const Layout& layout : Installed()) {
-            installed.push_back(layout.Handle);
-        }
-        if (locales.find_first_not_of(" \t,") == std::string_view::npos) {
-            return installed;
-        }
-
-        std::vector<HKL> ring;
-        for (size_t start = 0; start < locales.size();) {
-            const size_t comma = locales.find(',', start);
-            std::string_view token = locales.substr(start, comma - start);
-            start = comma == std::string_view::npos ? locales.size() : comma + 1;
-
-            while (!token.empty() && token.front() == ' ') token.remove_prefix(1);
-            while (!token.empty() && token.back() == ' ') token.remove_suffix(1);
-            if (token.empty()) {
-                continue;
-            }
-
-            // First match wins: two layouts of one language must not both join the ring, or
-            // a pair of locales would cycle three ways
-            for (const HKL layout : installed) {
-                if (_matches(token, layout)) {
-                    ring.push_back(layout);
-                    break;
-                }
-            }
-        }
-
-        return ring;
-    }
-
 } // anonymous namespace
 
+// Preload first: GetKeyboardLayoutList lacks a layout nobody typed in since logon. Loading one already
+// loaded returns its handle, and without KLF_ACTIVATE nothing is switched.
 std::vector<Layout> Installed() {
     std::vector<Layout> layouts;
     HKEY preload = nullptr;
@@ -126,8 +89,7 @@ int Find(const std::vector<Layout>& layouts, const std::string_view id, const si
 
 std::wstring Title(const Layout& layout) {
     wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
-    LCIDToLocaleName(MAKELCID(LOWORD(reinterpret_cast<UINT_PTR>(layout.Handle)), SORT_DEFAULT), locale,
-                     LOCALE_NAME_MAX_LENGTH, 0);
+    LCIDToLocaleName(_lcid(layout.Handle), locale, LOCALE_NAME_MAX_LENGTH, 0);
     wchar_t name[128]{};
     DWORD size = sizeof(name);
     const std::wstring key = LR"(SYSTEM\CurrentControlSet\Control\Keyboard Layouts\)" + Str::Utf8ToWide(layout.Id);
@@ -138,22 +100,57 @@ std::wstring Title(const Layout& layout) {
     return std::wstring{name} + L" - " + locale;
 }
 
-HKL SwitchNext(const std::string_view locales) {
-    const HWND target = FocusedWindow();
-    if (!target) {
-        return nullptr;
+std::string Iso639(const HKL layout) {
+    wchar_t name[16]{};
+    if (!GetLocaleInfoW(_lcid(layout), LOCALE_SISO639LANGNAME, name, static_cast<int>(std::size(name)))) {
+        return {};
+    }
+    return Str::WideToUtf8(name);
+}
+
+std::vector<HKL> Ring(const std::string_view locales) {
+    std::vector<HKL> installed;
+    for (const Layout& layout : Installed()) {
+        installed.push_back(layout.Handle);
+    }
+    if (locales.find_first_not_of(" \t,") == std::string_view::npos) {
+        return installed;
     }
 
-    const std::vector<HKL> ring = _ring(locales);
-    if (ring.empty()) {
+    std::vector<HKL> ring;
+    for (size_t start = 0; start < locales.size();) {
+        const size_t comma = locales.find(',', start);
+        std::string_view token = locales.substr(start, comma - start);
+        start = comma == std::string_view::npos ? locales.size() : comma + 1;
+
+        while (!token.empty() && token.front() == ' ') {
+            token.remove_prefix(1);
+        }
+        while (!token.empty() && token.back() == ' ') {
+            token.remove_suffix(1);
+        }
+        if (token.empty()) {
+            continue;
+        }
+        // First match wins: two layouts of one language must not both join the ring
+        const auto match = std::ranges::find_if(installed, [token](const HKL layout) { return _matches(token, layout); });
+        if (match != installed.end()) {
+            ring.push_back(*match);
+        }
+    }
+    return ring;
+}
+
+HKL SwitchNext(const std::span<const HKL> ring) {
+    const HWND target = FocusedWindow();
+    if (!target || ring.empty()) {
         return nullptr;
     }
 
     const size_t at = std::ranges::find(ring, LayoutOf(target)) - ring.begin();
     const HKL next = ring[at + 1 < ring.size() ? at + 1 : 0];
 
-    // The flag alone is enough for a plain Win32 window, but a TSF app reads the handle, so
-    // both are sent and the ignored half costs nothing.
+    // A plain Win32 window needs the flag, a TSF app reads the handle: both are sent
     return PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD,
                         reinterpret_cast<LPARAM>(next)) ? next : nullptr;
 }

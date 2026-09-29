@@ -1,22 +1,20 @@
 #include "PackBuilder.hpp"
 
-#include "Console.hpp"
-
 #include "Features/Keyboard/Convert/Alphabet.hpp"
 #include "Features/Keyboard/Convert/Bloom.hpp"
-#include "Features/Keyboard/Convert/Pack.hpp"
-
-#include <windows.h>
+#include "Platform/File.hpp"
+#include "Platform/Str.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <functional>
 #include <map>
 #include <set>
 #include <vector>
 
 namespace {
+
+    constexpr uint64_t MinSymbolCount = 10;
+    constexpr uint64_t SymbolRarity = 100000;
 
     struct BloomParams {
         uint64_t Bits = 0;
@@ -35,39 +33,51 @@ namespace {
         return p;
     }
 
-    void _bloomAdd(uint8_t* data, const BloomParams& p, const std::wstring& word) {
+    void _bloomAdd(uint8_t* data, const BloomParams& p, const std::wstring_view word) {
         Convert::BloomBits(word, p.Bits, p.Hashes, [data](const uint64_t bit) {
             data[bit >> 3] |= static_cast<uint8_t>(1u << (bit & 7));
             return true;
         });
     }
 
-    void _forEachWord(const std::wstring& text, const std::function<void(const std::wstring&)>& fn) {
-        size_t start = 0;
-        while (start <= text.size()) {
-            size_t end = text.find_first_of(L"\r\n", start);
-            if (end == std::wstring::npos) {
-                end = text.size();
-            }
-            std::wstring raw = text.substr(start, end - start);
-            raw = raw.substr(0, raw.find(L'/'));
-            const std::wstring word = Convert::WordKey(raw);
-            if (!word.empty()) {
-                fn(word);
-            }
-            if (end == text.size()) {
-                break;
+    std::wstring _readText(const std::filesystem::path& path) {
+        auto bytes = File::Read(path.wstring().c_str());
+        if (!bytes) {
+            return {};
+        }
+        if (bytes->starts_with("\xEF\xBB\xBF")) {
+            bytes->erase(0, 3);
+        }
+        return Str::Utf8ToWide(*bytes);
+    }
+
+    /// One word per line, the part after a `/` (a hunspell flag list) dropped.
+    std::vector<std::wstring> _readWords(const std::wstring_view text) {
+        std::vector<std::wstring> words;
+        for (size_t start = 0; start < text.size();) {
+            const size_t end = std::min(text.find_first_of(L"\r\n", start), text.size());
+            const std::wstring_view line = text.substr(start, end - start);
+            if (std::wstring word = Convert::WordKey(line.substr(0, line.find(L'/'))); !word.empty()) {
+                words.push_back(std::move(word));
             }
             start = end + 1;
         }
+        return words;
     }
 
-    void _writePadding(std::ofstream& out, uint64_t upTo) {
-        static const char zeros[8] = {};
-        const uint64_t pos = static_cast<uint64_t>(out.tellp());
-        if (upTo > pos) {
-            out.write(zeros, static_cast<std::streamsize>(upTo - pos));
+    std::wstring _alphabetOf(const std::map<wchar_t, uint64_t>& frequency) {
+        uint64_t chars = 0;
+        for (const auto& [symbol, count] : frequency) {
+            chars += count;
         }
+        const uint64_t cutoff = std::max(MinSymbolCount, chars / SymbolRarity);
+        std::wstring symbols = L" ";
+        for (const auto& [symbol, count] : frequency) {
+            if (count >= cutoff) {
+                symbols.push_back(symbol);
+            }
+        }
+        return symbols;
     }
 
     class NgramBuilder {
@@ -78,7 +88,7 @@ namespace {
             _bi.assign(v * v, 0);
         }
 
-        void Train(const std::wstring& text) {
+        void Train(const std::wstring_view text) {
             const uint64_t v = _alphabet.Size();
             const std::vector<uint32_t> seq = _alphabet.Encode(text);
             for (size_t i = 2; i < seq.size(); ++i) {
@@ -97,10 +107,30 @@ namespace {
         std::vector<uint32_t> _bi;
     };
 
+    void _appendAt(std::string& image, const uint64_t offset, const void* data, const size_t size) {
+        image.resize(std::max<size_t>(image.size(), offset));
+        image.append(static_cast<const char*>(data), size);
+    }
+
+    std::string _image(const Convert::PackHeader& header, const std::wstring& symbols,
+                       const std::vector<uint8_t>& bloom, const NgramBuilder& ngram) {
+        const Convert::PackSections at = Convert::ComputeSections(symbols.size(), header.BloomBits);
+        std::string image;
+        _appendAt(image, 0, &header, sizeof(header));
+        for (const wchar_t c : symbols) {
+            const uint32_t codepoint = static_cast<uint32_t>(c);
+            _appendAt(image, at.Alphabet, &codepoint, sizeof(codepoint));
+        }
+        _appendAt(image, at.Bloom, bloom.data(), bloom.size());
+        _appendAt(image, at.Tri, ngram.Trigrams().data(), ngram.Trigrams().size() * sizeof(uint32_t));
+        _appendAt(image, at.Bi, ngram.Bigrams().data(), ngram.Bigrams().size() * sizeof(uint32_t));
+        return image;
+    }
+
 } // anonymous namespace
 
-bool BuildPack(const std::string& wordListPath, const PackOptions& options,
-               const std::string& outPath, std::string* error) {
+bool BuildPack(const std::filesystem::path& wordList, const PackOptions& options,
+               const std::filesystem::path& out, std::string* error) {
     const auto fail = [error](const std::string& msg) {
         if (error) {
             *error = msg;
@@ -108,54 +138,41 @@ bool BuildPack(const std::string& wordListPath, const PackOptions& options,
         return false;
     };
 
-    const std::wstring text = Console::ReadFileUtf8(wordListPath);
+    const std::wstring text = _readText(wordList);
     if (text.empty()) {
-        return fail("cannot read word list: " + wordListPath);
+        return fail("cannot read word list: " + wordList.string());
     }
-
-    std::map<wchar_t, uint64_t> freq;
-    uint64_t words = 0;
-    std::set<std::wstring> starts;
-    _forEachWord(text, [&](const std::wstring& w) {
-        ++words;
-        for (wchar_t c : w) {
-            ++freq[c];
-        }
-        for (size_t n = 2; n <= std::min(w.size(), Convert::StartLetters); ++n) {
-            starts.insert(Convert::StartKey(std::wstring_view(w).substr(0, n)));
-        }
-    });
-    if (words == 0) {
+    const std::vector<std::wstring> words = _readWords(text);
+    if (words.empty()) {
         return fail("word list has no usable entries");
     }
 
-    uint64_t chars = 0;
-    for (const auto& [c, n] : freq) {
-        chars += n;
-    }
-    const uint64_t cutoff = std::max<uint64_t>(10, chars / 100000);
-
-    std::wstring symbols = L" ";
-    for (const auto& [c, n] : freq) {
-        if (n >= cutoff) {
-            symbols.push_back(c);
+    std::map<wchar_t, uint64_t> frequency;
+    std::set<std::wstring> starts;
+    for (const std::wstring& word : words) {
+        for (const wchar_t c : word) {
+            ++frequency[c];
+        }
+        for (size_t n = 2; n <= std::min(word.size(), Convert::StartLetters); ++n) {
+            starts.insert(Convert::StartKey(std::wstring_view(word).substr(0, n)));
         }
     }
+
+    const std::wstring symbols = _alphabetOf(frequency);
     if (symbols.size() > Convert::MaxAlphabet) {
         return fail("alphabet too large: " + std::to_string(symbols.size()) + " symbols");
     }
 
     const Convert::Alphabet alphabet(symbols);
     NgramBuilder ngram(alphabet);
-    const BloomParams params = _paramsFor(words + starts.size(), options.FalsePositiveRate);
-    std::vector<uint8_t> bits(static_cast<size_t>(Convert::BloomByteSize(params.Bits)), 0);
-
-    _forEachWord(text, [&](const std::wstring& w) {
-        ngram.Train(w);
-        _bloomAdd(bits.data(), params, w);
-    });
+    const BloomParams params = _paramsFor(words.size() + starts.size(), options.FalsePositiveRate);
+    std::vector<uint8_t> bloom(static_cast<size_t>(Convert::BloomByteSize(params.Bits)), 0);
+    for (const std::wstring& word : words) {
+        ngram.Train(word);
+        _bloomAdd(bloom.data(), params, word);
+    }
     for (const std::wstring& start : starts) {
-        _bloomAdd(bits.data(), params, start);
+        _bloomAdd(bloom.data(), params, start);
     }
 
     Convert::PackHeader header{};
@@ -164,30 +181,12 @@ bool BuildPack(const std::string& wordListPath, const PackOptions& options,
     header.AlphabetLen = static_cast<uint32_t>(symbols.size());
     header.BloomHashes = params.Hashes;
     header.BloomBits = params.Bits;
-    header.WordCount = words;
+    header.WordCount = words.size();
     header.Threshold = static_cast<float>(options.Threshold);
-    std::copy_n(options.Locale.c_str(),
-                std::min<size_t>(options.Locale.size(), 15), header.Locale);
+    std::copy_n(options.Locale.c_str(), std::min<size_t>(options.Locale.size(), 15), header.Locale);
 
-    const Convert::PackSections at = Convert::ComputeSections(symbols.size(), params.Bits);
-    std::ofstream out(outPath, std::ios::binary);
-    if (!out) {
-        return fail("cannot write pack: " + outPath);
+    if (!File::Write(out.wstring().c_str(), _image(header, symbols, bloom, ngram))) {
+        return fail("cannot write pack: " + out.string());
     }
-
-    out.write(reinterpret_cast<const char*>(&header), sizeof(header));
-    for (wchar_t c : symbols) {
-        const uint32_t cp = static_cast<uint32_t>(c);
-        out.write(reinterpret_cast<const char*>(&cp), sizeof(cp));
-    }
-    _writePadding(out, at.Bloom);
-    out.write(reinterpret_cast<const char*>(bits.data()),
-              static_cast<std::streamsize>(bits.size()));
-    _writePadding(out, at.Tri);
-    out.write(reinterpret_cast<const char*>(ngram.Trigrams().data()),
-              static_cast<std::streamsize>(ngram.Trigrams().size() * 4));
-    _writePadding(out, at.Bi);
-    out.write(reinterpret_cast<const char*>(ngram.Bigrams().data()),
-              static_cast<std::streamsize>(ngram.Bigrams().size() * 4));
-    return out.good() ? true : fail("write failed: " + outPath);
+    return true;
 }

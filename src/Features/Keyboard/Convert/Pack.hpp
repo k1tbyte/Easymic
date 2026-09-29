@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "Alphabet.hpp"
 
@@ -14,8 +15,9 @@ namespace Convert {
     constexpr size_t MaxAlphabet = 64;
     /// Word starts of 2 up to this many letters are in the bloom too: a word leaves its language within them.
     constexpr size_t StartLetters = 4;
+    constexpr double DefaultThreshold = 0.35;
+    constexpr double NoLetterScore = -20.0;
 
-#pragma pack(push, 8)
     struct PackHeader {
         char Magic[4];
         uint32_t Version;
@@ -27,7 +29,6 @@ namespace Convert {
         uint32_t Reserved;
         char Locale[16];
     };
-#pragma pack(pop)
     static_assert(sizeof(PackHeader) == 56);
 
     struct PackSections {
@@ -48,9 +49,8 @@ namespace Convert {
         return s;
     }
 
-    std::wstring TrimWord(std::wstring_view s);
+    std::wstring_view TrimWord(std::wstring_view s);
     std::wstring WordKey(std::wstring_view word);
-    /// The bloom key of `text`'s first `StartLetters` letters as a word start.
     std::wstring StartKey(std::wstring_view text);
 
     class Pack {
@@ -69,17 +69,14 @@ namespace Convert {
         const std::wstring& Symbols() const { return _alphabet.Symbols(); }
 
         bool Contains(std::wstring_view word) const;
-        /// Some word starts with `text`'s first `StartLetters` letters.
         bool Begins(std::wstring_view text) const;
         /// `open`: the text goes on, so no word end is scored.
-        double Score(const std::wstring& text, bool open = false) const;
-        /// Trigrams of `text` that no word of the pack has.
-        size_t Unseen(const std::wstring& text, bool open = false) const;
+        double Score(std::wstring_view text, bool open = false) const;
+        size_t Unseen(std::wstring_view text, bool open = false) const;
 
     private:
         void _close();
 
-        HANDLE _file = INVALID_HANDLE_VALUE;
         HANDLE _mapping = nullptr;
         const uint8_t* _data = nullptr;
         uint64_t _size = 0;
@@ -91,7 +88,7 @@ namespace Convert {
         const uint32_t* _tri = nullptr;
         const uint32_t* _bi = nullptr;
         char _locale[16]{};
-        double _threshold = 0.35;
+        double _threshold = DefaultThreshold;
         uint64_t _wordCount = 0;
     };
 

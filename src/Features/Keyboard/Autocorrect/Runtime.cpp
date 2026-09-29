@@ -18,7 +18,7 @@ namespace {
         runtime.Auto = KeyboardPacks::Load(packs[0], a, settings.PackA) && KeyboardPacks::Load(packs[1], b, settings.PackB);
         if (!runtime.Auto) {
             runtime.Packs.reset();
-            LOG_ERROR("Keyboard: autocorrect needs both packs in packs/ next to the executable");
+            LOG_ERROR("Keyboard: autocorrect is off: a pack did not load (see above)");
             return;
         }
         KeyboardPacks::LoadRules(runtime.Rules);

@@ -9,21 +9,20 @@
 
 namespace Convert {
 
-std::wstring TrimWord(std::wstring_view s) {
+std::wstring_view TrimWord(std::wstring_view s) {
     const auto isEdge = [](const wchar_t c) {
         return c < 128 && !((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z'));
     };
-    size_t b = 0, e = s.size();
-    while (b < e && isEdge(s[b])) {
-        ++b;
+    while (!s.empty() && isEdge(s.front())) {
+        s.remove_prefix(1);
     }
-    while (e > b && isEdge(s[e - 1])) {
-        --e;
+    while (!s.empty() && isEdge(s.back())) {
+        s.remove_suffix(1);
     }
-    return std::wstring(s.substr(b, e - b));
+    return s;
 }
 
-std::wstring WordKey(std::wstring_view word) {
+std::wstring WordKey(const std::wstring_view word) {
     return Str::Lower(TrimWord(word));
 }
 
@@ -45,10 +44,6 @@ void Pack::_close() {
         CloseHandle(_mapping);
         _mapping = nullptr;
     }
-    if (_file != INVALID_HANDLE_VALUE) {
-        CloseHandle(_file);
-        _file = INVALID_HANDLE_VALUE;
-    }
 }
 
 bool Pack::Load(const std::wstring& path, std::wstring* error) {
@@ -61,20 +56,22 @@ bool Pack::Load(const std::wstring& path, std::wstring* error) {
     };
 
     _close();
-    _file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (_file == INVALID_HANDLE_VALUE) {
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
         return fail(L"cannot open pack");
     }
 
     LARGE_INTEGER fileSize{};
-    if (!GetFileSizeEx(_file, &fileSize) ||
-        fileSize.QuadPart < static_cast<LONGLONG>(sizeof(PackHeader))) {
+    const bool sized = GetFileSizeEx(file, &fileSize) && fileSize.QuadPart >= static_cast<LONGLONG>(sizeof(PackHeader));
+    if (sized) {
+        _size = static_cast<uint64_t>(fileSize.QuadPart);
+        _mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    }
+    CloseHandle(file);
+    if (!sized) {
         return fail(L"pack too small");
     }
-    _size = static_cast<uint64_t>(fileSize.QuadPart);
-
-    _mapping = CreateFileMappingW(_file, nullptr, PAGE_READONLY, 0, 0, nullptr);
     if (!_mapping) {
         return fail(L"cannot map pack");
     }
@@ -92,7 +89,7 @@ bool Pack::Load(const std::wstring& path, std::wstring* error) {
         return fail(L"bad alphabet in pack");
     }
     // A zero bloom divides by zero on lookup; one larger than the file wraps the offsets below
-    if (!header.BloomBits || header.BloomBits / 8 > _size || !header.BloomHashes
+    if (!header.BloomBits || BloomByteSize(header.BloomBits) > _size || !header.BloomHashes
         || header.BloomHashes > MaxBloomHashes) {
         return fail(L"bad bloom in pack");
     }
@@ -128,12 +125,12 @@ bool Pack::Begins(const std::wstring_view text) const {
     return BloomContains(_bloomData, _bloomBits, _bloomHashes, StartKey(text));
 }
 
-double Pack::Score(const std::wstring& text, const bool open) const {
+double Pack::Score(const std::wstring_view text, const bool open) const {
     constexpr double Smoothing = 0.5;
     const uint64_t v = _alphabet.Size();
     const std::vector<uint32_t> seq = _alphabet.Encode(text, open);
     if (seq.size() < 3) {
-        return -20.0;
+        return NoLetterScore;
     }
     double sum = 0.0;
     for (size_t i = 2; i < seq.size(); ++i) {
@@ -144,7 +141,7 @@ double Pack::Score(const std::wstring& text, const bool open) const {
     return sum / static_cast<double>(seq.size() - 2);
 }
 
-size_t Pack::Unseen(const std::wstring& text, const bool open) const {
+size_t Pack::Unseen(const std::wstring_view text, const bool open) const {
     const uint64_t v = _alphabet.Size();
     const std::vector<uint32_t> seq = _alphabet.Encode(text, open);
     size_t unseen = 0;

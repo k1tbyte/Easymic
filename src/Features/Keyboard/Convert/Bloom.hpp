@@ -1,18 +1,23 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
+#include <string_view>
 
 namespace Convert {
 
     inline constexpr uint32_t MaxBloomHashes = 24;
+    inline constexpr uint64_t FnvPrime = 1099511628211ull;
 
-    inline uint64_t Fnv1a(const std::wstring& s) {
+    inline uint64_t FnvStep(uint64_t h, const wchar_t c) {
+        h = (h ^ static_cast<uint8_t>(c)) * FnvPrime;
+        return (h ^ static_cast<uint8_t>(c >> 8)) * FnvPrime;
+    }
+
+    /// The basis is a digit short of the FNV-1a one: stored packs are hashed with it.
+    inline uint64_t Fnv1a(const std::wstring_view text) {
         uint64_t h = 1469598103934665603ull;
-        for (wchar_t c : s) {
-            const uint16_t u = static_cast<uint16_t>(c);
-            h = (h ^ static_cast<uint8_t>(u & 0xFF)) * 1099511628211ull;
-            h = (h ^ static_cast<uint8_t>(u >> 8)) * 1099511628211ull;
+        for (const wchar_t c : text) {
+            h = FnvStep(h, c);
         }
         return h;
     }
@@ -24,8 +29,8 @@ namespace Convert {
         return x ^ (x >> 31);
     }
 
-    /// The `bits` indices of `word`, one per hash: the builder sets them, a lookup tests them.
-    inline bool BloomBits(const std::wstring& word, uint64_t bits, uint32_t hashes,
+    /// The builder sets these bits, a lookup tests them.
+    inline bool BloomBits(const std::wstring_view word, const uint64_t bits, const uint32_t hashes,
                           const auto& visit) {
         const uint64_t h1 = Fnv1a(word);
         const uint64_t h2 = Splitmix(h1) | 1ull;
@@ -37,8 +42,8 @@ namespace Convert {
         return true;
     }
 
-    inline bool BloomContains(const uint8_t* data, uint64_t bits, uint32_t hashes,
-                              const std::wstring& word) {
+    inline bool BloomContains(const uint8_t* data, const uint64_t bits, const uint32_t hashes,
+                              const std::wstring_view word) {
         return BloomBits(word, bits, hashes, [data](const uint64_t bit) { return (data[bit >> 3] >> (bit & 7)) & 1u; });
     }
 

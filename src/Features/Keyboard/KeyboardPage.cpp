@@ -12,54 +12,68 @@
 
 #include <algorithm>
 #include <commctrl.h>
+#include <iterator>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 namespace {
 
+    using PackList = std::vector<KeyboardPacks::PackInfo>;
+
+    constexpr size_t SideCount = 2;
+    constexpr std::string KeyboardSettings::* PairFields[SideCount] = {&KeyboardSettings::PairA, &KeyboardSettings::PairB};
+    constexpr std::string KeyboardSettings::* PackFields[SideCount] = {&KeyboardSettings::PackA, &KeyboardSettings::PackB};
+
+    struct PackSide {
+        PackList Compatible;
+        bool HasAuto = false;
+        std::vector<std::wstring> Titles;
+        std::vector<const wchar_t*> Items;
+        std::string ShownPair;
+        std::string ShownPack;
+    };
+
     AppConfig* _config = nullptr;
     bool _pageReady = false;
-    std::vector<KeyboardPacks::PackInfo> _discovered;
-    std::string _shownPairA, _shownPairB, _shownPackA, _shownPackB;
-    bool _defaultA = false, _defaultB = false;
-
+    PackList _discovered;
     std::vector<InputLanguage::Layout> _layouts;
     std::vector<std::wstring> _titles;
     std::vector<const wchar_t*> _items;
-    std::vector<KeyboardPacks::PackInfo> _packsA, _packsB;
+    PackSide _sides[SideCount];
 
-    void _refreshPacks(const AppConfig& cfg);
-
-    std::span<const wchar_t* const> _layoutItems() {
-        if (!_pageReady) {
-            _layouts = InputLanguage::Installed();
-            _titles.clear();
-            for (const auto& layout : _layouts) {
-                _titles.push_back(InputLanguage::Title(layout));
-            }
-            _items.clear();
-            for (const auto& title : _titles) _items.push_back(title.c_str());
-            _discovered = KeyboardPacks::Discover();
-            _refreshPacks(*_config);
-            _pageReady = true;
-        } else if (_config->Keyboard.PairA != _shownPairA || _config->Keyboard.PairB != _shownPairB
-                   || _config->Keyboard.PackA != _shownPackA || _config->Keyboard.PackB != _shownPackB) {
-            _refreshPacks(*_config);
-        }
-        return _items;
+    int _layoutAt(const AppConfig& cfg, const size_t side) {
+        return InputLanguage::Find(_layouts, cfg.Keyboard.*PairFields[side], side);
     }
 
-    int _findPack(const std::vector<KeyboardPacks::PackInfo>& packs, const std::string& packName);
+    std::optional<size_t> _findPack(const PackList& packs, const std::string& name) {
+        const auto it = std::ranges::find(packs, Str::Utf8ToWide(name), &KeyboardPacks::PackInfo::Filename);
+        if (it == packs.end()) {
+            return std::nullopt;
+        }
+        return static_cast<size_t>(it - packs.begin());
+    }
+
+    // 0 is Auto, then the compatible packs; one past them stands for a configured pack that is missing
+    int _packComboIndex(const PackSide& side, const std::string& name) {
+        if (name.empty()) {
+            return 0;
+        }
+        const auto found = _findPack(side.Compatible, name);
+        return static_cast<int>(found ? *found + 1 : side.Compatible.size() + 1);
+    }
+
+    bool _packReady(const PackSide& side, const std::string& name) {
+        return name.empty() ? side.HasAuto : _findPack(side.Compatible, name).has_value();
+    }
 
     bool _canToggleAutoCorrect(const AppConfig& cfg) {
-        const int a = InputLanguage::Find(_layouts, cfg.Keyboard.PairA, 0);
-        const int b = InputLanguage::Find(_layouts, cfg.Keyboard.PairB, 1);
-        const bool readyA = cfg.Keyboard.PackA.empty() ? _defaultA
-            : _findPack(_packsA, cfg.Keyboard.PackA) <= static_cast<int>(_packsA.size());
-        const bool readyB = cfg.Keyboard.PackB.empty() ? _defaultB
-            : _findPack(_packsB, cfg.Keyboard.PackB) <= static_cast<int>(_packsB.size());
-        return cfg.Keyboard.AutoCorrect != AutoCorrectMode::Off || (a >= 0 && b >= 0 && a != b
-               && _layouts[a].Handle != _layouts[b].Handle && readyA && readyB);
+        const int a = _layoutAt(cfg, 0);
+        const int b = _layoutAt(cfg, 1);
+        return cfg.Keyboard.AutoCorrect != AutoCorrectMode::Off
+               || (a >= 0 && b >= 0 && _layouts[a].Handle != _layouts[b].Handle
+                   && _packReady(_sides[0], cfg.Keyboard.PackA) && _packReady(_sides[1], cfg.Keyboard.PackB));
     }
 
     std::span<const wchar_t* const> _autoCorrectItems() {
@@ -67,85 +81,115 @@ namespace {
         return items;
     }
 
-    template <std::string KeyboardSettings::*Field, size_t Fallback>
+    void _refreshSide(const size_t index) {
+        PackSide& side = _sides[index];
+        const KeyboardSettings& settings = _config->Keyboard;
+        const std::string& selected = settings.*PackFields[index];
+        const int at = InputLanguage::Find(_layouts, settings.*PairFields[index], index);
+
+        side.Compatible.clear();
+        std::string locale;
+        if (at >= 0) {
+            locale = InputLanguage::Iso639(_layouts[at].Handle);
+            std::ranges::copy_if(_discovered, std::back_inserter(side.Compatible), [&](const KeyboardPacks::PackInfo& pack) {
+                return pack.Valid && pack.EmbeddedLocale == locale;
+            });
+        }
+        side.HasAuto = at >= 0 && _findPack(side.Compatible, locale + ".pack");
+
+        side.Titles.clear();
+        side.Titles.push_back(at < 0 ? std::wstring(L"Choose a layout")
+                                     : L"Auto: " + Str::Utf8ToWide(locale) + L".pack" + (side.HasAuto ? L"" : L" (missing)"));
+        for (const auto& pack : side.Compatible) {
+            side.Titles.push_back(pack.Filename);
+        }
+        if (!selected.empty() && !_findPack(side.Compatible, selected)) {
+            side.Titles.push_back(L"Missing or incompatible: " + Str::Utf8ToWide(selected));
+        }
+        side.Items.clear();
+        for (const auto& title : side.Titles) {
+            side.Items.push_back(title.c_str());
+        }
+        side.ShownPair = settings.*PairFields[index];
+        side.ShownPack = selected;
+    }
+
+    void _refreshPacks() {
+        for (size_t side = 0; side < SideCount; ++side) {
+            _refreshSide(side);
+        }
+    }
+
+    bool _sidesChanged() {
+        for (size_t side = 0; side < SideCount; ++side) {
+            if (_config->Keyboard.*PairFields[side] != _sides[side].ShownPair
+                || _config->Keyboard.*PackFields[side] != _sides[side].ShownPack) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void _loadPage() {
+        _layouts = InputLanguage::Installed();
+        _titles.clear();
+        for (const auto& layout : _layouts) {
+            _titles.push_back(InputLanguage::Title(layout));
+        }
+        _items.clear();
+        for (const auto& title : _titles) {
+            _items.push_back(title.c_str());
+        }
+        _discovered = KeyboardPacks::Discover();
+        _refreshPacks();
+        _pageReady = true;
+    }
+
+    std::span<const wchar_t* const> _layoutItems() {
+        if (!_pageReady) {
+            _loadPage();
+        } else if (_sidesChanged()) {
+            _refreshPacks();
+        }
+        return _items;
+    }
+
+    template <size_t Side>
+    std::span<const wchar_t* const> _packItems() {
+        return _sides[Side].Items;
+    }
+
+    template <size_t Side>
     constexpr RowField PairField() {
-        return {.Get = [](const AppConfig& cfg) { return InputLanguage::Find(_layouts, cfg.Keyboard.*Field, Fallback); },
+        return {.Get = [](const AppConfig& cfg) { return _layoutAt(cfg, Side); },
                 .Set = [](AppConfig& cfg, const int index) {
                     if (index >= 0 && index < static_cast<int>(_layouts.size())) {
-                        cfg.Keyboard.*Field = _layouts[index].Id;
+                        cfg.Keyboard.*PairFields[Side] = _layouts[index].Id;
                     }
                 }};
     }
 
-    // Pack combos per side
-    std::vector<std::wstring> _packTitlesA, _packTitlesB;
-    std::vector<const wchar_t*> _packItemsA, _packItemsB;
-
-    int _findPack(const std::vector<KeyboardPacks::PackInfo>& packs, const std::string& packName) {
-        if (packName.empty()) return 0;
-        const std::wstring wide = Str::Utf8ToWide(packName);
-        for (size_t i = 0; i < packs.size(); ++i) {
-            if (packs[i].Filename == wide) return static_cast<int>(i + 1);
-        }
-        return static_cast<int>(packs.size() + 1);
-    }
-
-    void _buildPackItems(const std::vector<KeyboardPacks::PackInfo>& packs, const HKL layout,
-                         const bool available, const std::string& selected,
-                         std::vector<std::wstring>& titles, std::vector<const wchar_t*>& items) {
-        titles.clear();
-        items.clear();
-        const std::wstring name = layout ? Str::Utf8ToWide(KeyboardPacks::Locale(layout)) + L".pack" : L"";
-        titles.push_back(layout ? L"Auto: " + name + (available ? L"" : L" (missing)") : L"Choose a layout");
-        for (const auto& pack : packs) titles.push_back(pack.Filename);
-        if (!selected.empty() && _findPack(packs, selected) > static_cast<int>(packs.size())) {
-            titles.push_back(L"Missing or incompatible: " + Str::Utf8ToWide(selected));
-        }
-        for (const auto& title : titles) items.push_back(title.c_str());
-    }
-
-    void _refreshPacks(const AppConfig& cfg) {
-        const int a = InputLanguage::Find(_layouts, cfg.Keyboard.PairA, 0);
-        const int b = InputLanguage::Find(_layouts, cfg.Keyboard.PairB, 1);
-        const auto compatible = [&](const int index) {
-            std::vector<KeyboardPacks::PackInfo> result;
-            if (index < 0) return result;
-            const std::string locale = KeyboardPacks::Locale(_layouts[index].Handle);
-            for (const auto& pack : _discovered) {
-                if (pack.Valid && pack.EmbeddedLocale == locale) result.push_back(pack);
-            }
-            return result;
-        };
-        _packsA = compatible(a);
-        _packsB = compatible(b);
-        // Auto is `<locale>.pack`, one of the compatible
-        const auto hasAuto = [&](const int index, const std::vector<KeyboardPacks::PackInfo>& packs) {
-            return index >= 0 && _findPack(packs, KeyboardPacks::Locale(_layouts[index].Handle) + ".pack")
-                                     <= static_cast<int>(packs.size());
-        };
-        _defaultA = hasAuto(a, _packsA);
-        _defaultB = hasAuto(b, _packsB);
-        _buildPackItems(_packsA, a >= 0 ? _layouts[a].Handle : nullptr, _defaultA,
-                        cfg.Keyboard.PackA, _packTitlesA, _packItemsA);
-        _buildPackItems(_packsB, b >= 0 ? _layouts[b].Handle : nullptr, _defaultB,
-                        cfg.Keyboard.PackB, _packTitlesB, _packItemsB);
-        _shownPairA = cfg.Keyboard.PairA;
-        _shownPairB = cfg.Keyboard.PairB;
-        _shownPackA = cfg.Keyboard.PackA;
-        _shownPackB = cfg.Keyboard.PackB;
-    }
-
-    std::span<const wchar_t* const> _packItemsAFn() { return _packItemsA; }
-    std::span<const wchar_t* const> _packItemsBFn() { return _packItemsB; }
-
-    template <std::string KeyboardSettings::*Field, std::vector<KeyboardPacks::PackInfo>* Packs>
+    template <size_t Side>
     constexpr RowField PackField() {
-        return {.Get = [](const AppConfig& cfg) { return _findPack(*Packs, cfg.Keyboard.*Field); },
+        return {.Get = [](const AppConfig& cfg) { return _packComboIndex(_sides[Side], cfg.Keyboard.*PackFields[Side]); },
                 .Set = [](AppConfig& cfg, const int index) {
-                    if (index == 0) cfg.Keyboard.*Field = {};
-                    else if (index > 0 && index <= static_cast<int>(Packs->size()))
-                        cfg.Keyboard.*Field = Str::WideToUtf8((*Packs)[index - 1].Filename);
+                    const PackList& packs = _sides[Side].Compatible;
+                    std::string& name = cfg.Keyboard.*PackFields[Side];
+                    if (index == 0) {
+                        name.clear();
+                    } else if (index > 0 && index <= static_cast<int>(packs.size())) {
+                        name = Str::WideToUtf8(packs[index - 1].Filename);
+                    }
                 }};
+    }
+
+    void _release() {
+        _pageReady = false;
+        _discovered = {};
+        _layouts = {};
+        _titles = {};
+        _items = {};
+        std::ranges::fill(_sides, PackSide{});
     }
 
     constexpr SettingsRow GeneralRows[] = {
@@ -153,13 +197,11 @@ namespace {
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::ShowLayout>(),
          .Changed = [](HWND, AppConfig&) { Overlay::Changed(); }},
         {.Kind = RowKind::Combo, .Label = L"Convert words between",
-         .Field = PairField<&KeyboardSettings::PairA, 0>(), .Items = &_layoutItems},
-        {.Kind = RowKind::Combo, .Field = PackField<&KeyboardSettings::PackA, &_packsA>(), .Items = &_packItemsAFn,
-         .Beside = true},
+         .Field = PairField<0>(), .Items = &_layoutItems},
+        {.Kind = RowKind::Combo, .Field = PackField<0>(), .Items = &_packItems<0>, .Beside = true},
         {.Kind = RowKind::Combo, .Label = L"and",
-         .Field = PairField<&KeyboardSettings::PairB, 1>(), .Items = &_layoutItems},
-        {.Kind = RowKind::Combo, .Field = PackField<&KeyboardSettings::PackB, &_packsB>(), .Items = &_packItemsBFn,
-         .Beside = true},
+         .Field = PairField<1>(), .Items = &_layoutItems},
+        {.Kind = RowKind::Combo, .Field = PackField<1>(), .Items = &_packItems<1>, .Beside = true},
         {.Kind = RowKind::Combo, .Label = L"Autocorrect",
          .Field = Bind<&AppConfig::Keyboard, &KeyboardSettings::AutoCorrect>(), .Items = &_autoCorrectItems,
          .Enabled = &_canToggleAutoCorrect},
@@ -204,7 +246,7 @@ namespace KeyboardPage {
 
     void Register(AppConfig& config) {
         _config = &config;
-        Lifecycle::Suspend += [] { _pageReady = false; };
+        Lifecycle::Restore += &_release;
         SettingsHost::AddPage({.Title = L"Keyboard", .Tabs = Tabs});
     }
 }

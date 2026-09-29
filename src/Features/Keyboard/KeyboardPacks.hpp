@@ -8,37 +8,29 @@
 
 #include "Convert/Pack.hpp"
 #include "Convert/Rules.hpp"
+#include "InputLanguage.hpp"
 #include "Platform/File.hpp"
 #include "Platform/Str.hpp"
+#include "definitions.h"
 
 namespace KeyboardPacks {
 
-    inline std::string Locale(const HKL layout) {
-        wchar_t name[16]{};
-        if (!GetLocaleInfoW(MAKELCID(LOWORD(reinterpret_cast<UINT_PTR>(layout)), SORT_DEFAULT),
-                            LOCALE_SISO639LANGNAME, name, static_cast<int>(std::size(name)))) {
-            return {};
-        }
-        return Str::WideToUtf8(name);
-    }
+    constexpr std::wstring_view PackExtension = L".pack";
+    constexpr size_t MaxFilename = 100;
 
     inline std::filesystem::path PacksDir() {
         return File::NextToExe(L"packs");
     }
 
     inline bool ValidPackFilename(const std::wstring_view name) {
-        if (name.size() < 6 || name.size() > 100) return false;
-        const auto dot = name.rfind(L'.');
-        if (dot == std::wstring_view::npos) return false;
-        if (name.substr(dot) != L".pack") return false;
-        const auto stem = name.substr(0, dot);
-        if (stem.empty()) return false;
-        for (const wchar_t c : stem) {
-            if (!((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z')
-                  || (c >= L'0' && c <= L'9') || c == L'-' || c == L'_'))
-                return false;
+        if (name.size() > MaxFilename || !name.ends_with(PackExtension)) {
+            return false;
         }
-        return true;
+        const auto stem = name.substr(0, name.size() - PackExtension.size());
+        return !stem.empty() && std::ranges::all_of(stem, [](const wchar_t c) {
+            return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9')
+                   || c == L'-' || c == L'_';
+        });
     }
 
     struct PackInfo {
@@ -47,44 +39,59 @@ namespace KeyboardPacks {
         bool Valid;
     };
 
+    inline bool Read(Convert::Pack& pack, const std::filesystem::path& path) {
+        std::wstring error;
+        if (pack.Load(path.wstring(), &error)) {
+            return true;
+        }
+        LOG_ERROR("Keyboard: %s: %s", Str::WideToUtf8(path.filename().wstring()).c_str(), Str::WideToUtf8(error).c_str());
+        return false;
+    }
+
     inline std::vector<PackInfo> Discover() {
         std::vector<PackInfo> result;
-        const auto dir = PacksDir();
         std::error_code ec;
-        if (!std::filesystem::is_directory(dir, ec)) return result;
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (!entry.is_regular_file(ec)) continue;
+        for (const auto& entry : std::filesystem::directory_iterator(PacksDir(), ec)) {
+            if (!entry.is_regular_file(ec)) {
+                continue;
+            }
             const std::wstring filename = entry.path().filename().wstring();
-            if (!ValidPackFilename(filename)) continue;
+            if (!ValidPackFilename(filename)) {
+                continue;
+            }
             Convert::Pack pack;
-            const bool ok = pack.Load(entry.path().wstring());
+            const bool ok = Read(pack, entry.path());
             result.push_back({filename, ok ? std::string(pack.Locale()) : std::string{}, ok});
         }
         std::ranges::sort(result, {}, &PackInfo::Filename);
         return result;
     }
 
-    inline std::wstring Path(const std::string_view locale) {
-        const auto dir = PacksDir();
-        return locale.empty() || dir.empty() ? std::wstring{}
-            : (dir / (Str::Utf8ToWide(std::string(locale)) + L".pack")).wstring();
-    }
-
-    inline std::wstring ResolvePath(const std::string_view packName, const HKL layout) {
-        if (packName.empty()) return Path(Locale(layout));
-        const std::wstring wide = Str::Utf8ToWide(std::string(packName));
-        const auto dir = PacksDir();
-        if (!ValidPackFilename(wide) || dir.empty()) return {};
-        return (dir / wide).wstring();
+    /// `packName` empty: the layout language's own pack.
+    inline std::filesystem::path PackPath(const std::string_view packName, const std::string_view locale) {
+        const std::string name = packName.empty() ? std::string(locale) + ".pack" : std::string(packName);
+        const std::wstring wide = Str::Utf8ToWide(name);
+        return ValidPackFilename(wide) ? PacksDir() / wide : std::filesystem::path{};
     }
 
     inline bool Load(Convert::Pack& pack, const HKL layout, const std::string_view packName = {}) {
-        const std::string locale = Locale(layout);
-        const std::wstring path = ResolvePath(packName, layout);
-        return !path.empty() && pack.Load(path) && pack.Locale() == locale;
+        const std::string locale = InputLanguage::Iso639(layout);
+        const auto path = PackPath(packName, locale);
+        if (path.empty()) {
+            LOG_ERROR("Keyboard: no valid pack '%s' for layout language '%s'", std::string(packName).c_str(), locale.c_str());
+            return false;
+        }
+        if (!Read(pack, path)) {
+            return false;
+        }
+        if (pack.Locale() != locale) {
+            LOG_ERROR("Keyboard: %s is a '%s' pack, the layout speaks '%s'", Str::WideToUtf8(path.filename().wstring()).c_str(),
+                      pack.Locale(), locale.c_str());
+            return false;
+        }
+        return true;
     }
 
-    /// Every `packs/*.rules`, e.g. Punto's converted by `langpack rules`.
     inline void LoadRules(Convert::Rules& rules) {
         std::error_code ec;
         for (const auto& entry : std::filesystem::directory_iterator(PacksDir(), ec)) {
