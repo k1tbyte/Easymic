@@ -9,6 +9,7 @@
 #include "Str.hpp"
 #include "Tracker.hpp"
 #include "VirtualDesktops.hpp"
+#include "WindowCatalog.hpp"
 #include "WindowList.hpp"
 
 #include <charconv>
@@ -55,10 +56,10 @@ namespace {
             return current >= 0 && to >= 0 && to < VirtualDesktops::Count() ? to : -1;
         }
         if (!target.Name.empty()) {
-            for (int i = 0, count = VirtualDesktops::Count(); i < count; ++i) {
-                if (CompareStringOrdinal(VirtualDesktops::Name(i).c_str(), -1,
-                                         target.Name.c_str(), -1, TRUE) == CSTR_EQUAL) {
-                    return i;
+            const std::vector<std::wstring> names = VirtualDesktops::Names();
+            for (size_t i = 0; i < names.size(); ++i) {
+                if (CompareStringOrdinal(names[i].c_str(), -1, target.Name.c_str(), -1, TRUE) == CSTR_EQUAL) {
+                    return static_cast<int>(i);
                 }
             }
             return -1;
@@ -86,15 +87,15 @@ namespace {
      * otherwise it takes over the one nearest to where it sits.
      */
     void _remember(const HWND window, const int desktop) {
-        const std::wstring exe = WindowList::ExeName(window);
-        if (exe.empty() || !WindowList::IsAppWindow(window)) {
+        const std::wstring exe = WindowCatalog::ExeName(window);
+        if (exe.empty() || !WindowCatalog::IsAppWindow(window)) {
             return;
         }
         const WindowRule captured = WindowList::Capture(window);
 
         size_t open = 0;
-        for (const HWND other : WindowList::AppWindows()) {
-            open += WindowList::IsOnCurrentDesktop(other) && WindowList::ExeName(other) == exe;
+        for (const HWND other : WindowCatalog::AppWindows()) {
+            open += WindowList::IsOnCurrentDesktop(other) && WindowCatalog::ExeName(other) == exe;
         }
 
         auto& presets = _config->Desktops.Presets;

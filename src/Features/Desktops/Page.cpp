@@ -8,6 +8,7 @@
 #include "Preview.hpp"
 #include "Str.hpp"
 #include "VirtualDesktops.hpp"
+#include "WindowCatalog.hpp"
 #include "WindowList.hpp"
 
 #include <algorithm>
@@ -135,7 +136,7 @@ namespace {
 
     std::vector<HWND> _foreignWindows() {
         std::vector<HWND> windows;
-        for (const HWND window : WindowList::AppWindows()) {
+        for (const HWND window : WindowCatalog::AppWindows()) {
             DWORD process = 0;
             GetWindowThreadProcessId(window, &process);
             if (process != GetCurrentProcessId()) {
@@ -151,7 +152,7 @@ namespace {
         for (size_t i = 0; i < windows.size(); ++i) {
             wchar_t title[80]{};
             GetWindowTextW(windows[i], title, static_cast<int>(std::size(title)));
-            AppendMenuW(menu, MF_STRING, i + 1, (WindowList::ExeName(windows[i]) + L"  -  " + title).c_str());
+            AppendMenuW(menu, MF_STRING, i + 1, (WindowCatalog::ExeName(windows[i]) + L"  -  " + title).c_str());
         }
 
         RECT button;
@@ -305,10 +306,7 @@ namespace {
         column.pszText = const_cast<wchar_t*>(L"Place");
         ListView_InsertColumn(list, 1, &column);
 
-        _shellNames.clear();
-        for (int i = 0, count = VirtualDesktops::Count(); i < count; ++i) {
-            _shellNames.push_back(VirtualDesktops::Name(i));
-        }
+        _shellNames = VirtualDesktops::Names();
         _selected = std::clamp(_selected, 0, std::max(_desktopCount() - 1, 0));
         _fillTabs();
         _fillDesktop();
@@ -318,11 +316,13 @@ namespace {
     void _commit(HWND, AppConfig& cfg, const AppConfig& before) {
         const auto& now = cfg.Desktops.Presets;
         const auto& was = before.Desktops.Presets;
+        std::vector<std::wstring> renamed(now.size());
         for (size_t i = 0; i < now.size(); ++i) {
-            if (!now[i].Name.empty() && (i >= was.size() || now[i].Name != was[i].Name)) {
-                VirtualDesktops::Rename(static_cast<int>(i), Str::Utf8ToWide(now[i].Name));
+            if (i >= was.size() || now[i].Name != was[i].Name) {
+                renamed[i] = Str::Utf8ToWide(now[i].Name);
             }
         }
+        VirtualDesktops::Rename(renamed);
     }
 
     constexpr SettingsRow PageRows[] = {

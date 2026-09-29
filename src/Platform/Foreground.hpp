@@ -23,6 +23,5 @@ namespace Foreground {
     /// before Start.
     std::shared_ptr<const Snapshot> Current();
 
-    std::wstring ExeName(HWND window);
     std::string CanonicalApp(std::string_view exe);
 }

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-#include <vector>
 #include <windows.h>
 
 struct WindowRule;
@@ -14,17 +12,8 @@ struct WindowRule;
  */
 namespace WindowList {
 
-    /// What alt-tab would list, on any desktop - a window on another one is only shell-cloaked.
-    bool IsAppWindow(HWND window);
-
-    /// Top to bottom.
-    std::vector<HWND> AppWindows();
-
     /// Not cloaked by the shell for sitting on another desktop. A pinned window is on every one.
     bool IsOnCurrentDesktop(HWND window);
-
-    /// Image name, lowercase - "chrome.exe". Empty when the process cannot be opened.
-    std::wstring ExeName(HWND window);
 
     struct Frame {
         RECT Rect;

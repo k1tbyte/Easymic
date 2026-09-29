@@ -1,6 +1,8 @@
 #pragma once
 
+#include <span>
 #include <string>
+#include <vector>
 #include <windows.h>
 
 /**
@@ -31,8 +33,11 @@ namespace VirtualDesktops {
     /// What the shell calls it, or "Desktop N" for one nobody named.
     std::wstring Name(int index);
 
-    /// An empty name gives the desktop back its "Desktop N".
-    bool Rename(int index, const std::wstring& name);
+    /// Name of every desktop, in order: one fetch of the list for all of them.
+    std::vector<std::wstring> Names();
+
+    /// Names desktops `from`, `from + 1`, ... as listed; an empty entry leaves that one alone.
+    bool Rename(std::span<const std::wstring> names, int from = 0);
 
     /// Adds desktops at the end until there are count of them. Never removes one.
     bool Grow(int count);

@@ -1,7 +1,6 @@
 #include "WindowList.hpp"
 
 #include "AppConfig.hpp"
-#include "Foreground.hpp"
 #include "Str.hpp"
 #include "WindowCatalog.hpp"
 
@@ -24,22 +23,10 @@ namespace {
 
 namespace WindowList {
 
-    bool IsAppWindow(const HWND window) {
-        return WindowCatalog::IsAppWindow(window);
-    }
-
-    std::vector<HWND> AppWindows() {
-        return WindowCatalog::AppWindows();
-    }
-
     bool IsOnCurrentDesktop(const HWND window) {
         DWORD cloaked = 0;
         DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
         return !(cloaked & DWM_CLOAKED_SHELL);
-    }
-
-    std::wstring ExeName(const HWND window) {
-        return Foreground::ExeName(window);
     }
 
     Frame FrameOf(const HWND window) {
@@ -59,7 +46,7 @@ namespace WindowList {
 
     WindowRule Capture(const HWND window) {
         const auto [rect, maximized] = FrameOf(window);
-        return {.Exe = Str::WideToUtf8(ExeName(window)),
+        return {.Exe = Str::WideToUtf8(WindowCatalog::ExeName(window)),
                 .X = rect.left,
                 .Y = rect.top,
                 .Width = rect.right - rect.left,

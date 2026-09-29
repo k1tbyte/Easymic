@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "Str.hpp"
+#include "WindowCatalog.hpp"
 
 namespace Foreground {
 
@@ -46,7 +47,7 @@ namespace {
         if (!window) {
             return;
         }
-        std::string exe = Str::WideToUtf8(ExeName(window));
+        std::string exe = Str::WideToUtf8(WindowCatalog::ExeName(window));
         const bool fullscreen = _fullscreen(window);
         std::lock_guard lock(_lifetimeMutex);
         if (!_running.load(std::memory_order_relaxed)
@@ -73,7 +74,10 @@ namespace {
         _latestHwnd.store(window, std::memory_order_relaxed);
         // Refocusing the same window: a resolve still in flight from before must not land last
         _generation.fetch_add(1, std::memory_order_relaxed);
-        _publish(window, {});
+        // It keeps what it resolved to until the fresh resolve lands: per-app hotkeys never fall back meanwhile
+        if (const auto current = _snapshot.load(); !current || current->Window != window) {
+            _publish(window, {});
+        }
         if (window) {
             SubmitThreadpoolWork(_work);
         }
@@ -128,22 +132,6 @@ void Stop() {
 
 std::shared_ptr<const Snapshot> Current() {
     return _snapshot.load();
-}
-
-std::wstring ExeName(HWND window) {
-    DWORD pid = 0;
-    GetWindowThreadProcessId(window, &pid);
-    const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!process) return {};
-
-    wchar_t path[1024];
-    DWORD size = std::size(path);
-    const BOOL found = QueryFullProcessImageNameW(process, 0, path, &size);
-    CloseHandle(process);
-    if (!found) return {};
-
-    const std::wstring_view full(path, size);
-    return Str::Lower(full.substr(full.find_last_of(L'\\') + 1));
 }
 
 std::string CanonicalApp(std::string_view exe) {

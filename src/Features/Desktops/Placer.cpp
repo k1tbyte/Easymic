@@ -3,6 +3,7 @@
 #include "AppConfig.hpp"
 #include "Str.hpp"
 #include "VirtualDesktops.hpp"
+#include "WindowCatalog.hpp"
 #include "WindowList.hpp"
 
 #include <algorithm>
@@ -65,21 +66,20 @@ namespace {
         if (had >= count || !VirtualDesktops::Grow(count)) {
             return;
         }
-        for (int i = had; i < count && i < static_cast<int>(rules.Names.size()); ++i) {
-            if (!rules.Names[i].empty()) {
-                VirtualDesktops::Rename(i, rules.Names[i]);
-            }
+        const int named = std::min(count, static_cast<int>(rules.Names.size()));
+        if (had < named) {
+            VirtualDesktops::Rename(std::span(rules.Names).subspan(had, named - had), had);
         }
     }
 
     void _placeNew(const Rules& rules, const HWND window) {
-        const std::wstring exe = WindowList::ExeName(window);
+        const std::wstring exe = WindowCatalog::ExeName(window);
         const App* app = rules.Find(exe);
         if (!app) {
             return;
         }
         // Qt apps keep a new window cloaked while they set it up - Telegram for about a second
-        for (int waited = 0; !WindowList::IsAppWindow(window); ++waited) {
+        for (int waited = 0; !WindowCatalog::IsAppWindow(window); ++waited) {
             if (waited == 30) {
                 return;
             }
@@ -88,8 +88,8 @@ namespace {
 
         // Counted so a second window of the app does not stack on the first one
         size_t open = 0;
-        for (const HWND other : WindowList::AppWindows()) {
-            open += other != window && WindowList::ExeName(other) == exe;
+        for (const HWND other : WindowCatalog::AppWindows()) {
+            open += other != window && WindowCatalog::ExeName(other) == exe;
         }
         if (open >= app->Places.size()) {
             return;
@@ -182,8 +182,8 @@ namespace Placer {
         _submit([rules = _rules] {
             std::vector<size_t> taken(rules->Apps.size());
             std::vector<std::pair<HWND, const Placement*>> moves;
-            for (const HWND window : WindowList::AppWindows()) {
-                if (const App* app = rules->Find(WindowList::ExeName(window))) {
+            for (const HWND window : WindowCatalog::AppWindows()) {
+                if (const App* app = rules->Find(WindowCatalog::ExeName(window))) {
                     if (size_t& next = taken[app - rules->Apps.data()]; next < app->Places.size()) {
                         moves.emplace_back(window, &app->Places[next++]);
                     }
@@ -191,11 +191,7 @@ namespace Placer {
             }
 
             VirtualDesktops::Grow(static_cast<int>(rules->Names.size()));
-            for (int i = 0; i < static_cast<int>(rules->Names.size()); ++i) {
-                if (!rules->Names[i].empty()) {
-                    VirtualDesktops::Rename(i, rules->Names[i]);
-                }
-            }
+            VirtualDesktops::Rename(rules->Names);
 
             for (const auto& [window, where] : moves) {
                 _place(window, *where);

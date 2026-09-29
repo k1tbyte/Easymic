@@ -4,7 +4,7 @@
 
 #include <dwmapi.h>
 
-#include "Foreground.hpp"
+#include "Str.hpp"
 
 namespace WindowCatalog {
     bool IsAppWindow(const HWND window) {
@@ -34,6 +34,22 @@ namespace WindowCatalog {
         return windows;
     }
 
+    std::wstring ExeName(const HWND window) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(window, &pid);
+        const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!process) return {};
+
+        wchar_t path[1024];
+        DWORD size = std::size(path);
+        const BOOL found = QueryFullProcessImageNameW(process, 0, path, &size);
+        CloseHandle(process);
+        if (!found) return {};
+
+        const std::wstring_view full(path, size);
+        return Str::Lower(full.substr(full.find_last_of(L'\\') + 1));
+    }
+
     std::vector<std::wstring> AppNames() {
         const DWORD self = GetCurrentProcessId();
         std::set<std::wstring> unique;
@@ -41,7 +57,7 @@ namespace WindowCatalog {
             DWORD pid = 0;
             GetWindowThreadProcessId(window, &pid);
             if (pid != self) {
-                if (auto name = Foreground::ExeName(window); !name.empty()) {
+                if (auto name = ExeName(window); !name.empty()) {
                     unique.insert(std::move(name));
                 }
             }

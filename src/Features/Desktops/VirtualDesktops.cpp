@@ -149,6 +149,17 @@ namespace {
         return SUCCEEDED(hr) ? desktops->GetAt(index, IID_PPV_ARGS(desktop)) : hr;
     }
 
+    /// Empty for a desktop nobody named.
+    HRESULT _nameOf(IVirtualDesktop* desktop, std::wstring& name) {
+        HSTRING text = nullptr;
+        const HRESULT hr = desktop->GetName(&text);
+        if (SUCCEEDED(hr)) {
+            name = WindowsGetStringRawBuffer(text, nullptr);
+            WindowsDeleteString(text);
+        }
+        return hr;
+    }
+
     /// Position of the desktop with that id; index stays -1 for an id no desktop has.
     HRESULT _indexOf(const Shell& shell, const GUID& id, int& index) {
         ComPtr<IObjectArray> desktops;
@@ -220,27 +231,52 @@ namespace VirtualDesktops {
         std::wstring name;
         _call([&](const Shell& shell) {
             ComPtr<IVirtualDesktop> desktop;
-            HSTRING text = nullptr;
-            HRESULT hr = _desktopAt(shell, index, &desktop);
-            if (SUCCEEDED(hr)) hr = desktop->GetName(&text);
-            if (SUCCEEDED(hr)) {
-                name = WindowsGetStringRawBuffer(text, nullptr);
-                WindowsDeleteString(text);
-            }
-            return hr;
+            const HRESULT hr = _desktopAt(shell, index, &desktop);
+            return SUCCEEDED(hr) ? _nameOf(desktop.Get(), name) : hr;
         });
         return name.empty() ? L"Desktop " + std::to_wstring(index + 1) : name;
     }
 
-    bool Rename(const int index, const std::wstring& name) {
+    std::vector<std::wstring> Names() {
+        std::vector<std::wstring> names;
+        _call([&](const Shell& shell) {
+            names.clear();
+            ComPtr<IObjectArray> desktops;
+            UINT count = 0;
+            HRESULT hr = shell.Desktops->GetDesktops(&desktops);
+            if (SUCCEEDED(hr)) hr = desktops->GetCount(&count);
+            for (UINT i = 0; SUCCEEDED(hr) && i < count; ++i) {
+                ComPtr<IVirtualDesktop> desktop;
+                std::wstring& name = names.emplace_back();
+                hr = desktops->GetAt(i, IID_PPV_ARGS(&desktop));
+                if (SUCCEEDED(hr)) hr = _nameOf(desktop.Get(), name);
+            }
+            return hr;
+        });
+        for (size_t i = 0; i < names.size(); ++i) {
+            if (names[i].empty()) {
+                names[i] = L"Desktop " + std::to_wstring(i + 1);
+            }
+        }
+        return names;
+    }
+
+    bool Rename(const std::span<const std::wstring> names, const int from) {
         return _call([&](const Shell& shell) {
-            ComPtr<IVirtualDesktop> desktop;
-            HSTRING text = nullptr;
-            HRESULT hr = _desktopAt(shell, index, &desktop);
-            if (SUCCEEDED(hr)) hr = WindowsCreateString(name.c_str(), static_cast<UINT32>(name.size()), &text);
-            if (SUCCEEDED(hr)) {
-                hr = shell.Desktops->SetDesktopName(desktop.Get(), text);
-                WindowsDeleteString(text);
+            ComPtr<IObjectArray> desktops;
+            HRESULT hr = shell.Desktops->GetDesktops(&desktops);
+            for (size_t i = 0; SUCCEEDED(hr) && i < names.size(); ++i) {
+                if (names[i].empty()) {
+                    continue;
+                }
+                ComPtr<IVirtualDesktop> desktop;
+                HSTRING text = nullptr;
+                hr = desktops->GetAt(static_cast<UINT>(from + i), IID_PPV_ARGS(&desktop));
+                if (SUCCEEDED(hr)) hr = WindowsCreateString(names[i].c_str(), static_cast<UINT32>(names[i].size()), &text);
+                if (SUCCEEDED(hr)) {
+                    hr = shell.Desktops->SetDesktopName(desktop.Get(), text);
+                    WindowsDeleteString(text);
+                }
             }
             return hr;
         });
